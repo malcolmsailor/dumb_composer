@@ -7,16 +7,19 @@ from dumb_composer.time import RhythmFetcher
 from dumb_composer.shared_classes import Note, notes
 
 
-def pattern_method(**kwargs):
+def pattern_method(requires_bass: bool = False, **kwargs):
     def wrap(f):
         setattr(f, "pattern_method", True)
+        setattr(f, "requires_bass", requires_bass)
         return f
 
     return wrap
 
 
 class PatternMaker:
-    def __init__(self, ts: str, inertia: float = 0.75):
+    def __init__(
+        self, ts: str, inertia: float = 0.75, include_bass: bool = True
+    ):
         """Makes patterns from chords.
 
         Args:
@@ -30,11 +33,18 @@ class PatternMaker:
         """
         # eventually we may want to filter _all_patterns further
         self._patterns = [name for name in self._all_patterns]
+        if not include_bass:
+            self._patterns = [
+                name
+                for name in self._all_patterns
+                if not getattr(self, name).requires_bass
+            ]
         self.rf = RhythmFetcher(ts)
         self._inertia = inertia
         self._prev_pattern = None
+        self._include_bass = include_bass
 
-    @pattern_method()
+    @pattern_method(requires_bass=True)
     def oompah(self, pitches, onset, release, track):
         beats = self.rf.beats(onset, release)
         beat_weight = self.rf.beat_weight
@@ -51,7 +61,7 @@ class PatternMaker:
                 )
         return out
 
-    @pattern_method()
+    @pattern_method(requires_bass=True)
     def oompahpah(self, pitches, onset, release, track):
         beats = self.rf.beats(onset, release)
         max_weight = self.rf.max_weight

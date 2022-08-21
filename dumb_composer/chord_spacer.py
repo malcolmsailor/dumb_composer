@@ -354,25 +354,46 @@ class SimpleSpacer:
         if settings is None:
             settings = SimpleSpacerSettings()
         self._prev_pitches = None
-        self._accomp_bass_range = settings.accomp_bass_range
-        self._accomp_range = settings.accomp_range
+        self.settings = settings
 
     def __call__(
-        self, pcs: t.Iterable[int], max_accomp_pitch: t.Optional[int] = None
+        self,
+        pcs: t.Iterable[int],
+        min_accomp_pitch: t.Optional[int] = None,
+        max_accomp_pitch: t.Optional[int] = None,
+        include_bass: bool = True,
+        min_bass_pitch: t.Optional[int] = None,
+        max_bass_pitch: t.Optional[int] = None,
     ):
+        min_accomp_pitch = (
+            self.settings.accomp_range[0]
+            if min_accomp_pitch is None
+            else min_accomp_pitch
+        )
         max_accomp_pitch = (
-            self._accomp_range[1]
+            self.settings.accomp_range[1]
             if max_accomp_pitch is None
             else max_accomp_pitch
         )
+        if include_bass:
+            min_bass_pitch = (
+                self.settings.accomp_bass_range[0]
+                if min_bass_pitch is None
+                else min_bass_pitch
+            )
+            max_bass_pitch = (
+                self.settings.accomp_bass_range[1]
+                if max_bass_pitch is None
+                else max_bass_pitch
+            )
         if self._prev_pitches is not None:
             try:
                 pitches = voice_lead_pitches(
                     self._prev_pitches,
                     pcs,
-                    preserve_root=True,
+                    preserve_root=include_bass,
                     # TODO bass min/max pitches
-                    min_pitch=self._accomp_range[0],
+                    min_pitch=min_accomp_pitch,
                     max_pitch=max_accomp_pitch,
                 )
             except NoMoreVoiceLeadingsError:
@@ -380,14 +401,23 @@ class SimpleSpacer:
             else:
                 self._prev_pitches = pitches
                 yield pitches
-        bass_options = get_all_in_range(pcs[0], *self._accomp_bass_range)
-        accomp_options = [
-            get_all_in_range(pc, self._accomp_range[0], max_accomp_pitch)
-            for pc in pcs[1:]
-        ]
-        # It would be nice to shuffle the Cartesian product without
-        #   having to calculate the whole thing/place it in memory.
-        spacings = list(it.product(bass_options, *accomp_options))
+        if include_bass:
+            bass_options = get_all_in_range(
+                pcs[0], min_bass_pitch, max_bass_pitch
+            )
+            accomp_options = [
+                get_all_in_range(pc, min_accomp_pitch, max_accomp_pitch)
+                for pc in pcs[1:]
+            ]
+            # It would be nice to shuffle the Cartesian product without
+            #   having to calculate the whole thing/place it in memory.
+            spacings = list(it.product(bass_options, *accomp_options))
+        else:
+            accomp_options = [
+                get_all_in_range(pc, min_accomp_pitch, max_accomp_pitch)
+                for pc in pcs
+            ]
+            spacings = list(it.product(*accomp_options))
         random.shuffle(spacings)
         for spacing in spacings:
             self._prev_pitches = spacing

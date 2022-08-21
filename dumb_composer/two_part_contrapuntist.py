@@ -18,6 +18,7 @@ from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
 )
+from .utils.recursion import DeadEnd
 from .shared_classes import Score
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
 from dumb_composer.from_ml_out import get_chord_df
@@ -123,6 +124,7 @@ class TwoPartContrapuntist:
                 interval = self._ic(intervals)
                 yield cur_mel_pitch + interval
                 intervals.remove(interval)
+        raise DeadEnd()
 
     def __call__(
         self,

@@ -2,6 +2,13 @@ from dataclasses import dataclass
 from functools import partial
 from numbers import Number
 import typing as t
+import textwrap
+
+from dumb_composer.utils.recursion import UndoRecursiveStep
+
+
+class MissingPrefabError(UndoRecursiveStep):
+    pass
 
 
 @dataclass
@@ -64,10 +71,14 @@ def match_metric_strength_strs(
 PR = PrefabRhythms
 
 PR4 = partial(PR, total_dur=4)
+PR3 = partial(PR, total_dur=3)
 
 PREFABS = (
     PR4([0.0, 1.0, 2.0, 3.0], "swsw"),
     PR4([0.0, 1.5, 2.0, 3.0], "swsw"),
+    PR3([0.0, 1.0, 2.0], "s__"),
+    PR3([0.0, 1.0, 1.5, 2.0], "s___"),
+    PR3([0.0, 1.5, 2.0, 2.5], "s___"),
 )
 
 
@@ -83,6 +94,13 @@ class PrefabRhythmDirectory:
             return self._memo[tup].copy()
         out = [prefab for prefab in PREFABS if prefab.matches_criteria(*tup)]
         if not out:
-            raise ValueError()
+            raise MissingPrefabError(
+                textwrap.dedent(
+                    f"""No PrefabRhythms instance matching criteria
+                    \ttotal_dur: {total_dur}
+                    \tendpoint_metric_strength_str: {endpoint_metric_strength_str}
+                    """
+                )
+            )
         self._memo[tup] = out
         return out.copy()

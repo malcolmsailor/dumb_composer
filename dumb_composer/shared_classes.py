@@ -119,7 +119,7 @@ class Score:
     ):
         if isinstance(chord_data, str):
             chord_data, _, ts = rn_to_pc(chord_data)
-        self.ts = "4/4"  # TODO
+        self.ts = ts
         self.chord_data = chord_data
         self._scale_getter = ScaleGetter(chord_data.scale_pcs)
         self.bass_range = bass_range

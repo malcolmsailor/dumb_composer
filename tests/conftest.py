@@ -1,6 +1,7 @@
 import shutil
 import os
 import subprocess
+from tempfile import mkstemp
 import pytest
 from tqdm import tqdm
 
@@ -32,9 +33,19 @@ def _mid_to_png():
         print("\nConverting midi files to pngs (ctrl-C to interrupt)")
         for f in tqdm(files):
             png_path = f"{f[:-4]}.png"
+            _, temp_path = mkstemp(suffix=".xml")
             try:
+                # mid2hum doesn't seem to handle time signatures correctly so
+                #   we use intermediate xml conversion via mscore
                 subprocess.run(
-                    f"mid2hum {f} | autobeam | verovio - -o - | convert - {png_path}",
+                    # f"mid2hum {f} | autobeam | verovio - -o - | convert - {png_path}",
+                    f"mscore {f} -o {temp_path}",
+                    shell=True,
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    f"musicxml2hum {temp_path} | autobeam | verovio - -o - | convert - {png_path}",
                     shell=True,
                     check=True,
                 )
@@ -42,6 +53,8 @@ def _mid_to_png():
                 failed_files.append(f)
             else:
                 png_paths.append(png_path)
+            finally:
+                os.remove(temp_path)
         if failed_files:
             print("Failed converting following files:")
             for file in failed_files:

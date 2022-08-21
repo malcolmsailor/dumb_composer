@@ -2,11 +2,10 @@ from dataclasses import dataclass
 import textwrap
 import typing as t
 
-from dumb_composer.prefabs.prefab_rhythms import match_metric_strength_strs
-
-
-class MissingPrefabError(Exception):
-    pass
+from dumb_composer.prefabs.prefab_rhythms import (
+    match_metric_strength_strs,
+    MissingPrefabError,
+)
 
 
 @dataclass
@@ -66,13 +65,22 @@ class PrefabPitches:
 
 PP = PrefabPitches
 
-PREFABS = (
+THREE_PREFABS = (
+    PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3]),
+    PP([-2], "__w", [0, -3, -1], [-3]),
+    PP(None, "___", [0, -1, 0]),
+)
+
+FOUR_PREFABS = (
     PP([0, -2], "s___", [0, 1, 0, -1]),
     PP([0, 2], "s___", [0, -1, 0, 1]),
     PP([0, -2], "s___", [0, -3, -2, -1], [-3]),
     PP([1, -2, -3], "_w__", [0, 1, -1, 0]),
     PP([-1, 1, 3, 4, 5, 7], "_w__", [0, 1, 2, 0], [2]),
     PP([-1, 1, 3, 4], "____", [0, 2, 1, 0], constraints=[2]),
+    PP([-1], "____", [0, 2, 1, 0], constraints=[1, 3]),
+    PP([-1, -3, 1], "____", [0, -2, -4, 0], constraints=[-2, -4]),
+    PP([-1, -3, 0], "____", [0, -2, -4, -2], constraints=[-2, -4]),
     # PP([-6], )
     # triad arpeggiations up
     PP([2], "swsw", [0, 2, 4, 3], constraints=[2, 4]),
@@ -87,6 +95,14 @@ PREFABS = (
     # triad arpeggiations down
     PP([-6, -3, -5], "____", [0, -3, -5, -7], constraints=[-3, -5]),
 )
+
+ASC_SCALE_FRAGMENTS = tuple(
+    PP([i], "_" * i, list(range(i))) for i in range(1, 12)
+)
+DESC_SCALE_FRAGMENTS = tuple(
+    PP([i], "_" * abs(i), list(range(0, i, -1))) for i in range(-1, -12, -1)
+)
+PREFABS = FOUR_PREFABS + ASC_SCALE_FRAGMENTS + DESC_SCALE_FRAGMENTS
 
 
 class PrefabPitchDirectory:

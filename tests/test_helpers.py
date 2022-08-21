@@ -1,3 +1,4 @@
+import typing as t
 import os
 
 import pandas as pd
@@ -10,7 +11,9 @@ if not os.path.exists(TEST_OUT_DIR):
     os.makedirs(TEST_OUT_DIR)
 
 
-def write_df(out_df: pd.DataFrame, midi_basename: str) -> None:
+def write_df(
+    out_df: pd.DataFrame, midi_basename: str, ts: t.Optional[t.Tuple[int, int]]
+) -> None:
     mid_path = os.path.join(TEST_OUT_DIR, midi_basename)
     print(f"writing {mid_path}")
-    df_to_midi(out_df, mid_path)
+    df_to_midi(out_df, mid_path, ts=ts)

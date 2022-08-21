@@ -1,7 +1,8 @@
 import random
 import os
 
-from dumb_composer.dumb_composer import PrefabComposer
+from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
+from dumb_composer.utils.recursion import RecursionFailed
 from test_helpers import write_df
 
 TEST_OUT_DIR = os.path.join(
@@ -28,12 +29,19 @@ def test_prefab_composer():
     m13 V42
     m14 I6
     """
-    time_sigs = [(4, 4)]
+    time_sigs = [(3, 4), (4, 4)]
     for numer, denom in time_sigs:
-        random.seed(42)
-        ts = f"{numer}/{denom}"
-        rn_temp = rn_format.format(ts)
-        pfc = PrefabComposer()
-        out_df = pfc(rn_temp)
-        write_df(out_df, "prefab_composer.mid")
-        print(pfc.get_missing_prefab_str())
+        for prefab_voice in ("tenor", "bass", "soprano"):
+            random.seed(42)
+            for i in range(1):
+                ts = f"{numer}/{denom}"
+                rn_temp = rn_format.format(ts)
+                settings = PrefabComposerSettings(prefab_voice=prefab_voice)
+                pfc = PrefabComposer(settings)
+                out_df = pfc(rn_temp)
+                write_df(
+                    out_df,
+                    f"prefab_composer{i + 1}_ts={ts.replace('/', '-')}_"
+                    f"prefab_voice={prefab_voice}.mid",
+                    ts=(numer, denom),
+                )

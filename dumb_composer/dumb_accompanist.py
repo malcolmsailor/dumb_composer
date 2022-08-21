@@ -7,6 +7,7 @@ from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
 from dumb_composer.patterns import PatternMaker
 from dumb_composer.pitch_utils.rn_to_pc import rn_to_pc
 from dumb_composer.shared_classes import Annotation, Note, Score
+from .utils.recursion import DeadEnd
 
 
 # def pc_int(pc1: int, pc2: int, tet: int = 12) -> int:
@@ -31,9 +32,11 @@ class DumbAccompanistSettings(SimpleSpacerSettings):
     pattern: t.Optional[str] = None
     text_annotations: t.Union[bool, str, t.Sequence[str]] = False
     # provides the name of attributes of Score that the accompaniment
-    #   should be kept below. (TODO: also allow accompaniment to be above
-    #   things.)
+    #   should be kept below.
     accompaniment_below: t.Optional[t.Union[str, t.Sequence[str]]] = None
+    accompaniment_above: t.Optional[t.Union[str, t.Sequence[str]]] = None
+    include_bass: bool = True
+    end_with_solid_chord: bool = True
 
     def __post_init__(self):
         if hasattr(super(), "__post_init__"):
@@ -67,18 +70,55 @@ class DumbAccompanist:
             + [self.settings.accomp_range[1]]
         )
 
+    def _get_above(self, score: Score):
+        if self.settings.accompaniment_above is None:
+            # TODO I think we still want to keep this above the bass
+            return self.settings.accomp_range[0]
+        i = len(score.accompaniments)
+        return max(
+            [
+                max(note.pitch for note in getattr(score, name)[i])
+                for name in self.settings.accompaniment_above
+            ]
+            + [self.settings.accomp_range[0]]
+        )
+
+    def _final_step(self, score: Score):
+        if not self.settings.end_with_solid_chord:
+            return self._step(score)
+        i = len(score.accompaniments)
+        chord = score.chords.iloc[i]
+        below = self._get_below(score)
+        above = self._get_above(score)
+        for pitches in self._cs(
+            chord.pcs,
+            min_accomp_pitch=above + 1,
+            max_accomp_pitch=below - 1,
+            include_bass=self.settings.include_bass,
+        ):
+            yield [
+                Note(
+                    pitch,
+                    chord.onset,
+                    chord.release,
+                    track=score.accompaniments_track,
+                )
+                for pitch in pitches
+            ]
+
     def _step(
         self, score: Score
     ) -> t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]:
         i = len(score.accompaniments)
         chord = score.chords.iloc[i]
-
-        # below = min(
-        #     min(note.pitch for note in score.prefabs[i]),
-        #     self.settings.accomp_range[1],
-        # )
         below = self._get_below(score)
-        for pitches in self._cs(chord.pcs, max_accomp_pitch=below - 1):
+        above = self._get_above(score)
+        for pitches in self._cs(
+            chord.pcs,
+            min_accomp_pitch=above + 1,
+            max_accomp_pitch=below - 1,
+            include_bass=self.settings.include_bass,
+        ):
             accompaniment_pattern = self._pm(
                 pitches,
                 chord.onset,
@@ -88,20 +128,21 @@ class DumbAccompanist:
             )
             if not self._text_annotations_for_this_piece:
                 yield accompaniment_pattern
-
-            annotations = []
-            if (
-                isinstance(self._text_annotations_for_this_piece, bool)
-                or "pattern" in self._text_annotations_for_this_piece
-            ):
-                annotations.append(self._pm.prev_pattern)
-            if (
-                isinstance(self._text_annotations_for_this_piece, bool)
-                or "chord" in self._text_annotations_for_this_piece
-            ):
-                annotations.append(chord.token)
-            annotation = Annotation(chord.onset, " ".join(annotations))
-            yield accompaniment_pattern, annotation
+            else:
+                annotations = []
+                if (
+                    isinstance(self._text_annotations_for_this_piece, bool)
+                    or "pattern" in self._text_annotations_for_this_piece
+                ):
+                    annotations.append(self._pm.prev_pattern)
+                if (
+                    isinstance(self._text_annotations_for_this_piece, bool)
+                    or "chord" in self._text_annotations_for_this_piece
+                ):
+                    annotations.append(chord.token)
+                annotation = Annotation(chord.onset, " ".join(annotations))
+                yield accompaniment_pattern, annotation
+        raise DeadEnd()
 
     def init_new_piece(
         self,
@@ -110,7 +151,7 @@ class DumbAccompanist:
             t.Union[bool, str, t.Sequence[str]]
         ] = None,
     ):
-        self._pm = PatternMaker(ts)
+        self._pm = PatternMaker(ts, include_bass=self.settings.include_bass)
         if text_annotations is None:
             self._text_annotations_for_this_piece = (
                 self.settings.text_annotations

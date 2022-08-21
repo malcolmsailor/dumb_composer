@@ -1,4 +1,5 @@
 from collections import defaultdict
+from dataclasses import dataclass
 from numbers import Number
 import typing as t
 import random
@@ -8,6 +9,7 @@ import pandas as pd
 from dumb_composer.pitch_utils.intervals import (
     get_relative_chord_factors,
 )
+from .utils.recursion import DeadEnd
 from .pitch_utils.scale import Scale, ScaleDict
 from dumb_composer.shared_classes import Note, Score
 
@@ -22,13 +24,20 @@ from dumb_composer.prefabs.prefab_rhythms import (
 )
 
 
+@dataclass
+class PrefabApplierSettings:
+    # either "soprano", "tenor", or "bass"
+    prefab_voice: str = "soprano"
+
+
 class PrefabApplier:
     prefab_rhythm_dir = PrefabRhythmDirectory()
     prefab_pitch_dir = PrefabPitchDirectory()
 
-    def __init__(self, settings: t.Optional[t.Any] = None):
-        # TODO settings
-        pass
+    def __init__(self, settings: t.Optional[PrefabApplierSettings] = None):
+        if settings is None:
+            settings = PrefabApplierSettings()
+        self.settings = settings
 
     def _append_from_prefabs(
         self,
@@ -53,16 +62,21 @@ class PrefabApplier:
             )
         return notes
 
-    def _step(
-        self,
-        score: Score,
-    ):
+    def get_decorated_voice(self, score: Score):
+        if self.settings.prefab_voice == "bass":
+            return score.structural_bass
+        return score.structural_melody
+
+    def _step(self, score: Score):
         current_i = len(score.prefabs)
         current_scale = score.scales[current_i]
         next_scale = score.scales[current_i + 1]
         current_chord = score.chords.iloc[current_i]
-        current_mel_pitch = score.structural_melody[current_i]
-        next_mel_pitch = score.structural_melody[current_i + 1]
+        decorated_voice = self.get_decorated_voice(score)
+        # current_mel_pitch = score.structural_melody[current_i]
+        # next_mel_pitch = score.structural_melody[current_i + 1]
+        current_mel_pitch = decorated_voice[current_i]
+        next_mel_pitch = decorated_voice[current_i + 1]
         rhythm_options = self.prefab_rhythm_dir(
             current_chord.release
             - current_chord.onset
@@ -75,7 +89,9 @@ class PrefabApplier:
                 current_mel_pitch, next_mel_pitch, scale2=next_scale
             )
             relative_chord_factors = get_relative_chord_factors(
-                score.structural_melody_intervals[current_i],
+                0
+                if self.settings.prefab_voice == "bass"
+                else score.structural_melody_intervals[current_i],
                 current_chord.intervals_above_bass,
                 len(current_scale),
             )
@@ -95,11 +111,22 @@ class PrefabApplier:
                     current_scale,
                     track=score.prefab_track,
                 )
+        raise DeadEnd()
 
-    def __call__(
-        self,
-        score: Score,
-    ):
+    def _final_step(self, score: Score):
+        # TODO eventually it would be nice to be able to decorate the last note
+        #   etc.
+        current_i = len(score.prefabs)
+        current_chord = score.chords.iloc[current_i]
+        yield [
+            Note(
+                self.get_decorated_voice(score)[current_i],
+                current_chord.onset,
+                current_chord.release,
+            )
+        ]
+
+    def __call__(self, score: Score):
         warnings.warn(
             "deprecated in favor of PrefabComposer", DeprecationWarning
         )
