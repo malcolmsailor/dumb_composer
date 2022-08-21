@@ -5,10 +5,31 @@ from dumb_composer.utils.nested import nested
 
 
 @nested()
-def put_in_range(p, low=None, high=None, tet=12):
-    """
+def put_in_range(p, low=None, high=None, tet=12, fail_silently: bool = False):
+    """Used by voice_lead_pitches().
+
     >>> put_in_range(0, low=58, high=74)
     60
+
+    Moves pitch as little as possible while keeping it within the specified
+    range:
+
+    >>> put_in_range(72, low=32, high=62)
+    60
+    >>> put_in_range(48, low=58, high=100)
+    60
+
+    Raises an exception if the pitch-class isn't found between the bounds,
+    unless fail_silently is True, in which case it returns a pitch below the
+    lower bound:
+
+    >>> put_in_range(60, low=49, high=59)
+    Traceback (most recent call last):
+        raise ValueError(
+    ValueError: pitch-class 0 does not occur between low=49 and high=59
+
+    >>> put_in_range(60, low=49, high=59, fail_silently=True)
+    48
     """
     if low is not None:
         below = low - p
@@ -20,6 +41,12 @@ def put_in_range(p, low=None, high=None, tet=12):
         if above > 0:
             octaves_above = math.ceil(above / tet)
             p -= octaves_above * tet
+    if not fail_silently and low is not None:
+        if p < low:
+            raise ValueError(
+                f"pitch-class {p % 12} does not occur between "
+                f"low={low} and high={high}"
+            )
     return p
 
 
