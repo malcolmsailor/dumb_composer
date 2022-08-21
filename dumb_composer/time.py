@@ -5,7 +5,7 @@ import random
 from functools import cached_property
 from types import MappingProxyType
 
-from .constants import METER_CONDITIONS, TIME_TYPE
+from dumb_composer.constants import METER_CONDITIONS, TIME_TYPE
 
 
 def rhythm_method(**kwargs):

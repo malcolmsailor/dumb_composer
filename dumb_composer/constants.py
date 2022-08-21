@@ -5,6 +5,9 @@ from mspell import Unspeller
 
 unspeller = Unspeller(pitches=True)
 
+LOW_PITCH = 21
+HI_PITCH = 108
+
 MAJOR_TRIAD = (0, 4, 7)
 MINOR_TRIAD = (0, 3, 7)
 DIM_TRIAD = (0, 3, 6)
@@ -13,6 +16,8 @@ AUG_TRIAD = (0, 4, 8)
 DOM_7TH = (0, 4, 7, 10)
 MIN_7TH = (0, 3, 7, 10)
 HALF_DIM = (0, 3, 6, 10)
+
+# TODO use some of these
 
 DEFAULT_RANGES = ((36, 60), (55, 84))
 
@@ -29,10 +34,10 @@ CLOSE_REGISTERS = MappingProxyType(
 OPEN_REGISTERS = MappingProxyType(
     unspeller(
         {
-            0: ("C3", "E5"),
-            1: ("A3", "C6"),
-            2: ("D4", "G6"),
-            3: ("F4", "C7"),
+            0: ("A1", "E5"),
+            1: ("A2", "C6"),
+            2: ("D3", "G6"),
+            3: ("F3", "C7"),
         }
     )
 )

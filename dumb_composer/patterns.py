@@ -1,22 +1,10 @@
 import random
+import typing as t
 from types import MappingProxyType
-import pandas as pd
 
 
-from .time import RhythmFetcher
-
-
-class Note(pd.Series):
-    def __init__(self, pitch, onset, release=None, dur=None):
-        if release is None:
-            release = onset + dur
-        super().__init__(
-            {"pitch": pitch, "onset": onset, "release": release, "type": "note"}
-        )
-
-
-def notes(pitches, onset, release=None, dur=None):
-    return [Note(pitch, onset, release=release, dur=dur) for pitch in pitches]
+from dumb_composer.time import RhythmFetcher
+from dumb_composer.shared_classes import Note, notes
 
 
 def pattern_method(**kwargs):
@@ -47,41 +35,49 @@ class PatternMaker:
         self._prev_pattern = None
 
     @pattern_method()
-    def oompah(self, pitches, onset, release):
+    def oompah(self, pitches, onset, release, track):
         beats = self.rf.beats(onset, release)
         beat_weight = self.rf.beat_weight
         foot, others = pitches[0], pitches[1:]
         out = []
         for beat in beats:
             if beat["weight"] > beat_weight:
-                out.append(Note(foot, beat["onset"], beat["release"]))
+                out.append(
+                    Note(foot, beat["onset"], beat["release"], track=track)
+                )
             else:
-                out.extend(notes(others, beat["onset"], beat["release"]))
+                out.extend(
+                    notes(others, beat["onset"], beat["release"], track=track)
+                )
         return out
 
     @pattern_method()
-    def oompahpah(self, pitches, onset, release):
+    def oompahpah(self, pitches, onset, release, track):
         beats = self.rf.beats(onset, release)
         max_weight = self.rf.max_weight
         foot, others = pitches[0], pitches[1:]
         out = []
         for beat in beats:
             if beat["weight"] == max_weight:
-                out.append(Note(foot, beat["onset"], beat["release"]))
+                out.append(
+                    Note(foot, beat["onset"], beat["release"], track=track)
+                )
             else:
-                out.extend(notes(others, beat["onset"], beat["release"]))
+                out.extend(
+                    notes(others, beat["onset"], beat["release"], track=track)
+                )
         return out
 
     @staticmethod
-    def _apply_pitches_to_rhythms(rhythms, pitches):
+    def _apply_pitches_to_rhythms(rhythms, pitches, track):
         out = []
         for r in rhythms:
-            out.extend(notes(pitches, r["onset"], r["release"]))
+            out.extend(notes(pitches, r["onset"], r["release"], track=track))
         return out
 
-    def _chords(self, rhythm_f, pitches, onset, release):
+    def _chords(self, rhythm_f, pitches, onset, release, track):
         off_beats = rhythm_f(onset, release)
-        return self._apply_pitches_to_rhythms(off_beats, pitches)
+        return self._apply_pitches_to_rhythms(off_beats, pitches, track)
 
     @pattern_method()
     def off_beat_chords(self, *args, **kwargs):
@@ -104,7 +100,7 @@ class PatternMaker:
         return self._chords(self.rf.superbeats, *args, **kwargs)
 
     @pattern_method()
-    def alberti(self, pitches, onset, release):
+    def alberti(self, pitches, onset, release, track):
         if self.rf.is_compound:
             raise NotImplementedError
         beat_weight = self.rf.beat_weight
@@ -112,14 +108,28 @@ class PatternMaker:
         out = []
         for sb in sbs:
             if sb["weight"] > beat_weight:
-                out.append(Note(pitches[0], sb["onset"], sb["release"]))
+                out.append(
+                    Note(pitches[0], sb["onset"], sb["release"], track=track)
+                )
             elif sb["weight"] < beat_weight:
-                out.append(Note(pitches[2], sb["onset"], sb["release"]))
+                out.append(
+                    Note(pitches[2], sb["onset"], sb["release"], track=track)
+                )
             else:
-                out.append(Note(pitches[1], sb["onset"], sb["release"]))
+                out.append(
+                    Note(pitches[1], sb["onset"], sb["release"], track=track)
+                )
         return out
 
-    def __call__(self, pitches, onset, release=None, dur=None, pattern=None):
+    def __call__(
+        self,
+        pitches,
+        onset,
+        release=None,
+        dur=None,
+        pattern=None,
+        track=1,
+    ) -> t.List[Note]:
         if pattern is None:
             if self._prev_pattern is None or random.random() > self._inertia:
                 pattern = random.choice(self._patterns)
@@ -128,7 +138,7 @@ class PatternMaker:
                 pattern = self._prev_pattern
         if release is None:
             release = onset + dur
-        return getattr(self, pattern)(pitches, onset, release)
+        return getattr(self, pattern)(pitches, onset, release, track)
 
     @property
     def prev_pattern(self):

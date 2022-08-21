@@ -4,7 +4,7 @@ from mspell import Speller
 
 def test_chord_spacer():
     pg = ChordSpacer()
-    speller = Speller()
+    speller = Speller(pitches=True)
     chords = ((0, 3, 7), (0, 3, 7, 10))
     positions = ("close_position", "open_position", "keyboard_style")
     for position in positions:
@@ -14,12 +14,6 @@ def test_chord_spacer():
             print(
                 f"{position} of \n\t{chord} = \n\t{out} or \n\t{speller(out)}"
             )
-    # print(pg.close_position([0, 3, 7]))
-    # print(pg.close_position([0, 3, 7, 10]))
-    # print(pg.open_position([0, 3, 7]))
-    # print(pg.open_position([0, 3, 7, 10]))
-    # print(pg.keyboard_style([0, 3, 7]))
-    # print(pg.keyboard_style([0, 3, 7, 10]))
 
 
 def test_chord_spacer2():

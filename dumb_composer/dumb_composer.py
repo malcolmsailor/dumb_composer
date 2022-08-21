@@ -1,154 +1,109 @@
-import music21
+from collections import Counter
+import typing as t
+from dataclasses import dataclass
+
 import pandas as pd
 
-from typing import Optional, Sequence, Tuple, Union
+from .dumb_accompanist import DumbAccompanist, DumbAccompanistSettings
 
-from .chord_spacer import ChordSpacer
-from .patterns import PatternMaker
-from .constants import TIME_TYPE
+from .shared_classes import Note, Score
 
+from .utils.recursion import append_attempt
 
-def pc_int(pc1: int, pc2: int, tet: int = 12) -> int:
-    return (pc2 - pc1) % tet
-
-
-def pitch_int(p1: int, p2: int) -> int:
-    raise NotImplementedError
-
-
-def transpose_pc_eq(
-    pcs1: Sequence[int], pcs2: Sequence[int], tet: int = 12
-) -> bool:
-    if len(pcs1) != len(pcs2):
-        return False
-    for (pc1a, pc1b), (pc2a, pc2b) in zip(
-        zip(pcs1[:-1], pcs1[:1]), zip(pcs2[:-1], pcs2[:1])
-    ):
-        if pc_int(pc1a, pc1b, tet=tet) != pc_int(pc2a, pc2b, tet=tet):
-            return False
-    return True
+from dumb_composer.pitch_utils.rn_to_pc import rn_to_pc
+from dumb_composer.pitch_utils.scale import ScaleDict
+from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
+from dumb_composer.two_part_contrapuntist import (
+    TwoPartContrapuntist,
+    TwoPartContrapuntistSettings,
+)
+from dumb_composer.prefab_applier import PrefabApplier
 
 
-def reduce_num_pcs(pcs: Tuple[int]):
-    pass
+@dataclass
+class PrefabComposerSettings(
+    TwoPartContrapuntistSettings, DumbAccompanistSettings
+):
+    accompaniment_below: t.Optional[t.Union[str, t.Sequence[str]]] = "prefabs"
 
 
-class Annotation(pd.Series):
-    def __init__(self, onset, text):
-        super().__init__({"onset": onset, "text": text, "type": "text"})
+class PrefabComposer:
+    def __init__(self, settings: t.Optional[PrefabComposerSettings] = None):
+        if settings is None:
+            settings = PrefabComposerSettings()
+        self.two_part_contrapuntist = TwoPartContrapuntist(settings)
+        self.prefab_applier = PrefabApplier(settings)  # TODO
+        self.dumb_accompanist = DumbAccompanist(settings)
+        self._scales = ScaleDict()
+        self._bass_range = settings.bass_range
+        self._mel_range = settings.mel_range
+        self.missing_prefabs = Counter()
 
+    def _get_ranges(self, bass_range, mel_range):
+        if bass_range is None:
+            if self._bass_range is None:
+                raise ValueError
+            bass_range = self._bass_range
+        if mel_range is None:
+            if self._mel_range is None:
+                raise ValueError
+            mel_range = self._mel_range
+        return bass_range, mel_range
 
-class DumbComposer:
-    def __init__(
+    def _recurse(
         self,
-        pattern=None,
-        text_annotations: Union[bool, str, Sequence[str]] = False,
+        i: int,
+        score: Score,
     ):
-        self._pattern = pattern
-        self._text_annotations = text_annotations
-        if isinstance(text_annotations, str):
-            text_annotations = (text_annotations,)
+        if i == len(score.chords):
+            # TODO need to append final melody notes
+            return
+        for mel_pitch in self.two_part_contrapuntist._step(score):
+            try:
+                with append_attempt(score.structural_melody, mel_pitch):
+                    if i == 0:
+                        # appending prefab requires at least two structural
+                        #   melody pitches
+                        return self._recurse(i + 1, score)
+                    else:
+                        for prefab in self.prefab_applier._step(score):
+                            with append_attempt(score.prefabs, prefab):
+                                for pattern in self.dumb_accompanist._step(
+                                    score
+                                ):
+                                    with append_attempt(
+                                        score.accompaniments, pattern
+                                    ):
+                                        return self._recurse(i + 1, score)
+            except MissingPrefabError as exc:
+                self.missing_prefabs[str(exc)] += 1
 
     def __call__(
         self,
-        chord_data: Union[str, pd.DataFrame],
-        ts: str = None,
-        text_annotations: Optional[Union[bool, str, Sequence[str]]] = None,
+        chord_data: t.Union[str, pd.DataFrame],
+        bass_range: t.Optional[t.Tuple[int, int]] = None,
+        mel_range: t.Optional[t.Tuple[int, int]] = None,
     ):
-        """If chord_data is a string, it should be a roman text file.
-        If it is a dataframe, it should be in the same format as returned
-        by rn_to_pc
-        """
-        if text_annotations is None:
-            text_annotations = self._text_annotations
-
-        if isinstance(chord_data, str):
-            chord_data, _, ts = rn_to_pc(chord_data)
-        pm = PatternMaker(ts)
-        cs = ChordSpacer()
-        notes = []
-        for _, chord in chord_data.iterrows():
-            pitches = cs(chord.pcs)
-            pattern_notes = pm(
-                pitches,
-                chord.onset,
-                release=chord.release,
-                pattern=self._pattern,
-            )
-            if text_annotations:
-                annotations = []
-                if (
-                    isinstance(text_annotations, bool)
-                    or "pattern" in text_annotations
-                ):
-                    annotations.append(pm.prev_pattern)
-                if (
-                    isinstance(text_annotations, bool)
-                    or "chord" in text_annotations
-                ):
-                    annotations.append(chord.token)
-                notes.append(Annotation(chord.onset, " ".join(annotations)))
-            notes.extend(pattern_notes)
-        out_df = pd.DataFrame(notes)
-        return out_df
-
-
-def rn_to_pc(rn_data: str) -> Tuple[pd.DataFrame, float, str]:
-    """Converts roman numerals to pcs.
-
-    Args:
-        rn_data: string in romantext format.
-    Returns:
-        A tuple (DataFrame, float, str). The float
-            indicates the offset for a pickup measure
-            (0 if there is no pickup measure). The string
-            represents the time signature (e.g., "4/4").
-    """
-    score = music21.converter.parse(rn_data, format="romanText").flatten()
-    ts = f"{score.timeSignature.numerator}/{score.timeSignature.denominator}"
-    prev_chord = duration = start = pickup_offset = key = None
-    out_list = []
-    for rn in score.getElementsByClass(music21.roman.RomanNumeral):
-        if pickup_offset is None:
-            pickup_offset = (
-                TIME_TYPE(rn.beat) - 1
-            ) * rn.beatDuration.quarterLength
-        chord = tuple(rn.pitchClasses)
-        if chord != prev_chord:
-            if prev_chord is not None:
-                out_list.append(
-                    (
-                        prev_chord,
-                        start,
-                        start + duration,
-                        prev_chord[0],
-                        rn.inversion(),
-                        pre_token + prev_figure,
-                    )
-                )
-            start = TIME_TYPE(rn.offset)
-            duration = TIME_TYPE(rn.duration.quarterLength)
-        else:
-            duration += rn.duration.quarterLength
-        prev_chord = chord
-        if rn.key != key:
-            key = rn.key.tonicPitchNameWithCase
-            pre_token = key + ":"
-        else:
-            pre_token = ""
-        prev_figure = rn.figure
-    out_list.append(
-        (
-            prev_chord,
-            start,
-            start + duration,
-            prev_chord[0],
-            rn.inversion(),
-            pre_token + prev_figure,
+        """Args:
+        chord_data: if string, should be in roman-text format.
+            If a Pandas DataFrame, should be the output of the rn_to_pc
+            function or similar."""
+        bass_range, mel_range = self._get_ranges(bass_range, mel_range)
+        score = Score(chord_data, bass_range, mel_range)
+        self.dumb_accompanist.init_new_piece(score.ts)
+        self._recurse(
+            0,
+            score,
         )
-    )
-    out_df = pd.DataFrame(
-        out_list,
-        columns=["pcs", "onset", "release", "root", "inversion", "token"],
-    )
-    return out_df, pickup_offset, ts
+        return score.get_df(["structural_bass", "prefabs", "accompaniments"])
+
+    def get_missing_prefab_str(self, reverse=True, n=None):
+        if reverse:
+            outer_f = reversed
+        else:
+            outer_f = lambda x: x
+        out = []
+        for key, count in outer_f(self.missing_prefabs.most_common(n=n)):
+            out.append(f"{count} failures:")
+            out.append(key)
+        return "\n".join(out)

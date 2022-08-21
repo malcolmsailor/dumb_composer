@@ -67,24 +67,23 @@ def get_changed_files(
     out = []
     for basename in basenames:
         full_path = os.path.join(dirname, basename)
+        size = os.path.getsize(full_path)
+        small_hash = get_hash(full_path, first_chunk_only=True)
+        full_hash = get_hash(full_path, first_chunk_only=False)
         if basename in file_mem:
             attrs = file_mem[basename]
-            size = os.path.getsize(full_path)
-            if size == attrs["size"]:
-                small_hash = get_hash(full_path, first_chunk_only=True)
-                if small_hash == attrs["small_hash"]:
-                    full_hash = get_hash(full_path, first_chunk_only=False)
-                    if full_hash == attrs["full_hash"]:
-                        continue
-        else:
-            size = os.path.getsize(full_path)
-            small_hash = get_hash(full_path, first_chunk_only=True)
-            full_hash = get_hash(full_path, first_chunk_only=False)
-            file_mem[basename] = {
-                "size": size,
-                "small_hash": small_hash,
-                "full_hash": full_hash,
-            }
+            if (
+                size == attrs["size"]
+                and small_hash == attrs["small_hash"]
+                and full_hash == attrs["full_hash"]
+            ):
+                continue
+
+        file_mem[basename] = {
+            "size": size,
+            "small_hash": small_hash,
+            "full_hash": full_hash,
+        }
         out.append(basename)
 
     out = [os.path.join(dirname, basename) for basename in out]
