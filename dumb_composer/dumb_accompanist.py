@@ -5,8 +5,8 @@ import typing as t
 
 from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
 from dumb_composer.patterns import PatternMaker
-from dumb_composer.pitch_utils.rn_to_pc import rn_to_pc
-from dumb_composer.shared_classes import Annotation, Note, Score
+from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
+from dumb_composer.shared_classes import Annotation, Chord, Note, Score
 from .utils.recursion import DeadEnd
 
 
@@ -87,7 +87,7 @@ class DumbAccompanist:
         if not self.settings.end_with_solid_chord:
             return self._step(score)
         i = len(score.accompaniments)
-        chord = score.chords.iloc[i]
+        chord = score.chords[i]
         below = self._get_below(score)
         above = self._get_above(score)
         for pitches in self._cs(
@@ -110,7 +110,7 @@ class DumbAccompanist:
         self, score: Score
     ) -> t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]:
         i = len(score.accompaniments)
-        chord = score.chords.iloc[i]
+        chord = score.chords[i]
         below = self._get_below(score)
         above = self._get_above(score)
         for pitches in self._cs(
@@ -161,7 +161,7 @@ class DumbAccompanist:
 
     def __call__(
         self,
-        chord_data: t.Optional[t.Union[str, pd.DataFrame]] = None,
+        chord_data: t.Optional[t.Union[str, t.List[Chord]]] = None,
         score: t.Optional[Score] = None,
         ts: t.Optional[str] = None,
         text_annotations: t.Optional[
@@ -169,8 +169,8 @@ class DumbAccompanist:
         ] = None,
     ) -> pd.DataFrame:
         """If chord_data is a string, it should be a roman text file.
-        If it is a dataframe, it should be in the same format as returned
-        by rn_to_pc
+        If it is a list, it should be in the same format as returned
+        by get_chords_from_rntxt
 
         Keyword args:
             ts: time signature. If chord_data is a string, this argument is
@@ -183,8 +183,8 @@ class DumbAccompanist:
             raise ValueError("either chord_data or score must not be None")
         if score is None:
             if isinstance(chord_data, str):
-                chord_data, _, ts = rn_to_pc(chord_data)
-            score = Score(chord_data)
+                chord_data, _, ts = get_chords_from_rntxt(chord_data)
+            score = Score(chord_data, ts=ts)
 
         self.init_new_piece(ts, text_annotations)
         for _ in range(len(score.chords)):

@@ -12,10 +12,11 @@ from .structural_partitioner import (
 from .dumb_accompanist import DumbAccompanist, DumbAccompanistSettings
 
 from .shared_classes import Note, Score
+from dumb_composer.pitch_utils.chords import Chord
 
 from .utils.recursion import DeadEnd, RecursionFailed, append_attempt
 
-from dumb_composer.pitch_utils.rn_to_pc import rn_to_pc
+from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
 from dumb_composer.two_part_contrapuntist import (
@@ -129,13 +130,13 @@ class PrefabComposer:
 
     def __call__(
         self,
-        chord_data: t.Union[str, pd.DataFrame],
+        chord_data: t.Union[str, t.List[Chord]],
         bass_range: t.Optional[t.Tuple[int, int]] = None,
         mel_range: t.Optional[t.Tuple[int, int]] = None,
     ):
         """Args:
         chord_data: if string, should be in roman-text format.
-            If a Pandas DataFrame, should be the output of the rn_to_pc
+            If a list, should be the output of the get_chords_from_rntxt
             function or similar."""
         self._n_recurse_calls = 0
         bass_range, mel_range = self._get_ranges(bass_range, mel_range)

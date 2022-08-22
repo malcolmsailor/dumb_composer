@@ -5,7 +5,7 @@ import typing as t
 
 import pandas as pd
 
-from dumb_composer.pitch_utils.rn_to_pc import rn_to_pc
+from dumb_composer.pitch_utils.chords import get_chords_from_rntxt, Chord
 from dumb_composer.pitch_utils.put_in_range import (
     get_all_in_range,
     put_in_range,
@@ -94,7 +94,7 @@ class TwoPartContrapuntist:
     ):
         i = len(score.structural_melody)
         next_bass_pitch = score.structural_bass[i]
-        next_chord_pcs = score.chords.loc[i, "pcs"]
+        next_chord_pcs = score.chords[i].pcs
         if not i:
             # generate the first note
             mel_pitch_choices = get_all_in_range(
@@ -132,7 +132,7 @@ class TwoPartContrapuntist:
 
     def __call__(
         self,
-        chord_data: t.Union[str, pd.DataFrame],
+        chord_data: t.Union[str, t.List[Chord]],
         ts: t.Optional[str] = None,
         bass_range: t.Optional[t.Tuple[int, int]] = None,
         mel_range: t.Optional[t.Tuple[int, int]] = None,
@@ -140,7 +140,7 @@ class TwoPartContrapuntist:
         """
         Args:
             chord_data: if string, should be in roman-text format.
-                If a Pandas DataFrame, should be the output of the rn_to_pc
+                If a list, should be the output of the get_chords_from_rntxt
                 function or similar.
         """
 
@@ -152,7 +152,14 @@ class TwoPartContrapuntist:
         return score
 
     def get_mididf_from_score(self, score: Score):
-        out_df = score.chords[["onset", "release"]].copy()
-        out_df["bass"] = score.structural_bass
-        out_df["melody"] = score.structural_melody
+        out_dict = {
+            "onset": [chord.onset for chord in score.chords],
+            "release": [chord.release for chord in score.chords],
+            "bass": score.structural_bass,
+            "melody": score.structural_melody,
+        }
+        # out_df = score.chords[["onset", "release"]].copy()
+        # out_df["bass"] = score.structural_bass
+        # out_df["melody"] = score.structural_melody
+        out_df = pd.DataFrame(out_dict)
         return homodf_to_mididf(out_df)

@@ -12,7 +12,7 @@ def test_put_in_range():
         range_ = (60, 61)
         low, high = range_
         for p in range(24, 96):
-            p2 = pu.put_in_range(p, low, high, tet=tet)
+            p2 = pu.put_in_range(p, low, high, tet=tet, fail_silently=True)
             assert (low <= p2 <= low + tet) or (high - tet <= p2 <= high)
 
 

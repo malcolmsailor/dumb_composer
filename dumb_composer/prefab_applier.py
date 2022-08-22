@@ -81,7 +81,7 @@ class PrefabApplier:
         current_i = len(score.prefabs)
         current_scale = score.scales[current_i]
         next_scale = score.scales[current_i + 1]
-        current_chord = score.chords.iloc[current_i]
+        current_chord = score.chords[current_i]
         decorated_voice = self.get_decorated_voice(score)
         # current_mel_pitch = score.structural_melody[current_i]
         # next_mel_pitch = score.structural_melody[current_i + 1]
@@ -127,7 +127,7 @@ class PrefabApplier:
         # TODO eventually it would be nice to be able to decorate the last note
         #   etc.
         current_i = len(score.prefabs)
-        current_chord = score.chords.iloc[current_i]
+        current_chord = score.chords[current_i]
         yield [
             Note(
                 self.get_decorated_voice(score)[current_i],

@@ -1,4 +1,4 @@
-from typing import Callable, Sequence, Tuple, Union
+from typing import Callable, Generator, Sequence, Tuple, Union
 import warnings
 
 try:
@@ -46,8 +46,10 @@ def nested(
 
     def _decorator(func: Callable) -> Callable:
         def f(item, *args, **kwargs):
-            if isinstance(item, Sequence) and not isinstance(item, str):
-                if coerce_to_list:
+            if isinstance(item, (Sequence, Generator)) and not isinstance(
+                item, str
+            ):
+                if coerce_to_list or isinstance(item, Generator):
                     return list(
                         f(sub_item, *args, **kwargs) for sub_item in item
                     )

@@ -126,14 +126,14 @@ class StructuralPartitioner:
         """
         self._ts = Meter(score.ts)
         split_chords = []
-        for _, chord in score.chords.iterrows():
+        for chord in score.chords:
             splits = self._step(chord.onset, chord.release)
             for start, stop in flatten_list(splits):
                 new_chord = chord.copy()
                 new_chord.onset = start
                 new_chord.release = stop
                 split_chords.append(new_chord)
-        score.chords = pd.DataFrame(split_chords).reset_index(drop=True)
+        score.chords = split_chords
 
 
 if __name__ == "__main__":

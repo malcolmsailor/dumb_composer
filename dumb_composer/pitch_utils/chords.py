@@ -33,7 +33,7 @@ class Chord(pd.Series):
         )
 
 
-def rn_to_pc(rn_data: str) -> t.Tuple[pd.DataFrame, float, str]:
+def get_chords_from_rntxt(rn_data: str) -> t.Tuple[pd.DataFrame, float, str]:
     """Converts roman numerals to pcs.
 
     Args:
@@ -87,7 +87,7 @@ def rn_to_pc(rn_data: str) -> t.Tuple[pd.DataFrame, float, str]:
             prev_chord.release += rn.duration.quarterLength
 
     out_list.append(prev_chord)
-    out_df = pd.DataFrame(
-        out_list,
-    )
-    return out_df, pickup_offset, ts
+    # out_df = pd.DataFrame(
+    #     out_list,
+    # )
+    return out_list, pickup_offset, ts

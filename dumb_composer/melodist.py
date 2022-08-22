@@ -9,7 +9,7 @@ import warnings
 import pandas as pd
 import numpy as np
 
-from dumb_composer.pitch_utils.rn_to_pc import rn_to_pc
+from dumb_composer.pitch_utils.chords import get_chords_from_rntxt, Chord
 from dumb_composer.pitch_utils.put_in_range import put_in_range
 from dumb_composer.pitch_utils.intervals import interval_finder
 
@@ -87,19 +87,19 @@ class Melodist:
             for _chord_i in range(_chord_i, len(chord_data)):
                 if (
                     rhythm.loc[_melody_i, "onset"]
-                    < chord_data.loc[_chord_i, "release"]
+                    < chord_data[_chord_i].release
                 ):
                     break
 
         def _get_eligible_pcs(chord_tone: bool):
-            col_id = "pcs" if chord_tone else "scale_pcs"
+            attr_name = "pcs" if chord_tone else "scale_pcs"
             # TODO handle altered tones in scales
-            return chord_data.loc[_chord_i, col_id]
+            return getattr(chord_data[_chord_i], attr_name)
 
         def _update_n_since_chord_tone():
             nonlocal _n_since_chord_tone
             last_p_is_chord_tone = (
-                _melody[-1].pitch % 12 in chord_data.loc[_chord_i, "pcs"]
+                _melody[-1].pitch % 12 in chord_data[_chord_i].pcs
             )
             if last_p_is_chord_tone:
                 _n_since_chord_tone = 0
@@ -144,32 +144,32 @@ class Melodist:
 
     def __call__(
         self,
-        chord_data: t.Union[str, pd.DataFrame],
+        chord_data: t.Union[str, t.List[Chord]],
         rhythm: t.Union[t.Sequence[t.Tuple[Number, Number]], pd.DataFrame],
     ) -> pd.DataFrame:
         """
         Args:
             chord_data:
                 If string, should be in roman-text format.
-                If a Pandas DataFrame, should be the output of the rn_to_pc
+                If a list, should be the output of the get_chords_from_rntxt
                     function or similar.
             rhythm:
                 If sequence, consists of 2-tuples of form (onset, release).
                 If Pandas DataFrame, must have "onset" and "release" columns.
         """
         if isinstance(chord_data, str):
-            chord_data, _, ts_unused = rn_to_pc(chord_data)
+            chord_data, _, ts_unused = get_chords_from_rntxt(chord_data)
         if not isinstance(rhythm, pd.DataFrame):
             rhythm = pd.DataFrame(rhythm, columns=["onset", "release"])
         # we use numeric indexing above so we need to make sure the indexes
         #   are default range indices
-        for idx in (chord_data.index, rhythm.index):
+        for idx in (rhythm.index,):
             assert isinstance(idx, pd.RangeIndex)
             assert idx.start == 0
             assert idx.step == 1
-        if chord_data.release.max() < rhythm.release.max():
+        if chord_data[-1].release < rhythm.release.max():
             warnings.warn(
-                f"chord_data.release.max() is {chord_data.release.max()} but "
+                f"chord_data[-1].release is {chord_data[-1].release} but "
                 f"rhythm.release.max() is {rhythm.release.max()}"
             )
         return self._recurse(chord_data, rhythm)

@@ -10,7 +10,8 @@ from .pitch_utils.scale import ScaleDict
 
 from .pitch_utils.put_in_range import put_in_range
 
-from .pitch_utils.rn_to_pc import rn_to_pc
+from .pitch_utils.chords import get_chords_from_rntxt
+from dumb_composer.pitch_utils.chords import Chord
 
 
 class Annotation(pd.Series):
@@ -199,7 +200,7 @@ class Score:
 
     def __init__(
         self,
-        chord_data: t.Union[str, pd.DataFrame],
+        chord_data: t.Union[str, t.List[Chord]],
         bass_range: t.Tuple[int, int] = (30, 50),
         mel_range: t.Tuple[int, int] = (60, 78),
         prefab_track: int = 1,
@@ -208,14 +209,16 @@ class Score:
         ts: t.Optional[str] = None,
     ):
         if isinstance(chord_data, str):
-            chord_data, _, ts = rn_to_pc(chord_data)
-        else:
+            chord_data, _, ts = get_chords_from_rntxt(chord_data)
+        elif ts is None:
             raise ValueError(
-                f"`ts` must be supplied if `chord_data` is a pandas DataFrame"
+                f"`ts` must be supplied if `chord_data` is not a string"
             )
         self.ts = ts
         self.chord_data = chord_data
-        self._scale_getter = ScaleGetter(chord_data.scale_pcs)
+        self._scale_getter = ScaleGetter(
+            chord.scale_pcs for chord in chord_data
+        )
         self.bass_range = bass_range
         self.mel_range = mel_range
         self.structural_melody: t.List[int] = []
@@ -234,7 +237,11 @@ class Score:
 
     @cached_property
     def structural_bass(self) -> t.List[int]:
-        return list(put_in_range(self.chord_data["foot"], *self.bass_range))
+        return list(
+            put_in_range(
+                (chord.foot for chord in self.chord_data), *self.bass_range
+            )
+        )
 
     @property
     def chords(self) -> pd.DataFrame:
@@ -246,7 +253,9 @@ class Score:
         # deleting self.structural_bass allows it to be regenerated next
         #   time it is needed
         del self.structural_bass
-        self._scale_getter = ScaleGetter(self.chord_data.scale_pcs)
+        self._scale_getter = ScaleGetter(
+            chord.scale_pcs for chord in self.chord_data
+        )
         self._structural_melody_interval_getter = (
             StructuralMelodyIntervalGetter(
                 self.scales, self.structural_melody, self.structural_bass
@@ -266,8 +275,8 @@ class Score:
         return pd.DataFrame(
             Note(
                 bass_pitch,
-                self.chords.iloc[i].onset,
-                self.chords.iloc[i].release,
+                self.chords[i].onset,
+                self.chords[i].release,
                 track=self.bass_track,
             )
             for i, bass_pitch in enumerate(self.structural_bass)
