@@ -218,7 +218,7 @@ class Score:
         self._scale_getter = ScaleGetter(chord_data.scale_pcs)
         self.bass_range = bass_range
         self.mel_range = mel_range
-        self.structural_melody = []
+        self.structural_melody: t.List[int] = []
         self._structural_melody_interval_getter = (
             StructuralMelodyIntervalGetter(
                 self.scales, self.structural_melody, self.structural_bass
@@ -296,3 +296,6 @@ class Score:
         dfs = (getattr(self, f"{name}_as_df") for name in contents)
         df = pd.concat(dfs)
         return sort_note_df(df)
+
+    def split_ith_chord_at(self, i: int, time: Number) -> None:
+        raise NotImplementedError

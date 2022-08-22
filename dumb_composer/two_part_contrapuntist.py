@@ -18,6 +18,7 @@ from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
 )
+from .suspensions import find_suspensions
 from .utils.recursion import DeadEnd
 from .shared_classes import Score
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
@@ -95,6 +96,7 @@ class TwoPartContrapuntist:
         next_bass_pitch = score.structural_bass[i]
         next_chord_pcs = score.chords.loc[i, "pcs"]
         if not i:
+            # generate the first note
             mel_pitch_choices = get_all_in_range(
                 next_chord_pcs,
                 max(next_bass_pitch, score.mel_range[0]),
@@ -106,6 +108,8 @@ class TwoPartContrapuntist:
                 mel_pitch_choices.pop(mel_pitch_i)
         else:
             cur_mel_pitch = score.structural_melody[i - 1]
+            # suspensions = find_suspensions(cur_mel_pitch, next_chord_pcs)
+            # TODO finish suspensions
             cur_bass_pitch = score.structural_bass[i - 1]
             forbidden_intervals = get_forbidden_intervals(
                 cur_mel_pitch,

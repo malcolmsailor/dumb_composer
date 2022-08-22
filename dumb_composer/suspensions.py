@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import typing as t
 
 from dumb_composer.constants import (
@@ -53,7 +53,7 @@ class Suspension:
     interval_above_bass: int
     # "score" is meant to be used to weight how likely we are to use
     #   each suspension.
-    score: float = 1.0
+    score: float = field(default=1.0, repr=False)
 
 
 def find_suspensions(
@@ -85,7 +85,6 @@ def find_suspensions(
     >>> find_suspensions(67, (2, 5, 11))
     [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=5)]
 
-
     Determining whether a suspension is dissonant is tricky. Here are some
     special cases.
 
@@ -97,12 +96,19 @@ def find_suspensions(
 
     >>> find_suspensions(65, (2, 4, 7, 10))
     [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)]
+
+    We assume that the pitch to which the suspension resolves will not be
+    sounding during the suspension *unless* the pitch is in the bass.
+
+    >>> find_suspensions(62, (0, 5, 9))[0].dissonant
+    True
     """
 
     def _append(current_pitch, interval, next_pc):
         interval_above_bass = (current_pitch - next_chord_pcs[0]) % 12
         other_pcs = list(next_chord_pcs)
-        other_pcs.remove(next_pc)
+        if next_pc != other_pcs[0]:
+            other_pcs.remove(next_pc)
         dissonant = pitch_dissonant_against_chord(current_pitch, other_pcs)
         out.append(Suspension(interval, dissonant, interval_above_bass))
 
