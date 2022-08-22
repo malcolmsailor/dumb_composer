@@ -1,9 +1,11 @@
+import math
 from dataclasses import dataclass
-from functools import partial
+from functools import cached_property, partial
 from numbers import Number
 import typing as t
 import textwrap
 
+from dumb_composer.time_utils import get_min_ioi, get_max_ioi
 from dumb_composer.utils.recursion import UndoRecursiveStep
 
 
@@ -24,10 +26,20 @@ class PrefabRhythms:
     #   if it goes from beat 2 to beat 1, should be "ws"
     endpoint_metric_strength_str: str = "ss"
 
+    # we scale the prefab rhythms by factors of 2 to increase the vocabulary.
+    # So, e.g., (0.0, 1.0, 3.0 )could also become (0.0, 0.5, 1.5), or
+    # (0.0, 2.0, 6.0). We can set limits on the scaling according to the nature
+    # of the rhythm.
+    min_scaled_ioi: Number = 0.25  # should be a power of 2
+    max_scaled_ioi: Number = 4.0  # should be a power of 2
+
     def __post_init__(self):
         if self.releases is None:
             self.releases = self.onsets[1:] + [self.total_dur]
         assert len(self.metric_strength_str) == len(self.onsets)
+        # TODO I think I can remove
+        # assert math.log2(self.min_scaled_ioi) % 1 == 0
+        # assert math.log2(self.max_scaled_ioi) % 1 == 0
 
     def __len__(self):
         return len(self.metric_strength_str)
@@ -41,12 +53,36 @@ class PrefabRhythms:
             == endpoint_metric_strength_str
         )
 
+    def scale(self, factor: Number):
+        """Return a copy of self with rhythmic values scaled by factor.
+
+        min_scaled_ioi and max_scaled_ioi are not changed.
+        """
+        return self.__class__(
+            onsets=[onset * factor for onset in self.onsets],
+            metric_strength_str=self.metric_strength_str,
+            total_dur=self.total_dur * factor,
+            releases=[release * factor for release in self.releases],
+            endpoint_metric_strength_str=self.endpoint_metric_strength_str,
+        )
+
+    @cached_property
+    def min_ioi(self):
+        return get_min_ioi(list(self.onsets) + [self.total_dur])
+
+    @cached_property
+    def max_ioi(self):
+        return get_max_ioi(list(self.onsets) + [self.total_dur])
+
 
 def match_metric_strength_strs(
     metric_strength_str1: str, metric_strength_str2: str
 ) -> bool:
     """Two "metric strength strings" match at each position if each character
     is the same or if one of the strings has a wildcard '_'.
+
+    I am using "s" for strong and "w" for weak but this is not enforced; any
+    characters are ok; the only character treated specially is '_'.
 
     >>> match_metric_strength_strs("swsw", "swsw")
     True
@@ -76,10 +112,33 @@ PR3 = partial(PR, total_dur=3)
 PREFABS = (
     PR4([0.0, 1.0, 2.0, 3.0], "swsw"),
     PR4([0.0, 1.5, 2.0, 3.0], "swsw"),
+    PR4([0.0, 1.0, 2.0], "s_s"),
     PR3([0.0, 1.0, 2.0], "s__"),
     PR3([0.0, 1.0, 1.5, 2.0], "s___"),
     PR3([0.0, 1.5, 2.0, 2.5], "s___"),
 )
+
+
+def scale_prefabs(prefabs: t.Sequence[PrefabRhythms]) -> t.List[PrefabRhythms]:
+    out = []
+    for prefab_rhythm in prefabs:
+        out.append(prefab_rhythm)
+        lower_bound = math.floor(
+            math.log2(prefab_rhythm.min_ioi)
+            - math.log2(prefab_rhythm.min_scaled_ioi)
+        )
+        for i in range(1, lower_bound + 1):
+            out.append(prefab_rhythm.scale(2 ** -(i)))
+        upper_bound = math.floor(
+            math.log2(prefab_rhythm.max_scaled_ioi)
+            - math.log2(prefab_rhythm.max_ioi)
+        )
+        for i in range(1, upper_bound + 1):
+            out.append(prefab_rhythm.scale(2**i))
+    return out
+
+
+PREFABS = scale_prefabs(PREFABS)
 
 
 class PrefabRhythmDirectory:

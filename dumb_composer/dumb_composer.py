@@ -4,6 +4,11 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from .structural_partitioner import (
+    StructuralPartitioner,
+    StructuralPartitionerSettings,
+)
+
 from .dumb_accompanist import DumbAccompanist, DumbAccompanistSettings
 
 from .shared_classes import Note, Score
@@ -22,7 +27,10 @@ from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 
 @dataclass
 class PrefabComposerSettings(
-    TwoPartContrapuntistSettings, DumbAccompanistSettings, PrefabApplierSettings
+    TwoPartContrapuntistSettings,
+    DumbAccompanistSettings,
+    PrefabApplierSettings,
+    StructuralPartitionerSettings,
 ):
     max_recurse_calls = 1000
 
@@ -52,6 +60,7 @@ class PrefabComposer:
     def __init__(self, settings: t.Optional[PrefabComposerSettings] = None):
         if settings is None:
             settings = PrefabComposerSettings()
+        self.structural_partitioner = StructuralPartitioner(settings)
         self.two_part_contrapuntist = TwoPartContrapuntist(settings)
         self.prefab_applier = PrefabApplier(settings)
         self.dumb_accompanist = DumbAccompanist(settings)
@@ -131,6 +140,7 @@ class PrefabComposer:
         self._n_recurse_calls = 0
         bass_range, mel_range = self._get_ranges(bass_range, mel_range)
         score = Score(chord_data, bass_range, mel_range)
+        self.structural_partitioner(score)
         self.dumb_accompanist.init_new_piece(score.ts)
         try:
             self._recurse(

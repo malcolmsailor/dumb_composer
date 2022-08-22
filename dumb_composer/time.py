@@ -1,11 +1,15 @@
 import math
+from numbers import Number
 import operator
 import random
+
+import typing as t
 
 from functools import cached_property
 from types import MappingProxyType
 
 from dumb_composer.constants import METER_CONDITIONS, TIME_TYPE
+from .time_utils import get_onsets_within_duration
 
 
 def rhythm_method(**kwargs):
@@ -55,8 +59,20 @@ class TimeClass:
         return onset, release
 
     @staticmethod
-    def _first_after(threshold, length):
-        return math.ceil(threshold / length) * length
+    def _first_after(
+        threshold: Number, grid_length: Number, inclusive: bool = True
+    ):
+        """
+        >>> TimeClass()._first_after(1.0, 1.0)
+        1.0
+        >>> TimeClass()._first_after(1.0, 1.0, inclusive=False)
+        2.0
+        >>> TimeClass()._first_after(1.5, 1.25)
+        2.5
+        """
+        if inclusive:
+            return math.ceil(threshold / grid_length) * grid_length
+        return math.floor((threshold / grid_length) + 1) * grid_length
 
 
 class Meter(TimeClass):
@@ -93,29 +109,92 @@ class Meter(TimeClass):
 
     @property
     def beat_dur(self):  # pylint: disable=missing-docstring
+        """
+        >>> Meter("4/4").beat_dur
+        Fraction(1, 1)
+        >>> Meter("6/8").beat_dur
+        Fraction(3, 2)
+        """
         return self._beat_dur
+
+    @cached_property
+    def bar_dur(self):
+        return self.beat_dur * self._n_beats
 
     @property
     def semibeat_dur(self):  # pylint: disable=missing-docstring
+        """
+        >>> Meter("4/4").semibeat_dur
+        Fraction(1, 2)
+        >>> Meter("6/8").semibeat_dur
+        Fraction(1, 2)
+        """
         return self._semibeat_dur
 
     @property
     def superbeat_dur(self):  # pylint: disable=missing-docstring
+        """
+        >>> Meter("4/4").superbeat_dur
+        Fraction(2, 1)
+        >>> Meter("6/8").superbeat_dur
+        Fraction(3, 1)
+        """
         return self._superbeat_dur
 
     @property
     def is_compound(self):
+        """
+        >>> Meter("4/4").is_compound
+        False
+        >>> Meter("6/8").is_compound
+        True
+        """
         return self._compound
 
     @property
     def is_triple(self):
+        """
+        >>> Meter("9/8").is_triple
+        True
+        >>> Meter("6/8").is_triple
+        False
+        """
         return self._triple
 
     @property
     def is_duple(self):
+        """
+        >>> Meter("3/4").is_duple
+        False
+        >>> Meter("6/8").is_duple
+        True
+        """
         return not self._triple
 
     def __call__(self, time):
+        """
+        >>> four_four = Meter("4/4")
+        >>> four_four(0.0)
+        2
+        >>> four_four(2.0)
+        1
+        >>> four_four(1.0)
+        0
+        >>> four_four(0.5)
+        -1
+
+        >>> nine_eight = Meter("9/8")
+        >>> nine_eight(0.0)
+        1
+        >>> nine_eight(1.5)
+        0
+        >>> nine_eight(3.0)
+        0
+        >>> nine_eight(0.5)
+        -1
+        >>> nine_eight(1.0)
+        -1
+        """
         return self._weight(time)
 
     def _duple_weight(self, time, n_beats=None):
@@ -163,24 +242,45 @@ class Meter(TimeClass):
         self._memo[time] = out
         return out
 
-    def _between(self, length, onset, release, inclusive=False):
+    def weights_between(
+        self,
+        grid_length: Number,
+        onset: Number,
+        release: Number,
+        include_start: bool = True,
+        include_end: bool = False,
+        out_format: str = "list",
+    ):
+        """
+        >>> two_four = Meter("2/4")
+        >>> two_four.weights_between(0.5, 0.5, 1.5)
+        [{'onset': 0.5, 'weight': -1}, {'onset': 1.0, 'weight': 0}]
+
+        # TODO it seems to me that 12/8 weights are wrong
+        >>> twelve_eight = Meter("12/8")
+        >>> twelve_eight.weights_between(0.5, 3.0, 6.1, out_format="dict")
+        {3.0: 0, 3.5: -1, 4.0: -1, 4.5: 0, 5.0: -1, 5.5: -1, 6.0: 1}
+        """
         onset, release = self._get_bounds(onset, release)
-        time = self._first_after(onset, length)
-        out = []
-        op = operator.le if inclusive else operator.lt
+        time = self._first_after(onset, grid_length, inclusive=include_start)
+        out = {} if out_format == "dict" else []
+        op = operator.le if include_end else operator.lt
         while op(time, release):
-            out.append({"onset": time, "weight": self(time)})
-            time += length
+            if out_format == "dict":
+                out[time] = self(time)
+            else:
+                out.append({"onset": time, "weight": self(time)})
+            time += grid_length
         return out
 
     def beats_between(self, *args, **kwargs):
-        return self._between(self._beat_dur, *args, **kwargs)
+        return self.weights_between(self._beat_dur, *args, **kwargs)
 
     def semibeats_between(self, *args, **kwargs):
-        return self._between(self._semibeat_dur, *args, **kwargs)
+        return self.weights_between(self._semibeat_dur, *args, **kwargs)
 
     def superbeats_between(self, *args, **kwargs):
-        return self._between(self._superbeat_dur, *args, **kwargs)
+        return self.weights_between(self._superbeat_dur, *args, **kwargs)
 
 
 class RhythmFetcher(TimeClass):
@@ -297,7 +397,7 @@ class RhythmFetcher(TimeClass):
     def iamb(self, onset, release):
         inclusive = release % self.meter.beat_dur == 0
         semibeats = self.meter.semibeats_between(
-            onset, release, inclusive=inclusive
+            onset, release, include_end=inclusive
         )
         if self.is_compound:
             on_weight = self.meter.beat_weight

@@ -51,15 +51,25 @@ class PrefabApplier:
         notes = []
         # need to displace by initial_onset somewhere
         orig_scale_degree = scale.index(initial_pitch)
-        for rel_scale_degree, onset, release in zip(
-            prefab_pitches.relative_degrees,
-            prefab_rhythms.onsets,
-            prefab_rhythms.releases,
+        for i, (rel_scale_degree, onset, release) in enumerate(
+            zip(
+                prefab_pitches.relative_degrees,
+                prefab_rhythms.onsets,
+                prefab_rhythms.releases,
+            )
         ):
-            new_pitch = scale[orig_scale_degree + rel_scale_degree]
+            if i in prefab_pitches.alterations:
+                new_pitch = scale.get_auxiliary(
+                    orig_scale_degree + rel_scale_degree,
+                    prefab_pitches.alterations[i],
+                )
+            else:
+                new_pitch = scale[orig_scale_degree + rel_scale_degree]
             notes.append(
                 Note(new_pitch, onset + offset, release + offset, track=track)
             )
+        if prefab_pitches.tie_to_next:
+            notes[-1].tie_to_next = True
         return notes
 
     def get_decorated_voice(self, score: Score):

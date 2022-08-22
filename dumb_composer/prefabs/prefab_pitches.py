@@ -1,4 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from fractions import Fraction
+from numbers import Number
+import re
 import textwrap
 import typing as t
 
@@ -7,12 +10,85 @@ from dumb_composer.prefabs.prefab_rhythms import (
     MissingPrefabError,
 )
 
+RELATIVE_DEGREE_REGEX = re.compile(
+    r"""
+        ^(?P<alteration>[#b]?)
+        (?P<relative_degree>-?\d+)
+        (?P<ioi_constraints>(?:[Mm](?:(?:\d+/\d+)|(?:\d+(?:\.\d+)?))){0,2})
+        (?P<tie_to_next>t?)$
+    """,
+    flags=re.VERBOSE,
+)
+
+MAX_IOI_REGEX = re.compile(r"M(?:(?P<frac>\d/\d)|(?P<float>\d+(?:\.\d+)?))")
+MIN_IOI_REGEX = re.compile(r"m(?:(?P<frac>\d/\d)|(?P<float>\d+(?:\.\d+)?))")
+
 
 @dataclass
 class PrefabPitches:
-    interval_to_next: t.Union[int, t.Sequence[int]]
+    """
+    >>> pp = PrefabPitches(
+    ...     interval_to_next=[1, 3],
+    ...     metric_strength_str="__",
+    ...     relative_degrees=[0, 2],
+    ...     constraints=[2],
+    ... )
+    >>> pp.matches_criteria(1, "sw", relative_chord_factors=[2, 4])
+    True
+    >>> pp.matches_criteria(1, "sw", relative_chord_factors=[3, 5])
+    False
+
+    If interval_to_next is None, matches anything:
+
+    >>> pp = PrefabPitches(
+    ...     interval_to_next=None,
+    ...     metric_strength_str="_",
+    ...     relative_degrees=[0],
+    ...     constraints=[2],
+    ... )
+    >>> pp.matches_criteria(5, "s", relative_chord_factors=[2, 4])
+    True
+    >>> pp.matches_criteria(173, "s", relative_chord_factors=[2, 4])
+    True
+
+    For more specificity, relative degrees can be strings.
+
+    Alterations to relative degrees are specified with "#" and "b":
+    >>> pp = PrefabPitches(
+    ...     interval_to_next=None,
+    ...     metric_strength_str="___",
+    ...     relative_degrees=[0, "#-1", 0],
+    ... )
+    >>> pp.alterations
+    {1: '#'}
+
+    Minimum and maximum durations for relative degrees can be specified with 'm'
+    and 'M' respectively following the relative degree. These can be indicated
+    as ints (will be cast to floats), floats, or Fractions.
+    >>> pp = PrefabPitches(
+    ...     interval_to_next=None,
+    ...     metric_strength_str="___",
+    ...     relative_degrees=[0, "#-1M2m0.25", "0m2/3M4/1"],
+    ... )
+    >>> pp.min_iois
+    {1: 0.25, 2: Fraction(2, 3)}
+    >>> pp.max_iois
+    {1: 2.0, 2: Fraction(4, 1)}
+
+    If the last relative degree should be tied to the first note of the next
+    pattern, this can be indicated by appending 't' to the end of the string.
+    >>> pp = PrefabPitches(
+    ...     interval_to_next=[2],
+    ...     metric_strength_str="___",
+    ...     relative_degrees=[0, 1, "2t"],
+    ... )
+    >>> pp.tie_to_next
+    True
+    """
+
+    interval_to_next: t.Optional[t.Union[int, t.Sequence[int]]]
     metric_strength_str: str
-    relative_degrees: t.Sequence[int]
+    relative_degrees: t.Sequence[t.Union[int, str]]
     # constraints: specifies intervals relative to the initial pitch that
     #   must be contained in the chord.
     #   Thus if constraints=[-2], the prefab could occur starting on the 3rd or
@@ -20,7 +96,44 @@ class PrefabPitches:
     #   could occur on only the fifth of a triad. Etc.
     constraints: t.Sequence[int] = ()
 
+    # __post_init__ defines the following attributes:
+    alterations: t.Dict[int, str] = field(default_factory=dict, init=False)
+    tie_to_next: bool = field(default=False, init=False)
+    intervals: t.Optional[t.List[int]] = field(default=None, init=False)
+    min_iois: t.Dict[int, Number] = field(default_factory=dict, init=False)
+    max_iois: t.Dict[int, Number] = field(default_factory=dict, init=False)
+
     def __post_init__(self):
+        assert len(self.relative_degrees) == len(self.metric_strength_str)
+        temp_degrees = []
+        for i, relative_degree in enumerate(self.relative_degrees):
+            m = re.match(RELATIVE_DEGREE_REGEX, str(relative_degree))
+            if not m:
+                raise ValueError(f"Illegal relative degree {relative_degree}")
+            temp_degrees.append(int(m.group("relative_degree")))
+            if m.group("alteration"):
+                self.alterations[i] = m.group("alteration")
+            if m.group("ioi_constraints"):
+                max_ioi_m = re.search(MAX_IOI_REGEX, m.group("ioi_constraints"))
+                if max_ioi_m:
+                    if max_ioi_m.group("float"):
+                        self.max_iois[i] = float(max_ioi_m.group("float"))
+                    else:
+                        self.max_iois[i] = Fraction(max_ioi_m.group("frac"))
+                min_ioi_m = re.search(MIN_IOI_REGEX, m.group("ioi_constraints"))
+                if min_ioi_m:
+                    if min_ioi_m.group("float"):
+                        self.min_iois[i] = float(min_ioi_m.group("float"))
+                    else:
+                        self.min_iois[i] = Fraction(min_ioi_m.group("frac"))
+            if m.group("tie_to_next"):
+                if i != len(self.relative_degrees) - 1:
+                    raise ValueError(
+                        "only last relative degree can be tied to next"
+                    )
+                self.tie_to_next = True
+
+        self.relative_degrees = temp_degrees
         if isinstance(self.interval_to_next, int):
             self.interval_to_next = (self.interval_to_next,)
         self.intervals = [
@@ -29,7 +142,6 @@ class PrefabPitches:
                 self.relative_degrees[:-1], self.relative_degrees[1:]
             )
         ]
-        assert len(self.relative_degrees) == len(self.metric_strength_str)
 
     def __len__(self):
         return len(self.metric_strength_str)
@@ -39,11 +151,9 @@ class PrefabPitches:
         interval_to_next: t.Optional[int] = None,
         metric_strength_str: t.Optional[str] = None,
         relative_chord_factors: t.Optional[int] = None,
-        # harmonic_interval_above_bass: t.Optional[int] = None,
-        # chord_intervals: t.Optional[t.Tuple[int]] = None,
     ) -> bool:
         if (
-            interval_to_next is not None
+            None not in (interval_to_next, self.interval_to_next)
             and interval_to_next not in self.interval_to_next
         ):
             return False
@@ -69,13 +179,18 @@ THREE_PREFABS = (
     PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3]),
     PP([-2], "__w", [0, -3, -1], [-3]),
     PP(None, "___", [0, -1, 0]),
+    PP([4], "___", [0, 2, "4t"], constraints=[2, 4]),
+    PP([2], "___", [0, 1, "2t"], constraints=[2]),
+    PP([2], "___", [0, -2, "2t"], constraints=[-2, 2]),
+    PP([2], "___", [0, -3, "2t"], constraints=[-3, 2]),
 )
 
 FOUR_PREFABS = (
-    PP([0, -2], "s___", [0, 1, 0, -1]),
-    PP([0, 2], "s___", [0, -1, 0, 1]),
+    PP([0], "s___", [0, 1, 0, "#-1"]),
+    PP([-2], "s___", [0, 1, 0, -1]),
+    PP([0, 2], "s___", [0, "#-1", 0, 1]),
     PP([0, -2], "s___", [0, -3, -2, -1], [-3]),
-    PP([1, -2, -3], "_w__", [0, 1, -1, 0]),
+    PP([1, -2, -3], "_w__", [0, 1, "#-1", 0]),
     PP([-1, 1, 3, 4, 5, 7], "_w__", [0, 1, 2, 0], [2]),
     PP([-1, 1, 3, 4], "____", [0, 2, 1, 0], constraints=[2]),
     PP([-1], "____", [0, 2, 1, 0], constraints=[1, 3]),
@@ -102,7 +217,9 @@ ASC_SCALE_FRAGMENTS = tuple(
 DESC_SCALE_FRAGMENTS = tuple(
     PP([i], "_" * abs(i), list(range(0, i, -1))) for i in range(-1, -12, -1)
 )
-PREFABS = FOUR_PREFABS + ASC_SCALE_FRAGMENTS + DESC_SCALE_FRAGMENTS
+PREFABS = (
+    THREE_PREFABS + FOUR_PREFABS + ASC_SCALE_FRAGMENTS + DESC_SCALE_FRAGMENTS
+)
 
 
 class PrefabPitchDirectory:

@@ -88,7 +88,7 @@ class Scale:
     def __contains__(self, pitch):
         return pitch % self._tet in self._pcs
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: int) -> int:
         """
         >>> scale = Scale([7,9,11,0,2,4,6]) # G major
         >>> scale[35] # tonic in 5th octave is 5 * 7
@@ -96,6 +96,58 @@ class Scale:
         """
         octave, scale_degree = divmod(key + self._tonic_idx, len(self))
         return self._pcs[scale_degree] + self._tet * octave + self._zero_pitch
+
+    def get_auxiliary(
+        self,
+        scale_degree: int,
+        alteration: str,
+        lowered_degrees: str = "natural",
+    ) -> int:
+        """
+
+        Args:
+            alteration: either "+" or "#" for raised, or "-" or "b" for lowered.
+            lowered_degrees: either "natural" or "chromatic".
+
+        If alteration is "+", the pitch one semitone below the next higher
+        scale pitch is returned.
+        >>> g_major = Scale([7,9,11,0,2,4,6])
+        >>> g_major.get_auxiliary(35, "+") # raised ^1 = G#
+        68
+
+        >>> d_minor = Scale([2,4,5,7,9,10,1]) # D harmonic minor
+        >>> d_minor.get_auxiliary(33, "+") # raised ^6 = B#
+        60
+
+
+        If alteration is '-', the behavior is influenced by `lower_degrees`.
+
+        If `lower_degrees` is "natural", then if there is a semitone below
+        the scale degree, it is left unaltered. Otherwise, it is lowered by
+        a semitone.
+
+        >>> d_minor.get_auxiliary(36, "-") # ^2 has whole-tone below, lowered to Eb
+        63
+        >>> d_minor.get_auxiliary(35, "-") # ^1 has semitone below, left as D
+        62
+        >>> d_minor.get_auxiliary(34, "-") # ^7 has augmented 2nd below, lowered to C
+        60
+
+        Otherwise if `lower_degrees` is "chromatic", then the pitch one semitone
+        above the next lower scale pitch is returned. This is analogous to the
+        behavior of "+", but is less musically common.
+        >>> d_minor.get_auxiliary(34, "-",
+        ...     lowered_degrees="chromatic") # ^7 has augmented 2nd below, lowered to Cb
+        59
+        """
+        if alteration in ("+", "#"):
+            return self[scale_degree + 1] - 1
+        elif lowered_degrees == "chromatic":
+            return self[scale_degree - 1] + 1
+        unaltered = self[scale_degree]
+        if unaltered - self[scale_degree - 1] == 1:
+            return unaltered
+        return unaltered - 1
 
     @property
     def pcs(self):  # pylint: disable=missing-docstring

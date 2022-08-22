@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from functools import cached_property
 from numbers import Number
 import pandas as pd
@@ -28,6 +28,7 @@ class Note(pd.Series):
         release: t.Optional[Number] = None,
         dur: t.Optional[Number] = None,
         track: int = 1,
+        tie_to_next: bool = False,
     ):
         if release is None:
             release = onset + dur
@@ -38,6 +39,7 @@ class Note(pd.Series):
                 "release": release,
                 "type": "note",
                 "track": track,
+                "tie_to_next": tie_to_next,
             }
         )
 
@@ -53,6 +55,93 @@ def notes(
         Note(pitch, onset, release=release, dur=dur, track=track)
         for pitch in pitches
     ]
+
+
+def apply_ties(
+    notes: t.Iterable[Note], check_correctness: bool = False
+) -> t.List[Note]:
+    """
+    >>> len(apply_ties([Note(60, 0.0, 1.0), Note(60, 1.0, 2.0)]))
+    2
+    >>> len(apply_ties(
+    ...     [Note(60, 0.0, 1.0, tie_to_next=True), Note(60, 1.0, 2.0)])
+    ... )
+    1
+    >>> len(apply_ties(
+    ...     [Note(60, 0.0, 1.0, tie_to_next=True),
+    ...      Note(60, 1.0, 2.0, tie_to_next=True),
+    ...      Note(60, 2.0, 3.0),
+    ...      Note(60, 3.0, 4.0, tie_to_next=True),
+    ...      Note(60, 4.0, 5.0)]
+    ... ))
+    2
+
+    An exception is always raised if the last note is a tie (because there is
+    nothing for it to be tied to).
+
+    >>> apply_ties([Note(60, 0.0, 1.0), Note(60, 1.0, 2.0, tie_to_next=True)])
+    Traceback (most recent call last):
+    ValueError: last Note has tie_to_next=True
+
+    If check_correctness is True, we make sure that all tied notes have
+    the same pitch and that the release of the first note == the onset of the
+    second.
+
+    >>> apply_ties(
+    ...     [Note(60, 0.0, 1.0, tie_to_next=True),
+    ...      Note(60, 1.0, 2.0, tie_to_next=True),
+    ...      Note(60, 2.5, 3.0)],
+    ...     check_correctness=True,
+    ... )
+    Traceback (most recent call last):
+    ValueError: Release of note at 2.0 != onset of note at 2.5
+
+    >>> apply_ties(
+    ...     [Note(60, 0.0, 1.0, tie_to_next=True),
+    ...      Note(60, 1.0, 2.0),
+    ...      Note(60, 2.5, 3.0, tie_to_next=True),
+    ...      Note(62, 3.0, 4.0)],
+    ...     check_correctness=True,
+    ... )
+    Traceback (most recent call last):
+    ValueError: Tied notes have different pitches 60 and 62
+    """
+
+    def _check_pair(note1: Note, note2: Note):
+        if note1.pitch != note2.pitch:
+            raise ValueError(
+                f"Tied notes have different pitches {note1.pitch} "
+                f"and {note2.pitch}"
+            )
+        if note1.release != note2.onset:
+            raise ValueError(
+                f"Release of note at {note1.release} != "
+                f"onset of note at {note2.onset}"
+            )
+
+    out = []
+    queue = deque()
+    for note in notes:
+        if note.tie_to_next:
+            queue.append(note)
+        elif queue:
+            first_note = queue.popleft()
+            if check_correctness:
+                note1 = first_note
+                while queue:
+                    note2 = queue.popleft()
+                    _check_pair(note1, note2)
+                    note1 = note2
+                _check_pair(note1, note)
+            new_note = first_note.copy()
+            new_note.release = note.release
+            out.append(new_note)
+            queue.clear()
+        else:
+            out.append(note.copy())
+    if queue:
+        raise ValueError("last Note has tie_to_next=True")
+    return out
 
 
 # class Chord:
@@ -116,9 +205,14 @@ class Score:
         prefab_track: int = 1,
         bass_track: int = 2,
         accompaniments_track: int = 3,
+        ts: t.Optional[str] = None,
     ):
         if isinstance(chord_data, str):
             chord_data, _, ts = rn_to_pc(chord_data)
+        else:
+            raise ValueError(
+                f"`ts` must be supplied if `chord_data` is a pandas DataFrame"
+            )
         self.ts = ts
         self.chord_data = chord_data
         self._scale_getter = ScaleGetter(chord_data.scale_pcs)
@@ -146,6 +240,19 @@ class Score:
     def chords(self) -> pd.DataFrame:
         return self.chord_data
 
+    @chords.setter
+    def chords(self, new_df: pd.DataFrame):
+        self.chord_data = new_df
+        # deleting self.structural_bass allows it to be regenerated next
+        #   time it is needed
+        del self.structural_bass
+        self._scale_getter = ScaleGetter(self.chord_data.scale_pcs)
+        self._structural_melody_interval_getter = (
+            StructuralMelodyIntervalGetter(
+                self.scales, self.structural_melody, self.structural_bass
+            )
+        )
+
     @property
     def scales(self) -> ScaleGetter:
         return self._scale_getter
@@ -168,7 +275,12 @@ class Score:
 
     @property
     def prefabs_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(note for prefab in self.prefabs for note in prefab)
+        return pd.DataFrame(
+            apply_ties(
+                (note for prefab in self.prefabs for note in prefab),
+                check_correctness=True,  # TODO remove this when I'm more confident
+            )
+        )
 
     @property
     def accompaniments_as_df(self) -> pd.DataFrame:
