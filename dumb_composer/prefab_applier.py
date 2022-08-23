@@ -51,8 +51,12 @@ class PrefabApplier:
         track: int = 1,
     ) -> t.List[Note]:
         notes = []
-        # need to displace by initial_onset somewhere
+        # TODO if and when we allow "chromatic" suspensions (i.e.,
+        #   suspensions that belong to the chord/scale of the preparation
+        #   but not to the chord/scale of the suspension) scale.index can
+        #   fail.
         orig_scale_degree = scale.index(initial_pitch)
+
         for i, (rel_scale_degree, onset, release) in enumerate(
             zip(
                 prefab_pitches.relative_degrees,
@@ -92,16 +96,25 @@ class PrefabApplier:
         is_suspension = current_i in score.suspension_indices
         is_preparation = current_i + 1 in score.suspension_indices
         is_after_tie = current_i - 1 in score.tied_prefab_indices
+        start_with_rest = (
+            None
+            if current_i not in score.allow_prefab_start_with_rest
+            else score.allow_prefab_start_with_rest[current_i]
+        )
         rhythm_options = self.prefab_rhythm_dir(
             current_chord.release - current_chord.onset,
             # TODO metric strength
             is_suspension=is_suspension,
             is_preparation=is_preparation,
             is_after_tie=is_after_tie,
+            start_with_rest=start_with_rest,
         )
         while rhythm_options:
             rhythm_i = random.randrange(len(rhythm_options))
             rhythm = rhythm_options.pop(rhythm_i)
+            score.allow_prefab_start_with_rest[
+                current_i + 1
+            ] = rhythm.allow_next_to_start_with_rest
             generic_pitch_interval = current_scale.get_interval(
                 current_mel_pitch, next_mel_pitch, scale2=next_scale
             )
@@ -135,6 +148,7 @@ class PrefabApplier:
                 )
                 if pitches.tie_to_next:
                     score.tied_prefab_indices.remove(current_i)
+            del score.allow_prefab_start_with_rest[current_i + 1]
         raise DeadEnd()
 
     def _final_step(self, score: Score):

@@ -1,3 +1,5 @@
+from copy import copy
+from fractions import Fraction
 import math
 from numbers import Number
 import operator
@@ -13,6 +15,8 @@ from .time_utils import get_onsets_within_duration
 
 
 def rhythm_method(**kwargs):
+    # TODO this could be rewritten on the simpler and clearer model of
+    #   pattern_method() in patterns.py
     def with_constraints(f):
         allowed_kwargs = [f"not_{condition}" for condition in METER_CONDITIONS]
         assert all(kwarg in allowed_kwargs for kwarg in kwargs)
@@ -22,6 +26,32 @@ def rhythm_method(**kwargs):
         return f
 
     return with_constraints
+
+
+def empty_avoider(release_finder: str):
+    def decorator(f):
+        def wrap(
+            self, onset, release, *args, avoid_empty: bool = False, **kwargs
+        ):
+            out = f(self, onset, release, *args, **kwargs)
+            if not out and avoid_empty:
+                out = [
+                    {
+                        "onset": onset,
+                        "weight": self.meter.weight(onset),
+                        "release": min(
+                            release,
+                            getattr(self.meter, release_finder)(
+                                onset, inclusive=False
+                            ),
+                        ),
+                    }
+                ]
+            return out
+
+        return wrap
+
+    return decorator
 
 
 class TimeClass:
@@ -75,6 +105,10 @@ class TimeClass:
         return math.floor((threshold / grid_length) + 1) * grid_length
 
 
+class MeterError(Exception):
+    pass
+
+
 class Meter(TimeClass):
     # this class should return the metric strength (as an integer, where 0 is
     # tactus) of a given time point
@@ -96,8 +130,13 @@ class Meter(TimeClass):
         self._superbeat_dur = (
             self._beat_dur * 3 if self._triple else self._beat_dur * 2
         )
-        self._memo = {}
+        self._weight_memo = {}
+        self._odd_memo: t.Dict[Number, bool] = {}
         self._min_weight = min_weight
+
+    @property
+    def ts_str(self):
+        return self._ts_str
 
     # TODO doctest doesn't run with cached_property (at least in pytest)
     @cached_property
@@ -277,8 +316,8 @@ class Meter(TimeClass):
     def weight(self, time):
         time = TIME_TYPE(time)
         time %= self._total_dur
-        if time in self._memo:
-            return self._memo[time]
+        if time in self._weight_memo:
+            return self._weight_memo[time]
 
         if self._compound:
             out = self._compound_weight(time)
@@ -286,7 +325,7 @@ class Meter(TimeClass):
             out = self._triple_weight(time)
         else:
             out = self._duple_weight(time)
-        self._memo[time] = out
+        self._weight_memo[time] = out
         return out
 
     def weights_between(
@@ -353,6 +392,15 @@ class Meter(TimeClass):
     def superbeats_between(self, *args, **kwargs):
         return self.weights_between(self._superbeat_dur, *args, **kwargs)
 
+    def beat_after(self, time: Number, inclusive: bool = True):
+        return self._first_after(time, self.beat_dur, inclusive=inclusive)
+
+    def semibeat_after(self, time: Number, inclusive: bool = True):
+        return self._first_after(time, self.semibeat_dur, inclusive=inclusive)
+
+    def superbeat_after(self, time: Number, inclusive: bool = True):
+        return self._first_after(time, self.superbeat_dur, inclusive=inclusive)
+
     def get_onset_of_greatest_weight_between(
         self,
         start: Number,
@@ -372,10 +420,22 @@ class Meter(TimeClass):
         ...     4.5, 9.0, include_stop=True)
         (Fraction(9, 1), 1)
 
+        If `return_first` is True, then in the event of a tie (which can occur
+        between downbeats, or between the 2nd and 3rd pulses in triple
+        divisions), we take the first item. Otherwise, if there are two items,
+        we take the second one.
+
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     0.5, 1.5)
+        (Fraction(1, 1), -1)
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     0.5, 1.5, return_first=True)
+        (Fraction(1, 2), -1)
+
         If the interval is several measures or more long, there may be a tie
-        between many downbeats. In this case, we take middle downbeat (if there
-        are an odd number), or the middle + 1th downbeat (if there are an even
-        number).
+        between many downbeats. In this case, if `return_first` is False, we
+        take middle downbeat (if there are an odd number), or the middle + 1th
+        downbeat (if there are an even number).
 
         >>> nine_eight.get_onset_of_greatest_weight_between(
         ...     0.0, 13.5) # first 3 measures, returns downbeat of measure 2
@@ -383,6 +443,9 @@ class Meter(TimeClass):
         >>> nine_eight.get_onset_of_greatest_weight_between(
         ...     0.0, 18.0) # first 4 measures, returns downbeat of measure 3
         (Fraction(9, 1), 1)
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     0.0, 18.0, return_first=True) # returns downbeat of measure 1
+        (Fraction(0, 1), 1)
         """
         for weight in range(self.max_weight, self._min_weight - 1, -1):
             grid = self.weight_to_grid[weight]
@@ -396,12 +459,120 @@ class Meter(TimeClass):
             )
             if onsets:
                 break
+        if not onsets:
+            raise MeterError(
+                f"no onsets between {start} and {stop} with weight greater "
+                f"than self.min_weight={self.min_weight}"
+            )
+        if len(onsets) == 1 or return_first:
+            return tuple(onsets[0].values())
         if len(onsets) > 2:
             assert all(onset["weight"] == self.max_weight for onset in onsets)
             return tuple(onsets[math.floor(len(onsets) / 2)].values())
-        if len(onsets) == 1 or return_first:
-            return tuple(onsets[0].values())
         return tuple(onsets[1].values())
+
+    def split_at_metric_strong_points(
+        self, items: t.List[t.Any]
+    ) -> t.List[t.Any]:
+        """
+        Items in input list must have mutable "onset" and "release" attributes.
+        They will be shallow-copied.
+
+        >>> class Foo:
+        ...     def __init__(self, onset, release):
+        ...         self.onset, self.release = onset, release
+        ...
+        ...     def __repr__(self):
+        ...         return f"Foo({self.onset}, {self.release})"
+
+        >>> three_four = Meter("4/4")
+        >>> three_four.split_at_metric_strong_points([Foo(0, 9), Foo(9, 14), Foo(14, 18)])
+        [Foo(0, 4), Foo(4, 8), Foo(8, 9), Foo(9, 12), Foo(12, 14), Foo(14, 16), Foo(16, 18)]
+
+        """
+        out = []
+        for item in items:
+            start_onset = item.onset
+            start_weight = self.weight(item.onset)
+            mid_onset, mid_weight = self.get_onset_of_greatest_weight_between(
+                item.onset, item.release, include_start=False, return_first=True
+            )
+            while mid_weight >= start_weight:
+                new_item = copy(item)
+                new_item.onset = start_onset
+                new_item.release = mid_onset
+                out.append(new_item)
+                start_onset, start_weight = mid_onset, mid_weight
+                (
+                    mid_onset,
+                    mid_weight,
+                ) = self.get_onset_of_greatest_weight_between(
+                    start_onset,
+                    item.release,
+                    include_start=False,
+                    return_first=True,
+                )
+            item.onset = start_onset
+            out.append(item)
+        return out
+
+    def duration_is_odd(
+        self, duration: Number, _limit_denom: int = 1000
+    ) -> bool:
+        """
+        An 'odd' duration is one that is not either
+        - 2**n times a metric division (where n is an integer)
+        - 3 * 2**n times a metric division (where n is an integer)
+
+        TODO the above definition isn't correct for meters like 9/4.
+
+        Durations are internally converted to fractions to avoid float errors,
+        using the _limit_denom argument.
+
+        >>> four_four = Meter("4/4")
+        >>> four_four.duration_is_odd(2)
+        False
+        >>> any(
+        ...     four_four.duration_is_odd(dur)
+        ...     for dur in (1/4, 1/2, 3/4, 1, 3/2, 2, 3, 4, 6, 8, 32, 96, 512)
+        ... )
+        False
+        >>> four_four.duration_is_odd(5)
+        True
+        >>> all(
+        ...     four_four.duration_is_odd(dur)
+        ...     for dur in (5/4, 5/2, 5, 10, 7/4, 7/2, 7, 9/4, 9/2, 9, 13/4, 17/4)
+        ... )
+        True
+
+        >>> nine_four = Meter("9/4")
+        >>> nine_four.duration_is_odd(9)
+        False
+
+        """
+        if duration in self._odd_memo:
+            return self._odd_memo[duration]
+
+        orig_duration = duration
+        duration = Fraction(duration).limit_denominator(_limit_denom)
+        for weight in range(self.max_weight, self.min_weight - 1, -1):
+            grid = Fraction(self.weight_to_grid[weight]).limit_denominator(
+                _limit_denom
+            )
+            if grid > duration * 3:
+                continue
+            x = duration / 3 / grid
+            if not math.log2(x) % 1:
+                self._odd_memo[orig_duration] = False
+                return False
+            if grid > duration:
+                continue
+            x = duration / grid
+            if not math.log2(x) % 1:
+                self._odd_memo[orig_duration] = False
+                return False
+        self._odd_memo[orig_duration] = True
+        return True
 
 
 class RhythmFetcher(TimeClass):
@@ -462,18 +633,22 @@ class RhythmFetcher(TimeClass):
         return out
 
     @rhythm_method()
+    @empty_avoider("beat_after")
     def beats(self, onset, release):
         return self._regularly_spaced(self.beat_dur, onset, release)
 
     @rhythm_method()
+    @empty_avoider("semibeat_after")
     def semibeats(self, onset, release):
         return self._regularly_spaced(self.semibeat_dur, onset, release)
 
     @rhythm_method()
+    @empty_avoider("superbeat_after")
     def superbeats(self, onset, release):
         return self._regularly_spaced(self.superbeat_dur, onset, release)
 
     @rhythm_method(not_triple=True, not_compound=True)
+    @empty_avoider("semibeat_after")
     def amphibrach(self, onset, release):
         semibeats = self.meter.semibeats_between(onset, release)
         on_weight = self.meter.beat_weight + 1
@@ -486,6 +661,7 @@ class RhythmFetcher(TimeClass):
         ]
 
     @rhythm_method(not_triple=True)
+    @empty_avoider("semibeat_after")
     def trochee(self, onset, release):
         semibeats = self.meter.semibeats_between(onset, release)
         if self.is_compound:
@@ -518,6 +694,7 @@ class RhythmFetcher(TimeClass):
         return out
 
     @rhythm_method(not_triple=True)
+    @empty_avoider("semibeat_after")
     def iamb(self, onset, release):
         inclusive = release % self.meter.beat_dur == 0
         semibeats = self.meter.semibeats_between(
@@ -555,33 +732,37 @@ class RhythmFetcher(TimeClass):
         return out
 
     @rhythm_method()
+    @empty_avoider("semibeat_after")
     def off_semibeats(self, onset, release):
         semibeats = self.meter.semibeats_between(onset, release)
         omit_weight = self.meter.beat_weight + 1
-        return [
+        out = [
             sb
             | {"release": min(release, sb["onset"] + self.meter.semibeat_dur)}
             for sb in semibeats
             if sb["weight"] < omit_weight
         ]
+        return out
 
     @rhythm_method()
+    @empty_avoider("beat_after")
     def off_beats(self, onset, release):
         beats = self.meter.beats_between(onset, release)
         omit_weight = self.meter.max_weight
-        return [
+        out = [
             sb | {"release": min(release, sb["onset"] + self.meter.beat_dur)}
             for sb in beats
             if sb["weight"] < omit_weight
         ]
+        return out
 
-    @rhythm_method()
-    def beats(self, onset, release):
-        beats = self.meter.beats_between(onset, release)
-        return [
-            sb | {"release": min(release, sb["onset"] + self.meter.beat_dur)}
-            for sb in beats
-        ]
+    # @rhythm_method()
+    # def beats(self, onset, release):
+    #     beats = self.meter.beats_between(onset, release)
+    #     return [
+    #         sb | {"release": min(release, sb["onset"] + self.meter.beat_dur)}
+    #         for sb in beats
+    #     ]
 
     # The definition of _all_rhythms should be the last line in the class
     # definition

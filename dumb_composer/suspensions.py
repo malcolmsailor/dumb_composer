@@ -6,7 +6,7 @@ from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
 )
-from .time import Meter
+from .time import Meter, MeterError
 
 
 def pitch_dissonant_against_chord(
@@ -61,6 +61,7 @@ class Suspension:
 def find_suspensions(
     current_pitch: int,
     next_chord_pcs: t.Sequence[int],
+    next_scale_pcs: t.Optional[t.Sequence[int]] = None,
     resolve_down_by: t.Tuple = (-1, -2),
     resolve_up_by: t.Tuple = (1,),
 ) -> t.List[Suspension]:
@@ -75,8 +76,7 @@ def find_suspensions(
     Suspension(resolves_by=-2, dissonant=True, interval_above_bass=6)
     Suspension(resolves_by=1, dissonant=True, interval_above_bass=6)
 
-    If the current pitch is already in the next chord, it can't be a
-    suspension.
+    If the current pitch is already in the next chord, it can't be a suspension.
 
     >>> find_suspensions(67, (2, 5, 7, 11))
     []
@@ -104,6 +104,13 @@ def find_suspensions(
 
     >>> find_suspensions(62, (0, 5, 9))[0].dissonant
     True
+
+    We can disable "chromatic" suspensions (i.e., suspensions that belong to the
+    chord/scale of the preparation but not to the chord/scale of the suspension)
+    by providing the `scale_pcs` argument; if this argument is not None, the
+    current_pitch has to belong to the scale.
+    >>> find_suspensions(69, (0, 4, 7), (0, 2, 3, 5, 7, 8, 11))
+    False
     """
 
     def _append(current_pitch, interval, next_pc):
@@ -115,6 +122,8 @@ def find_suspensions(
         out.append(Suspension(interval, dissonant, interval_above_bass))
 
     out = []
+    if next_scale_pcs is not None and current_pitch % 12 not in next_scale_pcs:
+        return out
     next_chord_set = set(next_chord_pcs)
     if current_pitch % 12 in next_chord_set:
         return out
@@ -147,9 +156,12 @@ def find_suspension_releases(
         max_suspension_dur = meter.bar_dur
     diss_onset, diss_weight = start, meter.weight(start)
     while True:
-        res_onset, res_weight = meter.get_onset_of_greatest_weight_between(
-            start, stop, include_start=False, return_first=False
-        )
+        try:
+            res_onset, res_weight = meter.get_onset_of_greatest_weight_between(
+                start, stop, include_start=False, return_first=False
+            )
+        except MeterError:
+            break
         if (
             max_weight_diff is not None
             and diss_weight - res_weight > max_weight_diff

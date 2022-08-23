@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from functools import cached_property
 from numbers import Number
+import re
 import pandas as pd
 import typing as t
 
@@ -14,6 +15,14 @@ from .pitch_utils.put_in_range import put_in_range
 
 from .pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.chords import Chord
+
+from enum import Enum
+
+
+class Allow(Enum):
+    NO = 1
+    YES = 2
+    ONLY = 3
 
 
 class Annotation(pd.Series):
@@ -61,6 +70,35 @@ def notes(
         Note(pitch, onset, release=release, dur=dur, track=track)
         for pitch in pitches
     ]
+
+
+def print_notes(notes: t.Iterable[Note]) -> None:
+    """Helper function to make printing notes convenient in doctests.
+
+    >>> print_notes([
+    ...     Note(pitch=48, onset=0, release=1),
+    ...     Note(pitch=52, onset=1, release=2),
+    ...     Note(pitch=55, onset=1, release=2),
+    ... ])
+    on  off   pitches
+    0    1     (48,)
+    1    2  (52, 55)
+    """
+    df = pd.DataFrame(notes)
+    df["on_off"] = [(row.onset, row.release) for _, row in df.iterrows()]
+    df.sort_values("on_off", inplace=True, kind="mergesort")
+    out = defaultdict(list)
+    for on, off in df["on_off"].unique():
+        out["on"].append(on)
+        out["off"].append(off)
+        out["pitches"].append(tuple(df[df["on_off"] == (on, off)]["pitch"]))
+    df = pd.DataFrame(out)
+    for line in str(df).split("\n"):
+        m = re.match(r"^\d* +(.*)$", line)
+        if m:
+            print(m.group(1))
+        else:
+            print(line)
 
 
 def apply_ties(
@@ -229,7 +267,7 @@ class Score:
         prefab_track: int = 1,
         bass_track: int = 2,
         accompaniments_track: int = 3,
-        ts: t.Optional[str] = None,
+        ts: t.Optional[t.Union[Meter, str]] = None,
     ):
         if isinstance(chord_data, str):
             chord_data, _, ts = get_chords_from_rntxt(chord_data)
@@ -237,7 +275,10 @@ class Score:
             raise ValueError(
                 f"`ts` must be supplied if `chord_data` is not a string"
             )
-        self.ts = Meter(ts)
+        if isinstance(ts, str):
+            self.ts = Meter(ts)
+        else:
+            self.ts = ts
         self._chords = chord_data
         self._scale_getter = ScaleGetter(
             chord.scale_pcs for chord in chord_data
@@ -258,6 +299,7 @@ class Score:
         self.accompaniments_track = accompaniments_track
         self.suspension_indices: t.Set[int] = set()
         self.tied_prefab_indices: t.Set[int] = set()
+        self.allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
 
     @cached_property
     def structural_bass(self) -> t.List[int]:

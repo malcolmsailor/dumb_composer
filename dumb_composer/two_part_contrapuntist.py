@@ -110,7 +110,15 @@ class TwoPartContrapuntist:
         )
         if not suspension_releases:
             return None
-        suspensions = find_suspensions(cur_mel_pitch, next_chord.pcs)
+        suspensions = find_suspensions(
+            # TODO providing next_scale_pcs prohibits "chromatic" suspensions
+            #   (see the definition of find_suspensions()) but in the long
+            #   run I'm not sure whether this is indeed something we want to
+            #   do.
+            cur_mel_pitch,
+            next_chord.pcs,
+            next_scale_pcs=next_chord.scale_pcs,
+        )
         if not suspensions:
             return None
         suspension = random.choices(

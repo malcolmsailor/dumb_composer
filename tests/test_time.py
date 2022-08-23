@@ -1,5 +1,8 @@
+from dataclasses import dataclass
+from numbers import Number
 import random
 from dumb_composer.time import Meter, RhythmFetcher
+import typing as t
 
 
 def test_meter():
@@ -175,3 +178,66 @@ def test_rhythm_fetcher():
     #     print(rf(onset=0, release=4))
     #     print(rf.beats(0, 4))
     #     print(rf.semibeats(0, 4))
+
+
+def test_duration_is_odd():
+    @dataclass
+    class TestCase:
+        meter: str
+        odd: t.Tuple[Number]
+        not_odd: t.Tuple[Number]
+
+    testcases = [
+        TestCase(
+            "4/4",
+            odd=(
+                5 / 4,
+                5 / 2,
+                5,
+                10,
+                7 / 4,
+                7 / 2,
+                7,
+                9 / 4,
+                9 / 2,
+                9,
+                13 / 4,
+                17 / 4,
+                33,
+                95,
+                514,
+            ),
+            not_odd=(
+                1 / 4,
+                3 / 8,
+                1 / 2,
+                3 / 4,
+                1,
+                3 / 2,
+                2,
+                3,
+                4,
+                6,
+                8,
+                32,
+                96,
+                512,
+            ),
+        ),
+        TestCase(
+            "9/4",
+            odd=(4, 5, 7, 8, 10, 12, 13, 15),
+            not_odd=(3 / 4, 3 / 2, 3, 6, 9, 18, 27, 2),
+        ),
+        TestCase(
+            "6/4",
+            odd=(),
+            not_odd=(1, 2, 3, 6, 9, 12),
+        ),
+    ]
+    for testcase in testcases:
+        meter = Meter(testcase.meter)
+        for not_odd in testcase.not_odd:
+            assert not meter.duration_is_odd(not_odd)
+        for odd in testcase.odd:
+            assert meter.duration_is_odd(odd)

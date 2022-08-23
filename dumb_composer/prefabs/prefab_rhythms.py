@@ -7,18 +7,14 @@ import textwrap
 
 from dumb_composer.time_utils import get_min_ioi, get_max_ioi
 from dumb_composer.utils.recursion import UndoRecursiveStep
-
-from enum import Enum
-
-
-class Allow(Enum):
-    NO = 1
-    YES = 2
-    ONLY = 3
+from dumb_composer.shared_classes import Allow
 
 
 class MissingPrefabError(UndoRecursiveStep):
     pass
+
+
+MIN_DEFAULT_RHYTHM_BEFORE_REST = 1 / 2
 
 
 @dataclass
@@ -37,12 +33,20 @@ class PrefabRhythms:
     allow_preparation: Allow = Allow.NO
     allow_after_tie: t.Optional[Allow] = None
 
+    # if allow_ext_to_start_with_rest is None, we set it according to the
+    #   following heuristic:
+    #       - if the rhythm ends with a rest, set to Allow.YES
+    #       - else if last onset is <= 1/4 the length of the rhythm, or less
+    #           than MIN_DEFAULT_RHYTHM_BEFORE_REST set to allow.NO
+    #       - else, set to allow.YES
+    allow_next_to_start_with_rest: t.Optional[Allow] = None
+
     # we scale the prefab rhythms by factors of 2 to increase the vocabulary.
     # So, e.g., (0.0, 1.0, 3.0 )could also become (0.0, 0.5, 1.5), or
     # (0.0, 2.0, 6.0). We can set limits on the scaling according to the nature
     # of the rhythm.
-    min_scaled_ioi: Number = 0.25  # should be a power of 2
-    max_scaled_ioi: Number = 4.0  # should be a power of 2
+    min_scaled_ioi: Number = 0.25
+    max_scaled_ioi: Number = 4.0
 
     def __post_init__(self):
         if self.allow_after_tie is None:
@@ -57,10 +61,19 @@ class PrefabRhythms:
                 self.allow_suspension = Allow.YES
         if self.releases is None:
             self.releases = self.onsets[1:] + [self.total_dur]
+        if self.allow_next_to_start_with_rest is None:
+            if self.releases[-1] < self.total_dur:
+                self.allow_next_to_start_with_rest = Allow.YES
+            else:
+                last_dur = self.total_dur - self.onsets[-1]
+                if (
+                    last_dur < MIN_DEFAULT_RHYTHM_BEFORE_REST
+                    or last_dur / self.total_dur <= 1 / 4
+                ):
+                    self.allow_next_to_start_with_rest = Allow.NO
+                else:
+                    self.allow_next_to_start_with_rest = Allow.YES
         assert len(self.metric_strength_str) == len(self.onsets)
-        # TODO I think I can remove
-        # assert math.log2(self.min_scaled_ioi) % 1 == 0
-        # assert math.log2(self.max_scaled_ioi) % 1 == 0
 
     def __len__(self):
         return len(self.metric_strength_str)
@@ -72,12 +85,17 @@ class PrefabRhythms:
         is_suspension: bool = False,
         is_preparation: bool = False,
         is_after_tie: bool = False,
+        start_with_rest: Allow = Allow.YES,
     ):
         if not (
             self.total_dur == total_dur
             and self.endpoint_metric_strength_str
             == endpoint_metric_strength_str
         ):
+            return False
+        if start_with_rest is Allow.NO and self.onsets[0] != 0:
+            return False
+        elif start_with_rest is Allow.ONLY and self.onsets[0] == 0:
             return False
         for is_so, allowed in (
             (is_suspension, self.allow_suspension),
@@ -158,6 +176,8 @@ PREFABS = (
     PR2([0.0, 1.5], "sw"),
     PR2([1.0, 1.5], "__"),
     PR2([0.0, 1.0, 1.5], "s__"),
+    PR2([0.0, 1.0], "__"),
+    PR2([0.0], "_"),
 )
 
 
@@ -194,6 +214,7 @@ class PrefabRhythmDirectory:
         is_suspension: bool = False,
         is_preparation: bool = False,
         is_after_tie: bool = False,
+        start_with_rest: Allow = Allow.YES,
     ) -> t.List[PrefabRhythms]:
         tup = (
             total_dur,
@@ -201,6 +222,7 @@ class PrefabRhythmDirectory:
             is_suspension,
             is_preparation,
             is_after_tie,
+            start_with_rest,
         )
         if tup in self._memo:
             return self._memo[tup].copy()
@@ -214,6 +236,7 @@ class PrefabRhythmDirectory:
                     \tis_suspension: {is_suspension}
                     \tis_preparation: {is_preparation}
                     \tis_after_tie: {is_after_tie}
+                    \tstart_with_rest: {start_with_rest}
                     """
                 )
             )

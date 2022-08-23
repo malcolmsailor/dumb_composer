@@ -5,10 +5,10 @@ import re
 import textwrap
 import typing as t
 
+from dumb_composer.shared_classes import Allow
 from dumb_composer.prefabs.prefab_rhythms import (
     match_metric_strength_strs,
     MissingPrefabError,
-    Allow,
 )
 
 RELATIVE_DEGREE_REGEX = re.compile(
@@ -188,6 +188,13 @@ class PrefabPitches:
 
 PP = PrefabPitches
 
+TWO_PREFABS = (
+    PP([-1, 2, 3], "__", [0, -2], [-2]),
+    PP([-1, -2, 2], "__", [0, -3], [-3]),
+    PP([1, 3, 4, 5, -2, -3], "__", [0, 2], [2]),
+    PP([1, 2, 5], "__", [0, 3], [3]),
+)
+
 THREE_PREFABS = (
     PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3]),
     PP([-2], "__w", [0, -3, -1], [-3]),
@@ -250,7 +257,11 @@ DESC_SCALE_FRAGMENTS = tuple(
     PP([i], "_" * abs(i), list(range(0, i, -1))) for i in range(-1, -12, -1)
 )
 PREFABS = (
-    THREE_PREFABS + FOUR_PREFABS + ASC_SCALE_FRAGMENTS + DESC_SCALE_FRAGMENTS
+    TWO_PREFABS
+    + THREE_PREFABS
+    + FOUR_PREFABS
+    + ASC_SCALE_FRAGMENTS
+    + DESC_SCALE_FRAGMENTS
 )
 
 

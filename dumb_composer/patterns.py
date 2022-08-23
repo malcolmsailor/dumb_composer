@@ -2,22 +2,22 @@ import random
 from re import M
 import typing as t
 from types import MappingProxyType
-
+import pandas as pd
 
 from dumb_composer.time import RhythmFetcher, Meter
-from dumb_composer.shared_classes import Note, notes
+from dumb_composer.shared_classes import Allow, Note, notes, print_notes
 
 
-def pattern_method(requires_bass: bool = False, **kwargs):
+def pattern_method(
+    requires_bass: bool = False, allow_compound: Allow = Allow.YES
+):
     def wrap(f):
         setattr(f, "pattern_method", True)
         setattr(f, "requires_bass", requires_bass)
+        setattr(f, "allow_compound", allow_compound)
         return f
 
     return wrap
-
-
-# TODO why is Alberti bass "upside down" when melody is in bass?
 
 
 class PatternMaker:
@@ -38,27 +38,68 @@ class PatternMaker:
                 random so we can choose the same pattern twice in a row.)
                 Default 0.75.
         """
-        # eventually we may want to filter _all_patterns further
-        self._patterns = [name for name in self._all_patterns]
-        if not include_bass:
-            self._patterns = [
-                name
-                for name in self._all_patterns
-                if not getattr(self, name).requires_bass
-            ]
+        if isinstance(ts, str):
+            ts = Meter(ts)
+        self._patterns = self._filter_patterns(ts, include_bass)
         self.rf = RhythmFetcher(ts)
         self._inertia = inertia
-        self._prev_pattern = None
-        self._include_bass = include_bass
+        self._prev_pattern: t.Optional[str] = None
+
+    def _filter_patterns(self, ts: Meter, include_bass: bool) -> t.List[str]:
+        out = []
+        for pattern_name in self._all_patterns:
+            pattern_method = getattr(self, pattern_name)
+            if ts.is_compound and pattern_method.allow_compound is Allow.NO:
+                continue
+            elif (
+                not ts.is_compound
+                and pattern_method.allow_compound is Allow.ONLY
+            ):
+                continue
+            if not include_bass and pattern_method.requires_bass:
+                continue
+            out.append(pattern_name)
+        return out
 
     @pattern_method(requires_bass=True)
     def oompah(self, pitches, onset, release, track):
+        """
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="oompah"))
+        on off   pitches
+        0   1     (48,)
+        1   2  (64, 67)
+        2   3     (48,)
+        3   4  (64, 67)
+
+        In 3/4 gives the same results as `oompahpah`.
+
+        >>> pm = PatternMaker("3/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=3, pattern="oompah"))
+        on off   pitches
+        0   1     (48,)
+        1   2  (64, 67)
+        2   3  (64, 67)
+
+        The first beat is always given "oom". This may not be what you want so
+        it may be best to avoid using this pattern starting on a weakbeat.
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompah"))
+        on off   pitches
+        1   2     (48,)
+        2   3     (48,)
+        3   4  (64, 67)
+
+        """
         beats = self.rf.beats(onset, release)
         beat_weight = self.rf.beat_weight
         foot, others = pitches[0], pitches[1:]
         out = []
-        for beat in beats:
-            if beat["weight"] > beat_weight:
+        for i, beat in enumerate(beats):
+            if i == 0 or beat["weight"] > beat_weight:
                 out.append(
                     Note(foot, beat["onset"], beat["release"], track=track)
                 )
@@ -70,12 +111,41 @@ class PatternMaker:
 
     @pattern_method(requires_bass=True)
     def oompahpah(self, pitches, onset, release, track):
+        """
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="oompahpah"))
+        on off   pitches
+        0   1     (48,)
+        1   2  (64, 67)
+        2   3  (64, 67)
+        3   4  (64, 67)
+
+        In 3/4 gives the same results as `oompah`.
+        >>> pm = PatternMaker("3/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=3, pattern="oompahpah"))
+        on off   pitches
+        0   1     (48,)
+        1   2  (64, 67)
+        2   3  (64, 67)
+
+        The first beat is always given "oom". This may not be what you want so
+        it may be best to avoid using this pattern starting on a weakbeat.
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompahpah"))
+        on off   pitches
+        1   2     (48,)
+        2   3  (64, 67)
+        3   4  (64, 67)
+        """
         beats = self.rf.beats(onset, release)
         max_weight = self.rf.max_weight
         foot, others = pitches[0], pitches[1:]
         out = []
-        for beat in beats:
-            if beat["weight"] == max_weight:
+        for i, beat in enumerate(beats):
+            if i == 0 or beat["weight"] == max_weight:
                 out.append(
                     Note(foot, beat["onset"], beat["release"], track=track)
                 )
@@ -92,34 +162,79 @@ class PatternMaker:
             out.extend(notes(pitches, r["onset"], r["release"], track=track))
         return out
 
-    def _chords(self, rhythm_f, pitches, onset, release, track):
-        off_beats = rhythm_f(onset, release)
-        return self._apply_pitches_to_rhythms(off_beats, pitches, track)
+    def _chords(
+        self, rhythm_f, pitches, onset, release, track, avoid_empty: bool = True
+    ):
+        rhythms = rhythm_f(onset, release, avoid_empty=avoid_empty)
+        return self._apply_pitches_to_rhythms(rhythms, pitches, track)
 
     @pattern_method()
-    def off_beat_chords(self, *args, **kwargs):
-        return self._chords(self.rf.off_beats, *args, **kwargs)
+    def off_beat_chords(self, pitches, onset, release, track):
+        """
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="off_beat_chords"))
+        on off       pitches
+        1   2  (48, 64, 67)
+        2   3  (48, 64, 67)
+        3   4  (48, 64, 67)
+
+        If the interval between onset and release would not otherwise contain a
+        single chord, a chord will be inserted starting at onset:
+
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=1, pattern="off_beat_chords"))
+        on  off       pitches
+        0    1  (48, 64, 67)
+
+        This onset extends to release or until the next beat, whichever is sooner.
+
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=3.5, release=5, pattern="off_beat_chords"))
+        on off       pitches
+        3.5   4  (48, 64, 67)
+
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=3.5, release=3.75, pattern="off_beat_chords"))
+        on   off       pitches
+        3.5  3.75  (48, 64, 67)
+        """
+        return self._chords(self.rf.off_beats, pitches, onset, release, track)
 
     @pattern_method()
-    def off_semibeat_chords(self, *args, **kwargs):
-        return self._chords(self.rf.off_semibeats, *args, **kwargs)
+    def off_semibeat_chords(self, pitches, onset, release, track):
+        """
+        >>> pm = PatternMaker("4/4")
+        >>> print_notes(
+        ...     pm(pitches=[48, 64, 67], onset=0, release=2, pattern="off_semibeat_chords"))
+        on  off       pitches
+        1/2    1  (48, 64, 67)
+        1  3/2  (48, 64, 67)
+        3/2    2  (48, 64, 67)
+        """
+        return self._chords(
+            self.rf.off_semibeats, pitches, onset, release, track
+        )
 
     @pattern_method()
-    def beat_chords(self, *args, **kwargs):
-        return self._chords(self.rf.beats, *args, **kwargs)
+    def beat_chords(self, pitches, onset, release, track):
+        return self._chords(self.rf.beats, pitches, onset, release, track)
 
     @pattern_method()
-    def semibeat_chords(self, *args, **kwargs):
-        return self._chords(self.rf.semibeats, *args, **kwargs)
+    def semibeat_chords(self, pitches, onset, release, track):
+        return self._chords(self.rf.semibeats, pitches, onset, release, track)
 
     @pattern_method()
-    def superbeat_chords(self, *args, **kwargs):
-        return self._chords(self.rf.superbeats, *args, **kwargs)
+    def superbeat_chords(self, pitches, onset, release, track):
+        return self._chords(self.rf.superbeats, pitches, onset, release, track)
 
-    @pattern_method()
+    # TODO compound alberti bass
+
+    @pattern_method(allow_compound=Allow.NO)
     def alberti(self, pitches, onset, release, track):
-        if self.rf.is_compound:
-            raise NotImplementedError
         beat_weight = self.rf.beat_weight
         sbs = self.rf.semibeats(onset, release)
         out = []

@@ -138,6 +138,7 @@ class PrefabComposer:
         chord_data: t.Union[str, t.List[Chord]],
         bass_range: t.Optional[t.Tuple[int, int]] = None,
         mel_range: t.Optional[t.Tuple[int, int]] = None,
+        return_ts: bool = False,
     ):
         """Args:
         chord_data: if string, should be in roman-text format.
@@ -177,6 +178,11 @@ class PrefabComposer:
             )
         if self.settings.print_missing_prefabs:
             print(self.get_missing_prefab_str())
+        if return_ts:
+            return (
+                score.get_df(["prefabs", "accompaniments", "annotations"]),
+                score.ts.ts_str,
+            )
         return score.get_df(["prefabs", "accompaniments", "annotations"])
 
     def get_missing_prefab_str(self, reverse=True, n=None):

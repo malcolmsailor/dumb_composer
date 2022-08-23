@@ -2,3 +2,4 @@
 tests/test_out/
 venvvars
 temp.*
+foo.*
