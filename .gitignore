@@ -1,2 +1,4 @@
 *file_mem.json
 tests/test_out/
+venvvars
+temp.*

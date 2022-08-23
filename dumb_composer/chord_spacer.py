@@ -420,5 +420,7 @@ class SimpleSpacer:
             spacings = list(it.product(*accomp_options))
         random.shuffle(spacings)
         for spacing in spacings:
+            # put pitches in ascending order
+            spacing = sorted(spacing)
             self._prev_pitches = spacing
             yield spacing

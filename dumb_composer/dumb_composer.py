@@ -9,7 +9,11 @@ from .structural_partitioner import (
     StructuralPartitionerSettings,
 )
 
-from .dumb_accompanist import DumbAccompanist, DumbAccompanistSettings
+from .dumb_accompanist import (
+    AccompAnnots,
+    DumbAccompanist,
+    DumbAccompanistSettings,
+)
 
 from .shared_classes import Note, Score
 from dumb_composer.pitch_utils.chords import Chord
@@ -33,7 +37,8 @@ class PrefabComposerSettings(
     PrefabApplierSettings,
     StructuralPartitionerSettings,
 ):
-    max_recurse_calls = 1000
+    max_recurse_calls: int = 1000
+    print_missing_prefabs: bool = True
 
     def __post_init__(self):
         # We need to reconcile DumbAccompanistSettings'
@@ -122,7 +127,7 @@ class PrefabComposer:
                                     score
                                 ):
                                     with append_attempt(
-                                        score.accompaniments, pattern
+                                        self._dumb_accompanist_target, pattern
                                     ):
                                         return self._recurse(i + 1, score)
             except MissingPrefabError as exc:
@@ -143,6 +148,24 @@ class PrefabComposer:
         score = Score(chord_data, bass_range, mel_range)
         self.structural_partitioner(score)
         self.dumb_accompanist.init_new_piece(score.ts)
+        if self.settings.accompaniment_annotations is AccompAnnots.NONE:
+            self._dumb_accompanist_target = score.accompaniments
+        else:
+            dumb_accompanist_target = [score.accompaniments]
+            if self.settings.accompaniment_annotations in (
+                AccompAnnots.ALL,
+                AccompAnnots.PATTERNS,
+            ):
+                dumb_accompanist_target.append(score.annotations["patterns"])
+            if self.settings.accompaniment_annotations in (
+                AccompAnnots.ALL,
+                AccompAnnots.CHORDS,
+            ):
+                dumb_accompanist_target.append(score.annotations["chords"])
+            # It's important that _dumb_accompanist_target be a tuple because
+            #   this is how append_attempt() infers that it needs to unpack it
+            #   (rather than append to it)
+            self._dumb_accompanist_target = tuple(dumb_accompanist_target)
         try:
             self._recurse(
                 0,
@@ -152,7 +175,9 @@ class PrefabComposer:
             raise RecursionFailed(
                 "Couldn't satisfy parameters\n" + self.get_missing_prefab_str()
             )
-        return score.get_df(["prefabs", "accompaniments"])
+        if self.settings.print_missing_prefabs:
+            print(self.get_missing_prefab_str())
+        return score.get_df(["prefabs", "accompaniments", "annotations"])
 
     def get_missing_prefab_str(self, reverse=True, n=None):
         if reverse:

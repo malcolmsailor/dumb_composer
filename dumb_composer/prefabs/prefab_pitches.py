@@ -8,6 +8,7 @@ import typing as t
 from dumb_composer.prefabs.prefab_rhythms import (
     match_metric_strength_strs,
     MissingPrefabError,
+    Allow,
 )
 
 RELATIVE_DEGREE_REGEX = re.compile(
@@ -95,6 +96,8 @@ class PrefabPitches:
     #   fifth of a triad, but not on the root. If constraints = [-2, -4], it
     #   could occur on only the fifth of a triad. Etc.
     constraints: t.Sequence[int] = ()
+    allow_suspension: Allow = Allow.YES
+    allow_preparation: Allow = Allow.NO
 
     # __post_init__ defines the following attributes:
     alterations: t.Dict[int, str] = field(default_factory=dict, init=False)
@@ -151,6 +154,8 @@ class PrefabPitches:
         interval_to_next: t.Optional[int] = None,
         metric_strength_str: t.Optional[str] = None,
         relative_chord_factors: t.Optional[int] = None,
+        is_suspension: bool = False,
+        is_preparation: bool = False,
     ) -> bool:
         if (
             None not in (interval_to_next, self.interval_to_next)
@@ -170,6 +175,14 @@ class PrefabPitches:
             )
         ):
             return False
+        if is_suspension and self.allow_suspension == Allow.NO:
+            return False
+        if not is_suspension and self.allow_suspension == Allow.ONLY:
+            return False
+        if is_preparation and self.allow_preparation == Allow.NO:
+            return False
+        if not is_preparation and self.allow_preparation == Allow.ONLY:
+            return False
         return True
 
 
@@ -178,11 +191,30 @@ PP = PrefabPitches
 THREE_PREFABS = (
     PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3]),
     PP([-2], "__w", [0, -3, -1], [-3]),
-    PP(None, "___", [0, -1, 0]),
-    PP([4], "___", [0, 2, "4t"], constraints=[2, 4]),
-    PP([2], "___", [0, 1, "2t"], constraints=[2]),
-    PP([2], "___", [0, -2, "2t"], constraints=[-2, 2]),
-    PP([2], "___", [0, -3, "2t"], constraints=[-3, 2]),
+    PP(None, "___", [0, -1, 0], allow_preparation=Allow.YES),
+    PP(None, "___", [0, "#-1", 0], allow_preparation=Allow.YES),
+    PP(
+        [4],
+        "___",
+        [0, 2, "4t"],
+        constraints=[2, 4],
+        allow_preparation=Allow.YES,
+    ),
+    PP([2], "___", [0, 1, "2t"], constraints=[2], allow_preparation=Allow.YES),
+    PP(
+        [2],
+        "___",
+        [0, -2, "2t"],
+        constraints=[-2, 2],
+        allow_preparation=Allow.YES,
+    ),
+    PP(
+        [2],
+        "___",
+        [0, -3, "2t"],
+        constraints=[-3, 2],
+        allow_preparation=Allow.YES,
+    ),
 )
 
 FOUR_PREFABS = (
@@ -228,14 +260,18 @@ class PrefabPitchDirectory:
 
     def __call__(
         self,
-        melodic_interval: int,
+        interval_to_next: int,
         metric_strength_str: str,
         relative_chord_factors: t.Sequence[int],
+        is_suspension: bool = False,
+        is_preparation: bool = False,
     ) -> t.List[PrefabPitches]:
         tup = (
-            melodic_interval,
+            interval_to_next,
             metric_strength_str,
             relative_chord_factors,
+            is_suspension,
+            is_preparation,
         )
         if tup in self._memo:
             return self._memo[tup].copy()
@@ -244,9 +280,11 @@ class PrefabPitchDirectory:
             raise MissingPrefabError(
                 textwrap.dedent(
                     f"""No PrefabPitches instance matching criteria
-                    \tinterval_to_next: {melodic_interval}
+                    \tinterval_to_next: {interval_to_next}
                     \tmetric_strength_str: {metric_strength_str}
                     \trelative_chord_factors: {relative_chord_factors}
+                    \tis_suspension: {is_suspension}
+                    \tis_preparation: {is_preparation}
                     """
                 )
             )

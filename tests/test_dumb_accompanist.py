@@ -3,6 +3,7 @@ import os
 import random
 
 from dumb_composer.dumb_accompanist import (
+    AccompAnnots,
     DumbAccompanist,
     DumbAccompanistSettings,
 )
@@ -55,7 +56,7 @@ def test_dumb_accompanist(quick):
         random.seed(42)
         for pattern in PatternMaker._all_patterns:
             settings = DumbAccompanistSettings(
-                pattern=pattern, text_annotations="chord"
+                pattern=pattern, accompaniment_annotations=AccompAnnots.ALL
             )
             dc = DumbAccompanist(settings)
             out_df = dc(rn_temp)

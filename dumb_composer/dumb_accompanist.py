@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum, auto
 import pandas as pd
 
 import typing as t
@@ -27,10 +28,20 @@ from .utils.recursion import DeadEnd
 #     return True
 
 
+class AccompAnnots(Enum):
+    NONE = auto()
+    CHORDS = auto()
+    PATTERNS = auto()
+    ALL = auto()
+
+
+# TODO prevent changing patterns on weak beats
+
+
 @dataclass
 class DumbAccompanistSettings(SimpleSpacerSettings):
     pattern: t.Optional[str] = None
-    text_annotations: t.Union[bool, str, t.Sequence[str]] = False
+    accompaniment_annotations: AccompAnnots = AccompAnnots.ALL
     # provides the name of attributes of Score that the accompaniment
     #   should be kept below.
     accompaniment_below: t.Optional[t.Union[str, t.Sequence[str]]] = None
@@ -43,8 +54,6 @@ class DumbAccompanistSettings(SimpleSpacerSettings):
             super().__post_init__()
         if isinstance(self.accompaniment_below, str):
             self.accompaniment_below = [self.accompaniment_below]
-        if isinstance(self.text_annotations, str):
-            self.text_annotations = (self.text_annotations,)
 
 
 class DumbAccompanist:
@@ -126,47 +135,33 @@ class DumbAccompanist:
                 pattern=self.settings.pattern,
                 track=score.accompaniments_track,
             )
-            if not self._text_annotations_for_this_piece:
+            if self.settings.accompaniment_annotations is AccompAnnots.NONE:
                 yield accompaniment_pattern
             else:
                 annotations = []
-                if (
-                    isinstance(self._text_annotations_for_this_piece, bool)
-                    or "pattern" in self._text_annotations_for_this_piece
+                if self.settings.accompaniment_annotations in (
+                    AccompAnnots.PATTERNS,
+                    AccompAnnots.ALL,
                 ):
-                    annotations.append(self._pm.prev_pattern)
-                if (
-                    isinstance(self._text_annotations_for_this_piece, bool)
-                    or "chord" in self._text_annotations_for_this_piece
+                    annotations.append(
+                        Annotation(chord.onset, self._pm.prev_pattern)
+                    )
+                if self.settings.accompaniment_annotations in (
+                    AccompAnnots.CHORDS,
+                    AccompAnnots.ALL,
                 ):
-                    annotations.append(chord.token)
-                annotation = Annotation(chord.onset, " ".join(annotations))
-                yield accompaniment_pattern, annotation
+                    annotations.append(Annotation(chord.onset, chord.token))
+                yield (accompaniment_pattern, *annotations)
         raise DeadEnd()
 
-    def init_new_piece(
-        self,
-        ts: str,
-        text_annotations: t.Optional[
-            t.Union[bool, str, t.Sequence[str]]
-        ] = None,
-    ):
+    def init_new_piece(self, ts: str):
         self._pm = PatternMaker(ts, include_bass=self.settings.include_bass)
-        if text_annotations is None:
-            self._text_annotations_for_this_piece = (
-                self.settings.text_annotations
-            )
-        else:
-            self._text_annotations_for_this_piece = text_annotations
 
     def __call__(
         self,
         chord_data: t.Optional[t.Union[str, t.List[Chord]]] = None,
         score: t.Optional[Score] = None,
         ts: t.Optional[str] = None,
-        text_annotations: t.Optional[
-            t.Union[bool, str, t.Sequence[str]]
-        ] = None,
     ) -> pd.DataFrame:
         """If chord_data is a string, it should be a roman text file.
         If it is a list, it should be in the same format as returned
@@ -186,13 +181,22 @@ class DumbAccompanist:
                 chord_data, _, ts = get_chords_from_rntxt(chord_data)
             score = Score(chord_data, ts=ts)
 
-        self.init_new_piece(ts, text_annotations)
+        self.init_new_piece(ts)
         for _ in range(len(score.chords)):
             result = next(self._step(score))
-            if self._text_annotations_for_this_piece:
-                pattern, annotation = result
-                score.accompaniments.append(pattern)
-                score.annotations.append(annotation)
+            if self.settings.accompaniment_annotations is not AccompAnnots.NONE:
+                it = iter(result)
+                score.accompaniments.append(next(it))
+                if self.settings.accompaniment_annotations in (
+                    AccompAnnots.ALL,
+                    AccompAnnots.PATTERNS,
+                ):
+                    score.annotations["patterns"].append(next(it))
+                if self.settings.accompaniment_annotations in (
+                    AccompAnnots.ALL,
+                    AccompAnnots.CHORDS,
+                ):
+                    score.annotations["chords"].append(next(it))
             else:
                 score.accompaniments.append(result)
         return score.get_df("accompaniments")

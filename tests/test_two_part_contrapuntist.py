@@ -14,7 +14,7 @@ if not os.path.exists(TEST_OUT_DIR):
 
 
 def test_two_part_contrapuntist():
-    tpc = mod.TwoPartContrapuntist()
+
     rn_format = """Time signature: {}
     m1 Bb: I
     m2 F: ii
@@ -33,6 +33,7 @@ def test_two_part_contrapuntist():
     """
     time_sigs = [(4, 4), (3, 4)]
     for numer, denom in time_sigs:
+        tpc = mod.TwoPartContrapuntist()
         random.seed(42)
         ts = f"{numer}/{denom}"
         rn_temp = rn_format.format(ts)

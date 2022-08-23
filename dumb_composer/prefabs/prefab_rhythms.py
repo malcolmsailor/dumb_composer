@@ -8,6 +8,14 @@ import textwrap
 from dumb_composer.time_utils import get_min_ioi, get_max_ioi
 from dumb_composer.utils.recursion import UndoRecursiveStep
 
+from enum import Enum
+
+
+class Allow(Enum):
+    NO = 1
+    YES = 2
+    ONLY = 3
+
 
 class MissingPrefabError(UndoRecursiveStep):
     pass
@@ -25,6 +33,9 @@ class PrefabRhythms:
     # E.g., if it goes from beat 1 to beat 1, should be "ss"
     #   if it goes from beat 2 to beat 1, should be "ws"
     endpoint_metric_strength_str: str = "ss"
+    allow_suspension: t.Optional[Allow] = None
+    allow_preparation: Allow = Allow.NO
+    allow_after_tie: t.Optional[Allow] = None
 
     # we scale the prefab rhythms by factors of 2 to increase the vocabulary.
     # So, e.g., (0.0, 1.0, 3.0 )could also become (0.0, 0.5, 1.5), or
@@ -34,6 +45,16 @@ class PrefabRhythms:
     max_scaled_ioi: Number = 4.0  # should be a power of 2
 
     def __post_init__(self):
+        if self.allow_after_tie is None:
+            if not self.onsets[0] == 0.0:
+                self.allow_after_tie = Allow.NO
+            else:
+                self.allow_after_tie = Allow.YES
+        if self.allow_suspension is None:
+            if not self.onsets[0] == 0.0:
+                self.allow_suspension = Allow.NO
+            else:
+                self.allow_suspension = Allow.YES
         if self.releases is None:
             self.releases = self.onsets[1:] + [self.total_dur]
         assert len(self.metric_strength_str) == len(self.onsets)
@@ -45,13 +66,29 @@ class PrefabRhythms:
         return len(self.metric_strength_str)
 
     def matches_criteria(
-        self, total_dur: Number, endpoint_metric_strength_str: str
+        self,
+        total_dur: Number,
+        endpoint_metric_strength_str: str,
+        is_suspension: bool = False,
+        is_preparation: bool = False,
+        is_after_tie: bool = False,
     ):
-        return (
+        if not (
             self.total_dur == total_dur
             and self.endpoint_metric_strength_str
             == endpoint_metric_strength_str
-        )
+        ):
+            return False
+        for is_so, allowed in (
+            (is_suspension, self.allow_suspension),
+            (is_preparation, self.allow_preparation),
+            (is_after_tie, self.allow_after_tie),
+        ):
+            if is_so and allowed == Allow.NO:
+                return False
+            if not is_so and allowed == Allow.ONLY:
+                return False
+        return True
 
     def scale(self, factor: Number):
         """Return a copy of self with rhythmic values scaled by factor.
@@ -108,14 +145,19 @@ PR = PrefabRhythms
 
 PR4 = partial(PR, total_dur=4)
 PR3 = partial(PR, total_dur=3)
+PR2 = partial(PR, total_dur=2)
 
 PREFABS = (
+    PR4([0.0, 1.5, 2.0, 2.5, 3.0], "swsws", allow_preparation=Allow.YES),
     PR4([0.0, 1.0, 2.0, 3.0], "swsw"),
     PR4([0.0, 1.5, 2.0, 3.0], "swsw"),
-    PR4([0.0, 1.0, 2.0], "s_s"),
-    PR3([0.0, 1.0, 2.0], "s__"),
+    PR4([0.0, 1.0, 2.0], "s_s", allow_preparation=Allow.YES),
+    PR3([0.0, 1.0, 2.0], "s__", allow_preparation=Allow.YES),
     PR3([0.0, 1.0, 1.5, 2.0], "s___"),
     PR3([0.0, 1.5, 2.0, 2.5], "s___"),
+    PR2([0.0, 1.5], "sw"),
+    PR2([1.0, 1.5], "__"),
+    PR2([0.0, 1.0, 1.5], "s__"),
 )
 
 
@@ -146,9 +188,20 @@ class PrefabRhythmDirectory:
         self._memo = {}
 
     def __call__(
-        self, total_dur: Number, endpoint_metric_strength_str: str = "ss"
+        self,
+        total_dur: Number,
+        endpoint_metric_strength_str: str = "ss",
+        is_suspension: bool = False,
+        is_preparation: bool = False,
+        is_after_tie: bool = False,
     ) -> t.List[PrefabRhythms]:
-        tup = (total_dur, endpoint_metric_strength_str)
+        tup = (
+            total_dur,
+            endpoint_metric_strength_str,
+            is_suspension,
+            is_preparation,
+            is_after_tie,
+        )
         if tup in self._memo:
             return self._memo[tup].copy()
         out = [prefab for prefab in PREFABS if prefab.matches_criteria(*tup)]
@@ -158,6 +211,9 @@ class PrefabRhythmDirectory:
                     f"""No PrefabRhythms instance matching criteria
                     \ttotal_dur: {total_dur}
                     \tendpoint_metric_strength_str: {endpoint_metric_strength_str}
+                    \tis_suspension: {is_suspension}
+                    \tis_preparation: {is_preparation}
+                    \tis_after_tie: {is_after_tie}
                     """
                 )
             )

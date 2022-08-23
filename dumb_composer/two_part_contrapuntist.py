@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from numbers import Number
 import random
 
 import typing as t
@@ -18,11 +19,17 @@ from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
 )
-from .suspensions import find_suspensions
+from .suspensions import Suspension, find_suspension_releases, find_suspensions
 from .utils.recursion import DeadEnd
-from .shared_classes import Score
+from .utils.math_ import softmax
+from .shared_classes import Annotation, Score
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
 from dumb_composer.from_ml_out import get_chord_df
+
+# TODO bass suspensions
+
+# TODO define "tendency tones" and have these tones first try to resolve
+#   according to their tendency
 
 
 @dataclass
@@ -32,6 +39,13 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     forbidden_parallels: t.Sequence[int] = (7, 0)
     forbidden_antiparallels: t.Sequence[int] = (0,)
     max_interval: int = 12
+    max_suspension_weight_diff: int = 1
+    max_suspension_dur: t.Union[Number, str] = "bar"
+    annotate_suspensions: bool = True
+    # when choosing whether to insert a suspension, we put the "score" of each
+    #   suspension (so far, by default 1.0) into a softmax together with the
+    #   following "no_suspension_score".
+    no_suspension_score: float = 1.0
 
 
 class TwoPartContrapuntist:
@@ -41,27 +55,23 @@ class TwoPartContrapuntist:
     ):
         if settings is None:
             settings = TwoPartContrapuntistSettings()
-        self._settings = settings
-        # TODO the size of lambda should depend on how long the chord is.
-        #   If a chord lasts for a whole note it can move by virtually any
-        #   amount. If a chord lasts for an eighth note it should move by
-        #   a relatively small amount.
-        self._ic = IntervalChooser(self._settings)
-        self._forbidden_parallels = settings.forbidden_parallels
-        self._forbidden_antiparallels = settings.forbidden_antiparallels
-        self._max_interval = settings.max_interval
-        self._bass_range = settings.bass_range
-        self._mel_range = settings.mel_range
+        self.settings = settings
+        # TODO the size of lambda parameter for IntervalChooser should depend on
+        #   how long the chord is. If a chord lasts for a whole note it can move
+        #   by virtually any amount. If a chord lasts for an eighth note it
+        #   should move by a relatively small amount.
+        self._ic = IntervalChooser(settings)
+        self._suspension_resolutions: t.Dict[int, int] = {}
 
     def _get_ranges(self, bass_range, mel_range):
         if bass_range is None:
-            if self._bass_range is None:
+            if self.settings.bass_range is None:
                 raise ValueError
-            bass_range = self._bass_range
+            bass_range = self.settings.bass_range
         if mel_range is None:
-            if self._mel_range is None:
+            if self.settings.mel_range is None:
                 raise ValueError
-            mel_range = self._mel_range
+            mel_range = self.settings.mel_range
         return bass_range, mel_range
 
     def from_ml_out(
@@ -88,17 +98,76 @@ class TwoPartContrapuntist:
             chord_data, ts, bass_range, mel_range, initial_mel_chord_factor
         )
 
+    def _choose_suspension(
+        self, score: Score, next_chord: Chord, cur_mel_pitch: int
+    ):
+        suspension_releases = find_suspension_releases(
+            next_chord.onset,
+            next_chord.release,
+            score.ts,
+            max_weight_diff=self.settings.max_suspension_weight_diff,
+            max_suspension_dur=self.settings.max_suspension_dur,
+        )
+        if not suspension_releases:
+            return None
+        suspensions = find_suspensions(cur_mel_pitch, next_chord.pcs)
+        if not suspensions:
+            return None
+        suspension = random.choices(
+            suspensions + [None],
+            weights=softmax(
+                [s.score for s in suspensions]
+                + [self.settings.no_suspension_score]
+            ),
+            k=1,
+        )[0]
+        if suspension is None:
+            return None
+        # TODO suspension_releases weights
+        suspension_release = random.choices(suspension_releases, k=1)[0]
+        return suspension, suspension_release
+
+    def _apply_suspension(
+        self,
+        score: Score,
+        i: int,
+        suspension: Suspension,
+        suspension_release: Number,
+    ) -> int:
+        assert i + 1 not in self._suspension_resolutions
+        score.split_ith_chord_at(i, suspension_release)
+        suspended_pitch = score.structural_melody[i - 1]
+        self._suspension_resolutions[i + 1] = (
+            suspended_pitch + suspension.resolves_by
+        )
+        assert i not in score.suspension_indices
+        score.suspension_indices.add(i)
+        if self.settings.annotate_suspensions:
+            score.annotations["suspensions"].append(
+                Annotation(score.chords[i].onset, "S")
+            )
+        return suspended_pitch
+
+    def _undo_suspension(self, score: Score, i: int) -> None:
+        assert i + 1 in self._suspension_resolutions
+        score.merge_ith_chords(i)
+        del self._suspension_resolutions[i + 1]
+        score.suspension_indices.remove(i)  # raises KeyError if not present
+        if self.settings.annotate_suspensions:
+            popped_annotation = score.annotations["suspensions"].pop()
+            assert popped_annotation.onset == score.chords[i].onset
+
     def _step(
         self,
         score: Score,
     ):
         i = len(score.structural_melody)
         next_bass_pitch = score.structural_bass[i]
-        next_chord_pcs = score.chords[i].pcs
+        next_chord = score.chords[i]
         if not i:
             # generate the first note
             mel_pitch_choices = get_all_in_range(
-                next_chord_pcs,
+                next_chord.pcs,
                 max(next_bass_pitch, score.mel_range[0]),
                 score.mel_range[1],
             )
@@ -106,22 +175,34 @@ class TwoPartContrapuntist:
                 mel_pitch_i = random.randrange(len(mel_pitch_choices))
                 yield mel_pitch_choices[mel_pitch_i]
                 mel_pitch_choices.pop(mel_pitch_i)
+        elif i in self._suspension_resolutions:
+            yield self._suspension_resolutions[i]
         else:
             cur_mel_pitch = score.structural_melody[i - 1]
-            # suspensions = find_suspensions(cur_mel_pitch, next_chord_pcs)
-            # TODO finish suspensions
+            # TODO instead of just trying one suspension, maybe we should
+            #   try all of them (including "no suspension"), but choose
+            #   which one to do first/second/etc. according to the softmax
+            suspension = self._choose_suspension(
+                score, next_chord, cur_mel_pitch
+            )
+            if suspension is not None:
+                yield self._apply_suspension(score, i, *suspension)
+                # we only continue execution if the recursive calls fail
+                #   somewhere further down the stack, in which case we need to
+                #   undo the suspension.
+                self._undo_suspension(score, i)
             cur_bass_pitch = score.structural_bass[i - 1]
             forbidden_intervals = get_forbidden_intervals(
                 cur_mel_pitch,
                 [(cur_bass_pitch, next_bass_pitch)],
-                self._forbidden_parallels,
-                self._forbidden_antiparallels,
+                self.settings.forbidden_parallels,
+                self.settings.forbidden_antiparallels,
             )
             intervals = interval_finder(
                 cur_mel_pitch,
-                next_chord_pcs,
+                next_chord.pcs,
                 *score.mel_range,
-                max_interval=self._max_interval,
+                max_interval=self.settings.max_interval,
                 forbidden_intervals=forbidden_intervals,
             )
             while intervals:
@@ -143,10 +224,11 @@ class TwoPartContrapuntist:
                 If a list, should be the output of the get_chords_from_rntxt
                 function or similar.
         """
-
         bass_range, mel_range = self._get_ranges(bass_range, mel_range)
         score = Score(chord_data, bass_range, mel_range)
-        for _ in range(len(score.chords)):
+        while True:
+            if len(score.structural_melody) == len(score.chords):
+                break
             next_pitch = next(self._step(score))
             score.structural_melody.append(next_pitch)
         return score

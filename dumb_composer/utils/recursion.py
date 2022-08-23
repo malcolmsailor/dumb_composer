@@ -16,16 +16,24 @@ class DeadEnd(UndoRecursiveStep):
 
 @contextmanager
 def append_attempt(
-    list_: t.List[t.Any],
-    item: t.Any,
+    list_: t.Union[t.List[t.Any], t.Tuple[t.List[t.Any]]],
+    item: t.Union[t.Any, t.Tuple[t.Any]],
     reraise: t.Optional[
         t.Union[t.Type[UndoRecursiveStep], t.Tuple[t.Type[UndoRecursiveStep]]]
     ] = None,
 ):
-    list_.append(item)
+    if isinstance(list_, tuple):
+        for sub_list, sub_item in zip(list_, item):
+            sub_list.append(sub_item)
+    else:
+        list_.append(item)
     try:
         yield
     except UndoRecursiveStep as exc:
-        list_.pop()
+        if isinstance(list_, tuple):
+            for sub_list in list_:
+                sub_list.pop()
+        else:
+            list_.pop()
         if reraise is not None and isinstance(exc, reraise):
             raise

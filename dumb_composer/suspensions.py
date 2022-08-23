@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field
+from numbers import Number
 import typing as t
 
 from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
 )
+from .time import Meter
 
 
 def pitch_dissonant_against_chord(
@@ -119,4 +121,50 @@ def find_suspensions(
     for interval in resolve_down_by + resolve_up_by:
         if (next_pc := (current_pitch + interval) % 12) in next_chord_set:
             _append(current_pitch, interval, next_pc)
+    return out
+
+
+def find_suspension_releases(
+    start: Number,
+    stop: Number,
+    meter: Meter,
+    max_weight_diff: t.Optional[int] = None,
+    max_suspension_dur: t.Union[str, Number] = "bar",
+) -> t.List[Number]:
+    """
+    >>> find_suspension_releases(
+    ...     0.0, 4.5, Meter("9/8"), max_weight_diff=2)
+    [Fraction(3, 1), Fraction(1, 1)]
+
+    By default, suspensions can be at most one bar long:
+
+    >>> find_suspension_releases(
+    ...     0.0, 16.0, Meter("4/4"), max_weight_diff=2)
+    [Fraction(4, 1), Fraction(2, 1), Fraction(1, 1)]
+    """
+    out = []
+    if max_suspension_dur == "bar":
+        max_suspension_dur = meter.bar_dur
+    diss_onset, diss_weight = start, meter.weight(start)
+    while True:
+        res_onset, res_weight = meter.get_onset_of_greatest_weight_between(
+            start, stop, include_start=False, return_first=False
+        )
+        if (
+            max_weight_diff is not None
+            and diss_weight - res_weight > max_weight_diff
+        ):
+            break
+        if (
+            diss_weight >= res_weight
+            and res_onset - diss_onset <= max_suspension_dur
+        ):
+            out.append(res_onset)
+        if res_weight == meter.min_weight:
+            break
+        stop, _ = meter.get_onset_of_greatest_weight_between(
+            start, stop, include_start=False, return_first=True
+        )
+    # TODO suspensions releases should have a "score" that indicates
+    #   how likely they are to be employed.
     return out

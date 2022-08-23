@@ -4,9 +4,11 @@ from numbers import Number
 import pandas as pd
 import typing as t
 
+from .time import Meter
+
 from .utils.df_helpers import sort_note_df
 
-from .pitch_utils.scale import ScaleDict
+from .pitch_utils.scale import Scale, ScaleDict
 
 from .pitch_utils.put_in_range import put_in_range
 
@@ -16,6 +18,9 @@ from dumb_composer.pitch_utils.chords import Chord
 
 class Annotation(pd.Series):
     def __init__(self, onset, text):
+        # TODO remove the next lines when I've figured out how to get
+        #   text annotations to display correctly
+        text = text.replace("_", "").replace(" ", "")
         super().__init__(
             {"onset": onset, "text": text, "type": "text", "track": 0}
         )
@@ -161,11 +166,20 @@ def apply_ties(
 
 class ScaleGetter:
     def __init__(self, scale_pcs: t.Iterable[t.Sequence[int]]):
-        self._scale_pcs = tuple(scale for scale in scale_pcs)
+        self._scale_pcs = list(scale for scale in scale_pcs)
         self._scales = ScaleDict()
 
-    def __getitem__(self, idx: int):
+    def __len__(self) -> int:
+        return len(self._scale_pcs)
+
+    def __getitem__(self, idx: int) -> Scale:
         return self._scales[self._scale_pcs[idx]]
+
+    def insert_scale_pcs(self, i: int, scale_pcs: t.Sequence[int]) -> None:
+        self._scale_pcs.insert(i, scale_pcs)
+
+    def pop_scale_pcs(self, i: int) -> t.Sequence[int]:
+        return self._scale_pcs.pop(i)
 
 
 class StructuralMelodyIntervalGetter:
@@ -175,22 +189,31 @@ class StructuralMelodyIntervalGetter:
         structural_melody: t.List[int],
         structural_bass: t.List[int],
     ):
+        # This class doesn't really have custody of its attributes, which
+        #   should all be attributes of the Score that creates it. The only
+        #   reason this class exists is to that we can provide a [] subscript
+        #   syntax to Score.structural_melody_intervals
         self.scales = scales
         self.structural_melody = structural_melody
         self.structural_bass = structural_bass
-        self._melody_intervals: t.List[int] = []
+        # self._melody_intervals: t.List[int] = []
 
     def __getitem__(self, idx):
-        try:
-            return self._melody_intervals[idx]
-        except IndexError:
-            for i in range(len(self._melody_intervals), idx + 1):
-                self._melody_intervals.append(
-                    self.scales[i].get_interval_class(
-                        self.structural_bass[i], self.structural_melody[i]
-                    )
-                )
-            return self._melody_intervals[idx]
+        return self.scales[idx].get_interval_class(
+            self.structural_bass[idx], self.structural_melody[idx]
+        )
+        # TODO remove---I don't think caching is practicable once we start
+        #   splitting chords in the Score
+        # try:
+        #     return self._melody_intervals[idx]
+        # except IndexError:
+        #     for i in range(len(self._melody_intervals), idx + 1):
+        #         self._melody_intervals.append(
+        #             self.scales[i].get_interval_class(
+        #                 self.structural_bass[i], self.structural_melody[i]
+        #             )
+        #         )
+        #     return self._melody_intervals[idx]
 
 
 class Score:
@@ -214,8 +237,8 @@ class Score:
             raise ValueError(
                 f"`ts` must be supplied if `chord_data` is not a string"
             )
-        self.ts = ts
-        self.chord_data = chord_data
+        self.ts = Meter(ts)
+        self._chords = chord_data
         self._scale_getter = ScaleGetter(
             chord.scale_pcs for chord in chord_data
         )
@@ -227,34 +250,35 @@ class Score:
                 self.scales, self.structural_melody, self.structural_bass
             )
         )
-        self.contents = []
-        self.prefabs = []
-        self.accompaniments = []
-        self.annotations = []
+        self.prefabs: t.List[t.List[Note]] = []
+        self.accompaniments: t.List[t.List[Note]] = []
+        self.annotations: defaultdict[t.List[Annotation]] = defaultdict(list)
         self.prefab_track = prefab_track
         self.bass_track = bass_track
         self.accompaniments_track = accompaniments_track
+        self.suspension_indices: t.Set[int] = set()
+        self.tied_prefab_indices: t.Set[int] = set()
 
     @cached_property
     def structural_bass(self) -> t.List[int]:
         return list(
             put_in_range(
-                (chord.foot for chord in self.chord_data), *self.bass_range
+                (chord.foot for chord in self._chords), *self.bass_range
             )
         )
 
     @property
-    def chords(self) -> pd.DataFrame:
-        return self.chord_data
+    def chords(self) -> t.List[Chord]:
+        return self._chords
 
     @chords.setter
-    def chords(self, new_df: pd.DataFrame):
-        self.chord_data = new_df
+    def chords(self, new_chords: t.List[Chord]):
+        self._chords = new_chords
         # deleting self.structural_bass allows it to be regenerated next
         #   time it is needed
         del self.structural_bass
         self._scale_getter = ScaleGetter(
-            chord.scale_pcs for chord in self.chord_data
+            chord.scale_pcs for chord in self._chords
         )
         self._structural_melody_interval_getter = (
             StructuralMelodyIntervalGetter(
@@ -299,6 +323,30 @@ class Score:
             for note in accompaniment
         )
 
+    @property
+    def annotations_as_df(self) -> pd.DataFrame:
+        # return pd.DataFrame(self.annotations)
+        out = pd.concat(
+            [pd.DataFrame(annots) for annots in self.annotations.values()]
+        )
+        # only one annotation per time-point appears in the kern files (or is it
+        #   the verovio realizations?). Anyway, we merge them into one here. TODO
+        #   is there a way around this constraint?
+        temp = []
+        for onset in sorted(out.onset.unique()):
+            new_annot = Annotation(
+                onset,
+                "".join(
+                    annot.text
+                    for _, annot in out[out.onset == onset].iterrows()
+                ),
+            )
+            temp.append(new_annot)
+        out = pd.DataFrame(temp)
+        # if len(out):
+        #     out.sort_values("onset")
+        return out
+
     def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
         if isinstance(contents, str):
             contents = [contents]
@@ -306,5 +354,54 @@ class Score:
         df = pd.concat(dfs)
         return sort_note_df(df)
 
-    def split_ith_chord_at(self, i: int, time: Number) -> None:
-        raise NotImplementedError
+    def split_ith_chord_at(
+        self, i: int, time: Number, check_correctness: bool = True
+    ) -> None:
+        """
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 C: I
+        ... m2 V
+        ... m3 I'''
+        >>> score = Score(rntxt)
+        >>> {float(chord.onset): chord.token for chord in score.chords}
+        {0.0: 'C:I', 4.0: 'V', 8.0: 'I'}
+        >>> score.split_ith_chord_at(1, 6.0)
+        >>> {float(chord.onset): chord.token for chord in score.chords}
+        {0.0: 'C:I', 4.0: 'V', 6.0: 'V', 8.0: 'I'}
+        >>> score.merge_ith_chords(1)
+        >>> {float(chord.onset): chord.token for chord in score.chords}
+        {0.0: 'C:I', 4.0: 'V', 8.0: 'I'}
+        """
+        # just in case structural_bass has not been computed yet, we need
+        #   to compute it now:
+        self.structural_bass
+        # TODO make debug flag for check_correctness
+        chord = self.chords[i]
+        if check_correctness:
+            assert chord.onset < time < chord.release
+            assert len(self.prefabs) <= i
+            assert len(self.accompaniments) <= i
+        new_chord = chord.copy()
+        chord.release = time
+        new_chord.onset = time
+        self.chords.insert(i + 1, new_chord)
+        self.structural_bass.insert(i + 1, self.structural_bass[i])
+        if len(self.structural_melody) > i:
+            self.structural_melody.insert(i + 1, self.structural_melody[i])
+        self._scale_getter.insert_scale_pcs(i + 1, new_chord.scale_pcs)
+
+    def merge_ith_chords(self, i: int, check_correctness: bool = True) -> None:
+        # just in case structural_bass has not been computed yet, we need
+        #   to compute it now:
+        self.structural_bass
+        # TODO make debug flag for check_correctness
+        chord1, chord2 = self.chords[i : i + 2]
+        chord1.release = chord2.release
+        if check_correctness:
+            chord2.onset = chord1.onset
+            assert chord1.equals(chord2)
+        self.chords.pop(i + 1)
+        self.structural_bass.pop(i + 1)
+        if len(self.structural_melody) > i + 2:
+            self.structural_melody.pop(i + 1)
+        self._scale_getter.pop_scale_pcs(i + 1)

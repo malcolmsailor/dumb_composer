@@ -14,7 +14,6 @@ from .pitch_utils.scale import Scale, ScaleDict
 from dumb_composer.shared_classes import Note, Score
 
 from dumb_composer.prefabs.prefab_pitches import (
-    MissingPrefabError,
     PrefabPitchDirectory,
     PrefabPitches,
 )
@@ -22,6 +21,9 @@ from dumb_composer.prefabs.prefab_rhythms import (
     PrefabRhythmDirectory,
     PrefabRhythms,
 )
+
+# TODO prefab "inertia": more likely to select immediately preceding prefab
+#    if possible (or choose from previous N prefabs)
 
 
 @dataclass
@@ -47,7 +49,7 @@ class PrefabApplier:
         prefab_rhythms: PrefabRhythms,
         scale: Scale,
         track: int = 1,
-    ):
+    ) -> t.List[Note]:
         notes = []
         # need to displace by initial_onset somewhere
         orig_scale_degree = scale.index(initial_pitch)
@@ -87,10 +89,15 @@ class PrefabApplier:
         # next_mel_pitch = score.structural_melody[current_i + 1]
         current_mel_pitch = decorated_voice[current_i]
         next_mel_pitch = decorated_voice[current_i + 1]
+        is_suspension = current_i in score.suspension_indices
+        is_preparation = current_i + 1 in score.suspension_indices
+        is_after_tie = current_i - 1 in score.tied_prefab_indices
         rhythm_options = self.prefab_rhythm_dir(
-            current_chord.release
-            - current_chord.onset
+            current_chord.release - current_chord.onset,
             # TODO metric strength
+            is_suspension=is_suspension,
+            is_preparation=is_preparation,
+            is_after_tie=is_after_tie,
         )
         while rhythm_options:
             rhythm_i = random.randrange(len(rhythm_options))
@@ -109,10 +116,15 @@ class PrefabApplier:
                 generic_pitch_interval,
                 rhythm.metric_strength_str,
                 relative_chord_factors,
+                is_suspension=is_suspension,
+                is_preparation=is_preparation,
             )
             while pitch_options:
                 pitch_i = random.randrange(len(pitch_options))
                 pitches = pitch_options.pop(pitch_i)
+                if pitches.tie_to_next:
+                    assert current_i not in score.tied_prefab_indices
+                    score.tied_prefab_indices.add(current_i)
                 yield self._append_from_prefabs(
                     current_mel_pitch,
                     current_chord.onset,
@@ -121,6 +133,8 @@ class PrefabApplier:
                     current_scale,
                     track=score.prefab_track,
                 )
+                if pitches.tie_to_next:
+                    score.tied_prefab_indices.remove(current_i)
         raise DeadEnd()
 
     def _final_step(self, score: Score):
@@ -135,20 +149,3 @@ class PrefabApplier:
                 current_chord.release,
             )
         ]
-
-    def __call__(self, score: Score):
-        warnings.warn(
-            "deprecated in favor of PrefabComposer", DeprecationWarning
-        )
-        # missing_prefab_errors = []
-        # for _ in range(len(score.structural_melody)):
-        #     try:
-        #         score.prefabs.extend(next(self._step(score)))
-        #     except MissingPrefabError as exc:
-        #         missing_prefab_errors.append(exc)
-        #         continue
-        # if missing_prefab_errors:
-        #     for e in missing_prefab_errors:
-        #         print(e)
-        #     raise ValueError
-        # return pd.DataFrame(score.prefabs)

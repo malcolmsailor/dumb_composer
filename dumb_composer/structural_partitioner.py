@@ -4,7 +4,7 @@ import math
 from numbers import Number
 import random
 import typing as t
-import numpy as np
+
 import pandas as pd
 
 
@@ -15,6 +15,7 @@ from .time_utils import (
     get_onset_closest_to_middle_of_duration,
 )
 from .shared_classes import Score
+from .utils.math_ import softmax
 
 
 @dataclass
@@ -28,11 +29,6 @@ class StructuralPartitionerSettings:
     # the more the probability mass is concentrated at the higher metric
     # weights. (The temperature should always be > 0.)
     candidates_softmax_temperature: float = 1.0
-
-
-def softmax(x):
-    exp = np.exp(x)
-    return exp / exp.sum()
 
 
 def _flatten_list_sub(x: t.Union[t.Any, t.List[t.Any]]):
@@ -124,7 +120,7 @@ class StructuralPartitioner:
 
         TODO it would be good to preserve the original "score.chords" somehow.
         """
-        self._ts = Meter(score.ts)
+        self._ts = score.ts
         split_chords = []
         for chord in score.chords:
             splits = self._step(chord.onset, chord.release)

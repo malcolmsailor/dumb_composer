@@ -1,9 +1,10 @@
 import random
+from re import M
 import typing as t
 from types import MappingProxyType
 
 
-from dumb_composer.time import RhythmFetcher
+from dumb_composer.time import RhythmFetcher, Meter
 from dumb_composer.shared_classes import Note, notes
 
 
@@ -16,9 +17,15 @@ def pattern_method(requires_bass: bool = False, **kwargs):
     return wrap
 
 
+# TODO why is Alberti bass "upside down" when melody is in bass?
+
+
 class PatternMaker:
     def __init__(
-        self, ts: str, inertia: float = 0.75, include_bass: bool = True
+        self,
+        ts: t.Union[Meter, str],
+        inertia: float = 0.75,
+        include_bass: bool = True,
     ):
         """Makes patterns from chords.
 
@@ -146,6 +153,8 @@ class PatternMaker:
                 self._prev_pattern = pattern
             else:
                 pattern = self._prev_pattern
+        else:
+            self._prev_pattern = pattern
         if release is None:
             release = onset + dur
         return getattr(self, pattern)(pitches, onset, release, track)

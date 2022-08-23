@@ -97,15 +97,62 @@ class Meter(TimeClass):
             self._beat_dur * 3 if self._triple else self._beat_dur * 2
         )
         self._memo = {}
-        self._min_weight = -3
+        self._min_weight = min_weight
+
+    # TODO doctest doesn't run with cached_property (at least in pytest)
+    @cached_property
+    def weight_to_grid(self) -> t.Dict[int, TIME_TYPE]:
+        """
+        >>> sorted(
+        ...     (weight, float(grid))
+        ...     for (weight, grid) in Meter("4/4").weight_to_grid.items()
+        ... )
+        [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 2.0), (2, 4.0)]
+
+        >>> sorted(
+        ...     (weight, float(grid))
+        ...     for (weight, grid) in Meter("3/4").weight_to_grid.items()
+        ... )
+        [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 3.0)]
+
+        # TODO fix 12/8; shouldn't it end (1, 3.0), (2, 6.0)?
+        >>> sorted(
+        ...     (weight, float(grid))
+        ...     for (weight, grid) in Meter("12/8").weight_to_grid.items()
+        ... )
+        [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 3.0), (1, 6.0)]
+        """
+        out = {}
+        out[self.beat_weight] = self.beat_dur
+        large_dur = self.superbeat_dur
+        large_weight = self.weight(self.superbeat_dur)
+        while True:
+            out[large_weight] = large_dur
+            if large_weight == self.max_weight:
+                break
+            large_dur *= 2
+            large_weight = self.weight(large_dur)
+        small_dur = self.semibeat_dur
+        small_weight = self.weight(self.semibeat_dur)
+        while True:
+            out[small_weight] = small_dur
+            if small_weight == self._min_weight:
+                break
+            small_dur /= 2
+            small_weight = self.weight(small_dur)
+        return out
 
     @cached_property
     def beat_weight(self):
-        return self._weight(self._beat_dur)
+        return self.weight(self._beat_dur)
 
     @cached_property
     def max_weight(self):
-        return self._weight(0)
+        return self.weight(0)
+
+    @property
+    def min_weight(self):
+        return self._min_weight
 
     @property
     def beat_dur(self):  # pylint: disable=missing-docstring
@@ -195,7 +242,7 @@ class Meter(TimeClass):
         >>> nine_eight(1.0)
         -1
         """
-        return self._weight(time)
+        return self.weight(time)
 
     def _duple_weight(self, time, n_beats=None):
         if n_beats is None:
@@ -227,7 +274,7 @@ class Meter(TimeClass):
             exp -= 1
         return exp
 
-    def _weight(self, time):
+    def weight(self, time):
         time = TIME_TYPE(time)
         time %= self._total_dur
         if time in self._memo:
@@ -250,7 +297,7 @@ class Meter(TimeClass):
         include_start: bool = True,
         include_end: bool = False,
         out_format: str = "list",
-    ):
+    ) -> t.Union[t.Dict[Number, Number], t.List[t.Dict[str, Number]]]:
         """
         >>> two_four = Meter("2/4")
         >>> two_four.weights_between(0.5, 0.5, 1.5)
@@ -273,6 +320,30 @@ class Meter(TimeClass):
             time += grid_length
         return out
 
+    def onsets_between(
+        self,
+        start: Number,
+        stop: Number,
+        min_weight: int,
+        include_start: bool = True,
+        include_stop: bool = False,
+        out_format: str = "list",
+    ) -> t.Union[t.Dict[Number, Number], t.List[t.Dict[str, Number]]]:
+        """
+        >>> two_four = Meter("2/4")
+        >>> two_four.onsets_between(0, 1, -2, out_format="dict")
+        {Fraction(0, 1): 1, Fraction(1, 4): -2, Fraction(1, 2): -1, Fraction(3, 4): -2}
+        """
+        grid = self.weight_to_grid[min_weight]
+        return self.weights_between(
+            grid,
+            start,
+            stop,
+            include_start,
+            include_stop,
+            out_format=out_format,
+        )
+
     def beats_between(self, *args, **kwargs):
         return self.weights_between(self._beat_dur, *args, **kwargs)
 
@@ -282,14 +353,67 @@ class Meter(TimeClass):
     def superbeats_between(self, *args, **kwargs):
         return self.weights_between(self._superbeat_dur, *args, **kwargs)
 
+    def get_onset_of_greatest_weight_between(
+        self,
+        start: Number,
+        stop: Number,
+        include_start: bool = True,
+        include_stop: bool = False,
+        return_first: bool = False,
+    ) -> t.Tuple[TIME_TYPE, int]:
+        """
+        >>> nine_eight = Meter("9/8")
+        >>> nine_eight.get_onset_of_greatest_weight_between(4.5, 9.0)
+        (Fraction(9, 2), 1)
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     4.5, 9.0, include_start=False)
+        (Fraction(15, 2), 0)
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     4.5, 9.0, include_stop=True)
+        (Fraction(9, 1), 1)
+
+        If the interval is several measures or more long, there may be a tie
+        between many downbeats. In this case, we take middle downbeat (if there
+        are an odd number), or the middle + 1th downbeat (if there are an even
+        number).
+
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     0.0, 13.5) # first 3 measures, returns downbeat of measure 2
+        (Fraction(9, 2), 1)
+        >>> nine_eight.get_onset_of_greatest_weight_between(
+        ...     0.0, 18.0) # first 4 measures, returns downbeat of measure 3
+        (Fraction(9, 1), 1)
+        """
+        for weight in range(self.max_weight, self._min_weight - 1, -1):
+            grid = self.weight_to_grid[weight]
+            onsets = self.weights_between(
+                grid,
+                start,
+                stop,
+                include_start,
+                include_stop,
+                out_format="list",
+            )
+            if onsets:
+                break
+        if len(onsets) > 2:
+            assert all(onset["weight"] == self.max_weight for onset in onsets)
+            return tuple(onsets[math.floor(len(onsets) / 2)].values())
+        if len(onsets) == 1 or return_first:
+            return tuple(onsets[0].values())
+        return tuple(onsets[1].values())
+
 
 class RhythmFetcher(TimeClass):
     # What this class should ideally do is take a time signature (best way of
     # representing this?) and then return various "rhythms" (e.g., offbeat 8ths;
     # trochees; dactyls; etc.) adapted to that time signature
 
-    def __init__(self, ts_str: str):
-        self.meter = Meter(ts_str)
+    def __init__(self, ts: t.Union[Meter, str]):
+        if isinstance(ts, str):
+            self.meter = Meter(ts)
+        else:
+            self.meter = ts
         self._rhythms = self._filter_rhythms()
 
     def __call__(self, rhythm_type=None, onset=None, release=None, dur=None):
