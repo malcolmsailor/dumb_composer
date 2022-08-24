@@ -45,6 +45,9 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     max_interval: int = 12
     max_suspension_weight_diff: int = 1
     max_suspension_dur: t.Union[Number, str] = "bar"
+    # allow_upward_suspensions can be a bool or a tuple of allowed intervals.
+    # If a bool and True, the only allowed suspension is by semitone.
+    allow_upward_suspensions: t.Union[bool, t.Tuple[int]] = False
     annotate_suspensions: bool = True
     # when choosing whether to insert a suspension, we put the "score" of each
     #   suspension (so far, by default 1.0) into a softmax together with the
@@ -66,6 +69,14 @@ class TwoPartContrapuntist:
         #   should move by a relatively small amount.
         self._ic = IntervalChooser(settings)
         self._suspension_resolutions: t.Dict[int, int] = {}
+        if not self.settings.allow_upward_suspensions:
+            self._upward_suspension_resolutions = ()
+        elif isinstance(self.settings.allow_upward_suspensions, bool):
+            self._upward_suspension_resolutions = (1,)
+        else:
+            self._upward_suspension_resolutions = (
+                self.settings.allow_upward_suspensions
+            )
 
     def _get_ranges(self, bass_range, mel_range):
         if bass_range is None:
@@ -123,6 +134,7 @@ class TwoPartContrapuntist:
             cur_mel_pitch,
             next_chord.pcs,
             next_scale_pcs=next_chord.scale_pcs,
+            resolve_up_by=self._upward_suspension_resolutions,
         )
         if not suspensions:
             yield None
@@ -139,19 +151,6 @@ class TwoPartContrapuntist:
                 # TODO suspension_releases weights
                 suspension_release = random.choices(suspension_releases, k=1)[0]
                 yield suspension, suspension_release
-        # suspension = random.choices(
-        #     suspensions + [None],
-        #     weights=softmax(
-        #         [s.score for s in suspensions]
-        #         + [self.settings.no_suspension_score]
-        #     ),
-        #     k=1,
-        # )[0]
-        # if suspension is None:
-        #     return None
-        # # TODO suspension_releases weights
-        # suspension_release = random.choices(suspension_releases, k=1)[0]
-        # return suspension, suspension_release
 
     def _apply_suspension(
         self,
@@ -183,12 +182,30 @@ class TwoPartContrapuntist:
             popped_annotation = score.annotations["suspensions"].pop()
             assert popped_annotation.onset == score.chords[i].onset
 
-    # def _apply_tendency(self, score:Score, i:int):
-    #     cur_mel_pitch =
-    #     cur_chord = score.chords[i - 1]
-    #     tendency = cur_chord.get_pitch_tendency(cur_mel_pitch)
-    #     if tendency is not Tendency.NONE and cur_chord != next_chord:
-    # TODO
+    def _get_tendency(
+        self,
+        score: Score,
+        i: int,
+        cur_mel_pitch: int,
+        next_chord: Chord,
+        intervals: t.List[int],
+    ) -> t.Optional[int]:
+        cur_chord = score.chords[i - 1]
+        tendency = cur_chord.get_pitch_tendency(cur_mel_pitch)
+        if tendency is Tendency.NONE or cur_chord == next_chord:
+            return
+        if tendency is Tendency.UP:
+            for step in (1, 2):
+                if step in intervals:
+                    yield cur_mel_pitch + step
+                    intervals.pop(step)
+                    return
+        if tendency is Tendency.DOWN:
+            for step in (-1, -2):
+                if step in intervals:
+                    yield cur_mel_pitch + step
+                    intervals.pop(step)
+                    return
 
     def _get_first_melody_pitch(self, score: Score, i: int):
         next_bass_pitch = score.structural_bass[i]
@@ -235,6 +252,12 @@ class TwoPartContrapuntist:
                     max_interval=self.settings.max_interval,
                     forbidden_intervals=forbidden_intervals,
                 )
+                # TODO for now tendency tones are only considered if there is
+                #   no suspension.
+                for pitch in self._get_tendency(
+                    score, i, cur_mel_pitch, next_chord, intervals
+                ):
+                    yield pitch
                 while intervals:
                     interval = self._ic(intervals)
                     yield cur_mel_pitch + interval
