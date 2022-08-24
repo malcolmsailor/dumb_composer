@@ -6,7 +6,11 @@ import typing as t
 
 import pandas as pd
 
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt, Chord
+from dumb_composer.pitch_utils.chords import (
+    Tendency,
+    get_chords_from_rntxt,
+    Chord,
+)
 from dumb_composer.pitch_utils.put_in_range import (
     get_all_in_range,
     put_in_range,
@@ -165,6 +169,13 @@ class TwoPartContrapuntist:
             popped_annotation = score.annotations["suspensions"].pop()
             assert popped_annotation.onset == score.chords[i].onset
 
+    # def _apply_tendency(self, score:Score, i:int):
+    #     cur_mel_pitch =
+    #     cur_chord = score.chords[i - 1]
+    #     tendency = cur_chord.get_pitch_tendency(cur_mel_pitch)
+    #     if tendency is not Tendency.NONE and cur_chord != next_chord:
+    # TODO
+
     def _step(
         self,
         score: Score,
@@ -187,6 +198,7 @@ class TwoPartContrapuntist:
             yield self._suspension_resolutions[i]
         else:
             cur_mel_pitch = score.structural_melody[i - 1]
+
             # TODO instead of just trying one suspension, maybe we should
             #   try all of them (including "no suspension"), but choose
             #   which one to do first/second/etc. according to the softmax

@@ -3,6 +3,7 @@ from functools import cached_property
 import math
 from numbers import Number
 import random
+from types import MappingProxyType
 import typing as t
 
 import pandas as pd
@@ -15,7 +16,14 @@ from .time_utils import (
     get_onset_closest_to_middle_of_duration,
 )
 from .shared_classes import Score
-from .utils.math_ import softmax
+from .utils.math_ import linear_arc, quadratic_arc, softmax
+
+from enum import Enum, auto
+
+
+class Shape(Enum):
+    LINEAR = auto()
+    QUADRATIC = auto()
 
 
 @dataclass
@@ -28,7 +36,9 @@ class StructuralPartitionerSettings:
     # probability distribution we can sample from. The higher the temperature,
     # the more the probability mass is concentrated at the higher metric
     # weights. (The temperature should always be > 0.)
-    candidates_softmax_temperature: float = 1.0
+    # TODO changing this doesn't seem to be having an effect
+    candidates_softmax_temperature: float = 2.0
+    arc_shape: Shape = Shape.QUADRATIC
 
 
 def _flatten_list_sub(x: t.Union[t.Any, t.List[t.Any]]):
@@ -54,6 +64,10 @@ def flatten_list(l: t.List[t.Any]):
 
 
 class StructuralPartitioner:
+    arcs = MappingProxyType(
+        {Shape.LINEAR: "_linear", Shape.QUADRATIC: "_quadratic"}
+    )
+
     def __init__(
         self, settings: t.Optional[StructuralPartitionerSettings] = None
     ):
@@ -62,13 +76,25 @@ class StructuralPartitioner:
         self.settings = settings
         self._ts = None
 
-    @cached_property
     def _linear(self):
-        x1 = self.settings.never_split_dur_in_beats * self._ts.beat_dur
-        slope = 1 / (
-            self.settings.always_split_dur_in_bars * self._ts.bar_dur - x1
+        return linear_arc(
+            min_x=self.settings.never_split_dur_in_beats * self._ts.beat_dur,
+            max_x=self.settings.always_split_dur_in_bars * self._ts.bar_dur,
         )
-        return lambda x: slope * (x - x1)
+
+    def _quadratic(self):
+        return quadratic_arc(
+            min_x=self.settings.never_split_dur_in_beats * self._ts.beat_dur,
+            max_x=self.settings.always_split_dur_in_bars * self._ts.bar_dur,
+        )
+
+    # @cached_property
+    # def _linear(self):
+    #     x1 = self.settings.never_split_dur_in_beats * self._ts.beat_dur
+    #     slope = 1 / (
+    #         self.settings.always_split_dur_in_bars * self._ts.bar_dur - x1
+    #     )
+    #     return lambda x: slope * (x - x1)
 
     def _step(
         self, chord_onset: Number, chord_release: Number
@@ -78,7 +104,7 @@ class StructuralPartitioner:
         # one-bar chords will *not* be split further. Whereas each original
         # one-bar chord has a ~50% chance of being split. That seems wrong.
         chord_dur = chord_release - chord_onset
-        split = random.random() < self._linear(chord_dur)
+        split = random.random() < self._arc(chord_dur)
         if not split:
             return (chord_onset, chord_release)
 
@@ -99,6 +125,7 @@ class StructuralPartitioner:
             # Otherwise, we choose a split point with probability proportional to
             #   the metric strength of each point in the bar, down to
             #   never_split_dur_in_beats
+            # TODO debug the weights here
             candidates = self._ts.weights_between(
                 math.ceil(self.settings.never_split_dur_in_beats)
                 * self._ts.beat_dur,
@@ -108,7 +135,10 @@ class StructuralPartitioner:
                 out_format="dict",
             )
             candidate_onsets, candidate_weights = zip(*candidates.items())
-            probs = softmax(candidate_weights)
+            probs = softmax(
+                candidate_weights,
+                temperature=self.settings.candidates_softmax_temperature,
+            )
             split_point = random.choices(candidate_onsets, weights=probs)[0]
         return [
             self._step(chord_onset, split_point),
@@ -121,6 +151,7 @@ class StructuralPartitioner:
         TODO it would be good to preserve the original "score.chords" somehow.
         """
         self._ts = score.ts
+        self._arc = getattr(self, self.arcs[self.settings.arc_shape])()
         split_chords = []
         for chord in score.chords:
             splits = self._step(chord.onset, chord.release)

@@ -33,33 +33,55 @@ def test_dumb_accompanist(quick):
     #     m7 V
     #     m8 bVI
     #     """
-    rn_format = """Time signature: {}
+    test_cases = [
+        (
+            (4, 4),
+            """Time signature: 4/4
     m1 Bb: I
     m2 F: ii
     m3 I64
     m4 V7
-    m5 I
-    m6 ii6
+    m5 I b3 I6
+    m6 ii6 b4 V65/V
     m7 V7
-    m8 I
+    m8 I b2 vi b3 ii b4 Ger65
     m9 I64
-    m10 V7
-    m11 I53
+    m10 V7 b4.5 viio7/vi
+    m11 vi b1.5 V b3 I
     m12 V43
     m13 V42
     m14 I6
-    """
-    time_sigs = [(4, 4), (3, 4)]
-    for numer, denom in time_sigs:
+    """,
+        ),
+        (
+            (3, 4),
+            """Time signature: 3/4
+    m1 Bb: I
+    m2 F: ii
+    m3 I64
+    m4 V7
+    m5 I b3 I6
+    m6 ii6 b3.5 V65/V
+    m7 V7
+    m8 I b2 vi b2.5 ii b3 Ger65
+    m9 I64
+    m10 V7 b3.75 viio7/vi
+    m11 vi b1.5 V b3 I
+    m12 V43
+    m13 V42
+    m14 I6
+    """,
+        ),
+    ]
+    for (numer, denom), rntxt in test_cases:
         ts = f"{numer}/{denom}"
-        rn_temp = rn_format.format(ts)
         random.seed(42)
         for pattern in PatternMaker._all_patterns:
             settings = DumbAccompanistSettings(
                 pattern=pattern, accompaniment_annotations=AccompAnnots.ALL
             )
             dc = DumbAccompanist(settings)
-            out_df = dc(rn_temp)
+            out_df = dc(rntxt)
             funcname = get_funcname()
             mid_path = os.path.join(
                 TEST_OUT_DIR,

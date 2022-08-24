@@ -110,7 +110,7 @@ def find_suspensions(
     by providing the `scale_pcs` argument; if this argument is not None, the
     current_pitch has to belong to the scale.
     >>> find_suspensions(69, (0, 4, 7), (0, 2, 3, 5, 7, 8, 11))
-    False
+    []
     """
 
     def _append(current_pitch, interval, next_pc):
@@ -141,6 +141,7 @@ def find_suspension_releases(
     max_suspension_dur: t.Union[str, Number] = "bar",
 ) -> t.List[Number]:
     """
+    # TODO behavior is inconsistent between 9/8 and 3/4. FIX!
     >>> find_suspension_releases(
     ...     0.0, 4.5, Meter("9/8"), max_weight_diff=2)
     [Fraction(3, 1), Fraction(1, 1)]
@@ -150,18 +151,24 @@ def find_suspension_releases(
     >>> find_suspension_releases(
     ...     0.0, 16.0, Meter("4/4"), max_weight_diff=2)
     [Fraction(4, 1), Fraction(2, 1), Fraction(1, 1)]
+    >>> find_suspension_releases(
+    ...     0.0, 12.0, Meter("3/4"), max_weight_diff=1)
+    [Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)]
     """
     out = []
     if max_suspension_dur == "bar":
         max_suspension_dur = meter.bar_dur
     diss_onset, diss_weight = start, meter.weight(start)
+    # print(diss_onset, diss_weight)
     while True:
+        # print(start, stop)
         try:
             res_onset, res_weight = meter.get_onset_of_greatest_weight_between(
                 start, stop, include_start=False, return_first=False
             )
         except MeterError:
             break
+        # print(res_onset, res_weight)
         if (
             max_weight_diff is not None
             and diss_weight - res_weight > max_weight_diff
@@ -174,8 +181,9 @@ def find_suspension_releases(
             out.append(res_onset)
         if res_weight == meter.min_weight:
             break
+        # print(stop)
         stop, _ = meter.get_onset_of_greatest_weight_between(
-            start, stop, include_start=False, return_first=True
+            start, stop, include_start=False, return_first=meter.is_compound
         )
     # TODO suspensions releases should have a "score" that indicates
     #   how likely they are to be employed.

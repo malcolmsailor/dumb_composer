@@ -385,8 +385,6 @@ class Score:
             )
             temp.append(new_annot)
         out = pd.DataFrame(temp)
-        # if len(out):
-        #     out.sort_values("onset")
         return out
 
     def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
@@ -441,7 +439,7 @@ class Score:
         chord1.release = chord2.release
         if check_correctness:
             chord2.onset = chord1.onset
-            assert chord1.equals(chord2)
+            assert chord1 == chord2
         self.chords.pop(i + 1)
         self.structural_bass.pop(i + 1)
         if len(self.structural_melody) > i + 2:

@@ -1,4 +1,7 @@
+from copy import deepcopy
+from dataclasses import dataclass, field
 from numbers import Number
+from types import MappingProxyType
 import music21
 import pandas as pd
 
@@ -6,32 +9,107 @@ import typing as t
 
 from dumb_composer.constants import TIME_TYPE
 from dumb_composer.time import Meter
+from enum import Enum, auto
 
 
-class Chord(pd.Series):
-    def __init__(
-        self,
-        pcs: t.Tuple[int],
-        scale_pcs: t.Tuple[int],
-        onset: Number,
-        release: Number,
-        inversion: int,
-        token: str,
-        intervals_above_bass: t.Tuple[int],
-    ):
-        foot = pcs[0]
-        super().__init__(
-            {
-                "pcs": pcs,
-                "scale_pcs": scale_pcs,
-                "onset": onset,
-                "release": release,
-                "foot": foot,
-                "inversion": inversion,
-                "token": token,
-                "intervals_above_bass": intervals_above_bass,
-            }
-        )
+class Tendency(Enum):
+    NONE = auto()
+    UP = auto()
+    DOWN = auto()
+
+
+TENDENCIES = MappingProxyType(
+    {
+        "V": {1: Tendency.UP, 3: Tendency.DOWN},
+        "viio": {0: Tendency.UP, 2: Tendency.DOWN, 3: Tendency.DOWN},
+        "Ger": {0: Tendency.UP, 1: Tendency.DOWN},
+        "Fr": {1: Tendency.UP, 2: Tendency.DOWN},
+        "iv": {1: Tendency.DOWN},
+    }
+)
+
+
+# class Chord(pd.Series):
+#     def __init__(
+#         self,
+#         pcs: t.Tuple[int],
+#         scale_pcs: t.Tuple[int],
+#         onset: Number,
+#         release: Number,
+#         inversion: int,
+#         token: str,
+#         intervals_above_bass: t.Tuple[int],
+#     ):
+#         # Where, if anywhere, do I take advantage of this being a Pandas series?
+#         foot = pcs[0]
+#         super().__init__(
+#             {
+#                 "pcs": pcs,
+#                 "scale_pcs": scale_pcs,
+#                 "onset": onset,
+#                 "release": release,
+#                 "foot": foot,
+#                 "inversion": inversion,
+#                 "token": token,
+#                 "intervals_above_bass": intervals_above_bass,
+#             }
+#         )
+
+
+@dataclass
+class Chord:
+    pcs: t.Tuple[int]
+    scale_pcs: t.Tuple[int]
+    onset: Number
+    release: Number
+    inversion: int
+    token: str
+    intervals_above_bass: t.Tuple[int]
+    tendencies: t.Dict[int, Tendency]
+
+    foot: t.Optional[int] = field(default=None, init=False)
+
+    def __post_init__(self):
+        self.foot = self.pcs[0]
+        self._lookup_pcs = {pc: i for (i, pc) in enumerate(self.pcs)}
+
+    def copy(self):
+        return deepcopy(self)
+
+    def get_pitch_tendency(self, pitch: int) -> Tendency:
+        pc_i = self._lookup_pcs[pitch % 12]
+        return self.tendencies.get(pc_i, Tendency.NONE)
+
+
+def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
+    """
+    Keys of dict are indices into "inverted pcs" (i.e., the pcs in close
+    position with the bass as the first element).
+
+    >>> RN = music21.roman.RomanNumeral
+    >>> apply_tendencies(RN("V"))
+    {1: <Tendency.UP: 2>}
+    >>> apply_tendencies(RN("V7"))
+    {1: <Tendency.UP: 2>, 3: <Tendency.DOWN: 3>}
+    >>> apply_tendencies(RN("V42"))
+    {2: <Tendency.UP: 2>, 0: <Tendency.DOWN: 3>}
+    >>> apply_tendencies(RN("I"))
+    {}
+    >>> apply_tendencies(RN("Ger65"))
+    {3: <Tendency.UP: 2>, 0: <Tendency.DOWN: 3>}
+    >>> apply_tendencies(RN("Fr43"))
+    {3: <Tendency.UP: 2>, 0: <Tendency.DOWN: 3>}
+    """
+    inversion = rn.inversion()
+    cardinality = rn.pitchClassCardinality
+    if rn.romanNumeral not in TENDENCIES:
+        return {}
+    raw_tendencies = TENDENCIES[rn.romanNumeral]
+    return {
+        (i - inversion) % cardinality: raw_tendencies[i]
+        for i in range(cardinality)
+        if i in raw_tendencies
+    }
 
 
 def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[int]:
@@ -132,6 +210,7 @@ def get_chords_from_rntxt(
                 (scale.index(pc) - scale.index(chord[0])) % len(scale)
                 for pc in chord
             )
+            tendencies = apply_tendencies(rn)
             if rn.key.tonicPitchNameWithCase != key:
                 key = rn.key.tonicPitchNameWithCase
                 pre_token = key + ":"
@@ -145,6 +224,7 @@ def get_chords_from_rntxt(
                 rn.inversion(),
                 pre_token + rn.figure,
                 intervals_above_bass,
+                tendencies,
             )
             prev_scale = scale
         else:

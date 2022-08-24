@@ -85,6 +85,8 @@ class PatternMaker:
 
         The first beat is always given "oom". This may not be what you want so
         it may be best to avoid using this pattern starting on a weakbeat.
+        # TODO only apply this rule if there is a chord change!
+
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
         ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompah"))
