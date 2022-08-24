@@ -38,7 +38,7 @@ def test_dumb_accompanist(quick):
             (4, 4),
             """Time signature: 4/4
     m1 Bb: I
-    m2 F: ii
+    m2 F: ii b2 ii
     m3 I64
     m4 V7
     m5 I b3 I6
@@ -57,7 +57,7 @@ def test_dumb_accompanist(quick):
             (3, 4),
             """Time signature: 3/4
     m1 Bb: I
-    m2 F: ii
+    m2 F: ii b2 ii
     m3 I64
     m4 V7
     m5 I b3 I6

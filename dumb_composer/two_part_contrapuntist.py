@@ -25,7 +25,7 @@ from dumb_composer.pitch_utils.interval_chooser import (
 )
 from .suspensions import Suspension, find_suspension_releases, find_suspensions
 from .utils.recursion import DeadEnd
-from .utils.math_ import softmax
+from .utils.math_ import softmax, weighted_sample_wo_replacement
 from .shared_classes import Annotation, Score
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
 from dumb_composer.from_ml_out import get_chord_df
@@ -113,7 +113,8 @@ class TwoPartContrapuntist:
             max_suspension_dur=self.settings.max_suspension_dur,
         )
         if not suspension_releases:
-            return None
+            yield None
+            return
         suspensions = find_suspensions(
             # TODO providing next_scale_pcs prohibits "chromatic" suspensions
             #   (see the definition of find_suspensions()) but in the long
@@ -124,20 +125,33 @@ class TwoPartContrapuntist:
             next_scale_pcs=next_chord.scale_pcs,
         )
         if not suspensions:
-            return None
-        suspension = random.choices(
-            suspensions + [None],
-            weights=softmax(
-                [s.score for s in suspensions]
-                + [self.settings.no_suspension_score]
-            ),
-            k=1,
-        )[0]
-        if suspension is None:
-            return None
-        # TODO suspension_releases weights
-        suspension_release = random.choices(suspension_releases, k=1)[0]
-        return suspension, suspension_release
+            yield None
+            return
+        weights = softmax(
+            [s.score for s in suspensions] + [self.settings.no_suspension_score]
+        )
+        for suspension in weighted_sample_wo_replacement(
+            suspensions + [None], weights
+        ):
+            if suspension is None:
+                yield None
+            else:
+                # TODO suspension_releases weights
+                suspension_release = random.choices(suspension_releases, k=1)[0]
+                yield suspension, suspension_release
+        # suspension = random.choices(
+        #     suspensions + [None],
+        #     weights=softmax(
+        #         [s.score for s in suspensions]
+        #         + [self.settings.no_suspension_score]
+        #     ),
+        #     k=1,
+        # )[0]
+        # if suspension is None:
+        #     return None
+        # # TODO suspension_releases weights
+        # suspension_release = random.choices(suspension_releases, k=1)[0]
+        # return suspension, suspension_release
 
     def _apply_suspension(
         self,
@@ -176,59 +190,68 @@ class TwoPartContrapuntist:
     #     if tendency is not Tendency.NONE and cur_chord != next_chord:
     # TODO
 
-    def _step(
-        self,
-        score: Score,
-    ):
-        i = len(score.structural_melody)
+    def _get_first_melody_pitch(self, score: Score, i: int):
         next_bass_pitch = score.structural_bass[i]
         next_chord = score.chords[i]
-        if not i:
-            # generate the first note
-            mel_pitch_choices = get_all_in_range(
-                next_chord.pcs,
-                max(next_bass_pitch, score.mel_range[0]),
-                score.mel_range[1],
-            )
-            while mel_pitch_choices:
-                mel_pitch_i = random.randrange(len(mel_pitch_choices))
-                yield mel_pitch_choices[mel_pitch_i]
-                mel_pitch_choices.pop(mel_pitch_i)
-        elif i in self._suspension_resolutions:
-            yield self._suspension_resolutions[i]
-        else:
-            cur_mel_pitch = score.structural_melody[i - 1]
 
-            # TODO instead of just trying one suspension, maybe we should
-            #   try all of them (including "no suspension"), but choose
-            #   which one to do first/second/etc. according to the softmax
-            suspension = self._choose_suspension(
-                score, next_chord, cur_mel_pitch
-            )
+        mel_pitch_choices = get_all_in_range(
+            next_chord.pcs,
+            max(next_bass_pitch, score.mel_range[0]),
+            score.mel_range[1],
+        )
+        while mel_pitch_choices:
+            mel_pitch_i = random.randrange(len(mel_pitch_choices))
+            yield mel_pitch_choices[mel_pitch_i]
+            mel_pitch_choices.pop(mel_pitch_i)
+
+    def _resolve_suspension(self, i: int):
+        yield self._suspension_resolutions[i]
+
+    def _get_next_melody_pitch(self, score: Score, i: int):
+        next_bass_pitch = score.structural_bass[i]
+        next_chord = score.chords[i]
+        cur_mel_pitch = score.structural_melody[i - 1]
+        for suspension in self._choose_suspension(
+            score, next_chord, cur_mel_pitch
+        ):
             if suspension is not None:
                 yield self._apply_suspension(score, i, *suspension)
                 # we only continue execution if the recursive calls fail
                 #   somewhere further down the stack, in which case we need to
                 #   undo the suspension.
                 self._undo_suspension(score, i)
-            cur_bass_pitch = score.structural_bass[i - 1]
-            forbidden_intervals = get_forbidden_intervals(
-                cur_mel_pitch,
-                [(cur_bass_pitch, next_bass_pitch)],
-                self.settings.forbidden_parallels,
-                self.settings.forbidden_antiparallels,
-            )
-            intervals = interval_finder(
-                cur_mel_pitch,
-                next_chord.pcs,
-                *score.mel_range,
-                max_interval=self.settings.max_interval,
-                forbidden_intervals=forbidden_intervals,
-            )
-            while intervals:
-                interval = self._ic(intervals)
-                yield cur_mel_pitch + interval
-                intervals.remove(interval)
+            else:
+                cur_bass_pitch = score.structural_bass[i - 1]
+                forbidden_intervals = get_forbidden_intervals(
+                    cur_mel_pitch,
+                    [(cur_bass_pitch, next_bass_pitch)],
+                    self.settings.forbidden_parallels,
+                    self.settings.forbidden_antiparallels,
+                )
+                intervals = interval_finder(
+                    cur_mel_pitch,
+                    next_chord.pcs,
+                    *score.mel_range,
+                    max_interval=self.settings.max_interval,
+                    forbidden_intervals=forbidden_intervals,
+                )
+                while intervals:
+                    interval = self._ic(intervals)
+                    yield cur_mel_pitch + interval
+                    intervals.remove(interval)
+
+    def _step(self, score: Score):
+        i = len(score.structural_melody)
+        if not i:
+            # generate the first note
+            for pitch in self._get_first_melody_pitch(score, i):
+                yield pitch
+        elif i in self._suspension_resolutions:
+            for pitch in self._resolve_suspension(i):
+                yield pitch
+        else:
+            for pitch in self._get_next_melody_pitch(score, i):
+                yield pitch
         raise DeadEnd()
 
     def __call__(

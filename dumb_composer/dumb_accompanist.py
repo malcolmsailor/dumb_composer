@@ -120,6 +120,7 @@ class DumbAccompanist:
     ) -> t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]:
         i = len(score.accompaniments)
         chord = score.chords[i]
+        chord_change = (i == 0) or (chord != score.chords[i - 1])
         below = self._get_below(score)
         above = self._get_above(score)
         for pitches in self._cs(
@@ -134,6 +135,7 @@ class DumbAccompanist:
                 release=chord.release,
                 pattern=self.settings.pattern,
                 track=score.accompaniments_track,
+                chord_change=chord_change,
             )
             if self.settings.accompaniment_annotations is AccompAnnots.NONE:
                 yield accompaniment_pattern

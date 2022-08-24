@@ -1,4 +1,7 @@
+from collections import Counter  # used by doctest
+import random
 import typing as t
+import itertools as it
 import numpy as np
 
 
@@ -46,3 +49,39 @@ def linear_arc(
     """
     slope = (max_y - min_y) / (max_x - min_x)
     return lambda x: slope * (x - min_x)
+
+
+def _swap(seq: t.List[t.Any], i: int, j: int) -> None:
+    """Swaps items in-place."""
+    temp = seq[i]
+    seq[i] = seq[j]
+    seq[j] = temp
+
+
+def weighted_sample_wo_replacement(
+    choices: t.Sequence[t.Any], weights: t.Sequence[float]
+) -> t.Iterator[t.Any]:
+    """
+    # TODO look up how to skip a doctest (due to randomness here) then
+    #   provide one for this function.
+    There is probably a faster algorithm for this...
+
+    >>> choices = ["a", "b", "c"]
+    >>> weights = [0.6, 0.3, 0.1]
+    >>> results = [weighted_sample_wo_replacement(
+    ...            choices, weights) for _ in range(100)]
+    """
+    # we need to copy weights to avoid modifying them in-place.
+    if not choices:
+        return
+    weights = list(weights)
+    choice_indices = list(range(len(choices)))
+    index_pointers = list(range(len(choices)))
+    out = []
+    for i in range(len(choices) - 1):
+        choice_i = random.choices(index_pointers[i:], weights=weights[i:])[0]
+        yield choices[choice_indices[choice_i]]
+        out.append(choices[choice_indices[choice_i]])
+        _swap(choice_indices, i, choice_i)
+        _swap(weights, i, choice_i)
+    yield choices[choice_indices[-1]]

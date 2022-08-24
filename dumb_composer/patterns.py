@@ -1,3 +1,4 @@
+from numbers import Number
 import random
 from re import M
 import typing as t
@@ -62,7 +63,14 @@ class PatternMaker:
         return out
 
     @pattern_method(requires_bass=True)
-    def oompah(self, pitches, onset, release, track):
+    def oompah(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
@@ -85,7 +93,6 @@ class PatternMaker:
 
         The first beat is always given "oom". This may not be what you want so
         it may be best to avoid using this pattern starting on a weakbeat.
-        # TODO only apply this rule if there is a chord change!
 
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
@@ -101,7 +108,7 @@ class PatternMaker:
         foot, others = pitches[0], pitches[1:]
         out = []
         for i, beat in enumerate(beats):
-            if i == 0 or beat["weight"] > beat_weight:
+            if (i == 0 and chord_change) or beat["weight"] > beat_weight:
                 out.append(
                     Note(foot, beat["onset"], beat["release"], track=track)
                 )
@@ -112,7 +119,14 @@ class PatternMaker:
         return out
 
     @pattern_method(requires_bass=True)
-    def oompahpah(self, pitches, onset, release, track):
+    def oompahpah(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
@@ -147,7 +161,7 @@ class PatternMaker:
         foot, others = pitches[0], pitches[1:]
         out = []
         for i, beat in enumerate(beats):
-            if i == 0 or beat["weight"] == max_weight:
+            if (i == 0 and chord_change) or beat["weight"] == max_weight:
                 out.append(
                     Note(foot, beat["onset"], beat["release"], track=track)
                 )
@@ -165,13 +179,26 @@ class PatternMaker:
         return out
 
     def _chords(
-        self, rhythm_f, pitches, onset, release, track, avoid_empty: bool = True
+        self,
+        rhythm_f,
+        pitches,
+        onset,
+        release,
+        track,
+        chord_change: bool = True,
     ):
-        rhythms = rhythm_f(onset, release, avoid_empty=avoid_empty)
+        rhythms = rhythm_f(onset, release, avoid_empty=chord_change)
         return self._apply_pitches_to_rhythms(rhythms, pitches, track)
 
     @pattern_method()
-    def off_beat_chords(self, pitches, onset, release, track):
+    def off_beat_chords(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
@@ -204,10 +231,19 @@ class PatternMaker:
         on   off       pitches
         3.5  3.75  (48, 64, 67)
         """
-        return self._chords(self.rf.off_beats, pitches, onset, release, track)
+        return self._chords(
+            self.rf.off_beats, pitches, onset, release, track, chord_change
+        )
 
     @pattern_method()
-    def off_semibeat_chords(self, pitches, onset, release, track):
+    def off_semibeat_chords(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
@@ -218,33 +254,73 @@ class PatternMaker:
         3/2    2  (48, 64, 67)
         """
         return self._chords(
-            self.rf.off_semibeats, pitches, onset, release, track
+            self.rf.off_semibeats, pitches, onset, release, track, chord_change
         )
 
     @pattern_method()
-    def beat_chords(self, pitches, onset, release, track):
-        return self._chords(self.rf.beats, pitches, onset, release, track)
+    def beat_chords(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
+        return self._chords(
+            self.rf.beats, pitches, onset, release, track, chord_change
+        )
 
     @pattern_method()
-    def semibeat_chords(self, pitches, onset, release, track):
-        return self._chords(self.rf.semibeats, pitches, onset, release, track)
+    def semibeat_chords(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
+        return self._chords(
+            self.rf.semibeats, pitches, onset, release, track, chord_change
+        )
 
     @pattern_method()
-    def superbeat_chords(self, pitches, onset, release, track):
-        return self._chords(self.rf.superbeats, pitches, onset, release, track)
+    def superbeat_chords(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
+        return self._chords(
+            self.rf.superbeats, pitches, onset, release, track, chord_change
+        )
 
     # TODO compound alberti bass
 
     @pattern_method(allow_compound=Allow.NO)
-    def alberti(self, pitches, onset, release, track):
+    def alberti(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
         beat_weight = self.rf.beat_weight
         sbs = self.rf.semibeats(onset, release)
         out = []
+        bass_has_sounded = False
         for sb in sbs:
-            if sb["weight"] > beat_weight:
+            if sb["weight"] > beat_weight or (
+                not bass_has_sounded
+                and chord_change
+                and sb["weight"] == beat_weight
+            ):
                 out.append(
                     Note(pitches[0], sb["onset"], sb["release"], track=track)
                 )
+                bass_has_sounded = True
             elif sb["weight"] < beat_weight:
                 out.append(
                     Note(pitches[2], sb["onset"], sb["release"], track=track)
@@ -263,6 +339,7 @@ class PatternMaker:
         dur=None,
         pattern=None,
         track=1,
+        chord_change: bool = True,
     ) -> t.List[Note]:
         if pattern is None:
             if self._prev_pattern is None or random.random() > self._inertia:
@@ -274,7 +351,9 @@ class PatternMaker:
             self._prev_pattern = pattern
         if release is None:
             release = onset + dur
-        return getattr(self, pattern)(pitches, onset, release, track)
+        return getattr(self, pattern)(
+            pitches, onset, release, track, chord_change
+        )
 
     @property
     def prev_pattern(self):
