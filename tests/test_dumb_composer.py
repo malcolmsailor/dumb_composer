@@ -29,9 +29,9 @@ def test_prefab_composer():
     m13 V42
     m14 I6
     """
-    time_sigs = [(3, 4), (4, 4)]
+    time_sigs = [(4, 4), (3, 4)]
     for numer, denom in time_sigs:
-        for prefab_voice in ("tenor", "bass", "soprano"):
+        for prefab_voice in ("soprano", "tenor", "bass"):
             random.seed(42)
             for i in range(1):
                 ts = f"{numer}/{denom}"

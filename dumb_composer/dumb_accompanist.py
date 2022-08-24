@@ -37,6 +37,8 @@ class AccompAnnots(Enum):
 
 # TODO prevent changing patterns on weak beats
 
+# TODO don't include tendency tones in chords if they are found in the melody
+
 
 @dataclass
 class DumbAccompanistSettings(SimpleSpacerSettings):

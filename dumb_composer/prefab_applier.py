@@ -9,6 +9,7 @@ import pandas as pd
 from dumb_composer.pitch_utils.intervals import (
     get_relative_chord_factors,
 )
+from .utils.math_ import weighted_sample_wo_replacement
 from .utils.recursion import DeadEnd
 from .pitch_utils.scale import Scale, ScaleDict
 from dumb_composer.shared_classes import Note, Score
@@ -31,6 +32,16 @@ class PrefabApplierSettings:
     # either "soprano", "tenor", or "bass"
     prefab_voice: str = "soprano"
 
+    # prefab_inertia is approximately "the probability of choosing the Nth
+    #   last prefab applied to a segment of the same length". E.g., if the
+    #   segment is length 2, and prefab_inertia is (0.5, 0.2), then there is
+    #   about a 50% chance of choosing the last-chosen length-2 prefab, and
+    #   a 20% chance of choosing the second-last-chosen length-2 prefab. The
+    #   remaining probability mass is distributed to the other prefabs.
+    #   The items in prefab_inertia should be in (0.0, 1.0) and should sum to
+    #   at most 1.
+    prefab_inertia: t.Optional[t.Tuple[float]] = (0.5, 0.2)
+
 
 class PrefabApplier:
     prefab_rhythm_dir = PrefabRhythmDirectory()
@@ -40,6 +51,12 @@ class PrefabApplier:
         if settings is None:
             settings = PrefabApplierSettings()
         self.settings = settings
+        self._prefab_rhythm_stacks: t.DefaultDict[
+            t.List[PrefabRhythms]
+        ] = defaultdict(list)
+        self._prefab_pitch_stacks: t.DefaultDict[
+            t.List[PrefabPitches]
+        ] = defaultdict(list)
 
     def _append_from_prefabs(
         self,
@@ -83,6 +100,31 @@ class PrefabApplier:
             return score.structural_bass
         return score.structural_melody
 
+    def _get_prefab_weights(
+        self,
+        prefab_options: t.List[t.Union[PrefabPitches, PrefabRhythms]],
+        prefab_stack_key: t.Any,
+        prefab_type: t.Type,
+    ) -> t.List[float]:
+        """Weights will not sum to 1 in those cases where all prefab_options
+        are in the first n items of the stack."""
+        if prefab_type is PrefabRhythms:
+            stacks = self._prefab_rhythm_stacks
+        else:
+            stacks = self._prefab_pitch_stacks
+        stack = stacks[prefab_stack_key]
+        prefab_inertia = self.settings.prefab_inertia
+        temp = {}
+        remaining_mass = 1.0
+        for prefab, prob in zip(reversed(stack), prefab_inertia):
+            if prefab in prefab_options:
+                temp[prefab] = prob
+                remaining_mass -= prob
+        if len(prefab_options) == len(temp):
+            return [temp.get(prefab) for prefab in prefab_options]
+        epsilon = remaining_mass / (len(prefab_options) - len(temp))
+        return [temp.get(prefab, epsilon) for prefab in prefab_options]
+
     def _step(self, score: Score):
         current_i = len(score.prefabs)
         current_scale = score.scales[current_i]
@@ -101,17 +143,22 @@ class PrefabApplier:
             if current_i not in score.allow_prefab_start_with_rest
             else score.allow_prefab_start_with_rest[current_i]
         )
+        segment_dur = current_chord.release - current_chord.onset
         rhythm_options = self.prefab_rhythm_dir(
-            current_chord.release - current_chord.onset,
+            segment_dur,
             # TODO metric strength
             is_suspension=is_suspension,
             is_preparation=is_preparation,
             is_after_tie=is_after_tie,
             start_with_rest=start_with_rest,
         )
-        while rhythm_options:
-            rhythm_i = random.randrange(len(rhythm_options))
-            rhythm = rhythm_options.pop(rhythm_i)
+        weights = self._get_prefab_weights(
+            rhythm_options, segment_dur, PrefabRhythms
+        )
+        for rhythm in weighted_sample_wo_replacement(rhythm_options, weights):
+            # rhythm_i = random.randrange(len(rhythm_options))
+            # rhythm = rhythm_options.pop(rhythm_i)
+            self._prefab_rhythm_stacks[segment_dur].append(rhythm)
             score.allow_prefab_start_with_rest[
                 current_i + 1
             ] = rhythm.allow_next_to_start_with_rest
@@ -149,6 +196,49 @@ class PrefabApplier:
                 if pitches.tie_to_next:
                     score.tied_prefab_indices.remove(current_i)
             del score.allow_prefab_start_with_rest[current_i + 1]
+            self._prefab_rhythm_stacks[segment_dur].pop()
+        # while rhythm_options:
+        #     rhythm_i = random.randrange(len(rhythm_options))
+        #     rhythm = rhythm_options.pop(rhythm_i)
+        #     self._prefab_rhythm_stacks[segment_dur].append(rhythm)
+        #     score.allow_prefab_start_with_rest[
+        #         current_i + 1
+        #     ] = rhythm.allow_next_to_start_with_rest
+        #     generic_pitch_interval = current_scale.get_interval(
+        #         current_mel_pitch, next_mel_pitch, scale2=next_scale
+        #     )
+        #     relative_chord_factors = get_relative_chord_factors(
+        #         0
+        #         if self.settings.prefab_voice == "bass"
+        #         else score.structural_melody_intervals[current_i],
+        #         current_chord.intervals_above_bass,
+        #         len(current_scale),
+        #     )
+        #     pitch_options = self.prefab_pitch_dir(
+        #         generic_pitch_interval,
+        #         rhythm.metric_strength_str,
+        #         relative_chord_factors,
+        #         is_suspension=is_suspension,
+        #         is_preparation=is_preparation,
+        #     )
+        #     while pitch_options:
+        #         pitch_i = random.randrange(len(pitch_options))
+        #         pitches = pitch_options.pop(pitch_i)
+        #         if pitches.tie_to_next:
+        #             assert current_i not in score.tied_prefab_indices
+        #             score.tied_prefab_indices.add(current_i)
+        #         yield self._append_from_prefabs(
+        #             current_mel_pitch,
+        #             current_chord.onset,
+        #             pitches,
+        #             rhythm,
+        #             current_scale,
+        #             track=score.prefab_track,
+        #         )
+        #         if pitches.tie_to_next:
+        #             score.tied_prefab_indices.remove(current_i)
+        #     del score.allow_prefab_start_with_rest[current_i + 1]
+        #     self._prefab_rhythm_stacks[segment_dur].pop()
         raise DeadEnd()
 
     def _final_step(self, score: Score):

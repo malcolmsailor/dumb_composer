@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from .chord_spacer import NoSpacings
+
 from .structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
@@ -99,12 +101,19 @@ class PrefabComposer:
                 + self.get_missing_prefab_str()
             )
         self._n_recurse_calls += 1
+        if i:
+            assert i - 1 == len(score.accompaniments) == len(score.prefabs)
+        assert i == len(score.structural_melody)
         if i == len(score.chords):
-            for prefab in self.prefab_applier._final_step(score):
-                with append_attempt(score.prefabs, prefab):
-                    for pattern in self.dumb_accompanist._final_step(score):
-                        with append_attempt(score.accompaniments, pattern):
-                            return
+            try:
+                for prefab in self.prefab_applier._final_step(score):
+                    with append_attempt(score.prefabs, prefab):
+                        for pattern in self.dumb_accompanist._final_step(score):
+                            with append_attempt(score.accompaniments, pattern):
+                                return
+            except MissingPrefabError as exc:
+                self.missing_prefabs[str(exc)] += 1
+            raise DeadEnd
         # There should be two outcomes to the recursive stack:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
@@ -132,6 +141,7 @@ class PrefabComposer:
                                         return self._recurse(i + 1, score)
             except MissingPrefabError as exc:
                 self.missing_prefabs[str(exc)] += 1
+        raise DeadEnd
 
     def __call__(
         self,

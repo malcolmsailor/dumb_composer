@@ -185,6 +185,11 @@ class PrefabPitches:
             return False
         return True
 
+    def __hash__(self):
+        """We want each PrefabPitches instance to be considered unique so we
+        just return the id of the instance."""
+        return id(self)
+
 
 PP = PrefabPitches
 

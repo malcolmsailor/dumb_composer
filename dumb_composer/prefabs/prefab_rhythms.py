@@ -129,6 +129,11 @@ class PrefabRhythms:
     def max_ioi(self):
         return get_max_ioi(list(self.onsets) + [self.total_dur])
 
+    def __hash__(self):
+        """We want each PrefabRhythms instance to be considered unique so we
+        just return the id of the instance."""
+        return id(self)
+
 
 def match_metric_strength_strs(
     metric_strength_str1: str, metric_strength_str2: str
