@@ -96,6 +96,9 @@ class PrefabPitches:
     #   fifth of a triad, but not on the root. If constraints = [-2, -4], it
     #   could occur on only the fifth of a triad. Etc.
     constraints: t.Sequence[int] = ()
+    # constraints: specifies intervals relative to the initial pitch that
+    #   must NOT be contained in the chord.
+    negative_constraints: t.Sequence[int] = ()
     allow_suspension: Allow = Allow.YES
     allow_preparation: Allow = Allow.NO
 
@@ -175,6 +178,15 @@ class PrefabPitches:
             )
         ):
             return False
+        if (
+            self.negative_constraints
+            and relative_chord_factors is not None
+            and any(
+                constraint in relative_chord_factors
+                for constraint in self.negative_constraints
+            )
+        ):
+            return False
         if is_suspension and self.allow_suspension == Allow.NO:
             return False
         if not is_suspension and self.allow_suspension == Allow.ONLY:
@@ -197,7 +209,14 @@ TWO_PREFABS = (
     PP([-1, 2, 3], "__", [0, -2], [-2]),
     PP([-1, -2, 2], "__", [0, -3], [-3]),
     PP([1, 3, 4, 5, -2, -3], "__", [0, 2], [2]),
-    PP([1, 2, 5], "__", [0, 3], [3], allow_suspension=Allow.NO),
+    PP(
+        [1, 2, 5],
+        "__",
+        [0, 3],
+        [3],
+        negative_constraints=[1],
+        allow_suspension=Allow.NO,
+    ),
 )
 
 THREE_PREFABS = (

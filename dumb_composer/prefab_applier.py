@@ -5,6 +5,7 @@ import typing as t
 import random
 import warnings
 import pandas as pd
+from .pitch_utils.chords import Chord
 
 from dumb_composer.pitch_utils.intervals import (
     get_relative_chord_factors,
@@ -21,6 +22,7 @@ from dumb_composer.prefabs.prefab_pitches import (
 from dumb_composer.prefabs.prefab_rhythms import (
     PrefabRhythmDirectory,
     PrefabRhythms,
+    SingletonRhythm,
 )
 
 # TODO prefab "inertia": more likely to select immediately preceding prefab
@@ -61,7 +63,7 @@ class PrefabApplier:
     def _append_from_prefabs(
         self,
         initial_pitch: int,
-        offset: float,
+        current_chord: Chord,
         prefab_pitches: PrefabPitches,
         prefab_rhythms: PrefabRhythms,
         scale: Scale,
@@ -73,12 +75,15 @@ class PrefabApplier:
         #   but not to the chord/scale of the suspension) scale.index can
         #   fail.
         orig_scale_degree = scale.index(initial_pitch)
+        if isinstance(prefab_rhythms, SingletonRhythm):
+            releases = [current_chord.release]
+        else:
+            releases = prefab_rhythms.releases
+        offset = current_chord.onset
 
         for i, (rel_scale_degree, onset, release) in enumerate(
             zip(
-                prefab_pitches.relative_degrees,
-                prefab_rhythms.onsets,
-                prefab_rhythms.releases,
+                prefab_pitches.relative_degrees, prefab_rhythms.onsets, releases
             )
         ):
             if i in prefab_pitches.alterations:
@@ -200,7 +205,7 @@ class PrefabApplier:
                     score.tied_prefab_indices.add(current_i)
                 yield self._append_from_prefabs(
                     current_mel_pitch,
-                    current_chord.onset,
+                    current_chord,
                     pitches,
                     rhythm,
                     current_scale,

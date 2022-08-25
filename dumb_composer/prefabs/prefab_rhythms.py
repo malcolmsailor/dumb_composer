@@ -4,6 +4,7 @@ from functools import cached_property, partial
 from numbers import Number
 import typing as t
 import textwrap
+from dumb_composer.constants import TIME_TYPE
 
 from dumb_composer.time_utils import get_min_ioi, get_max_ioi
 from dumb_composer.utils.recursion import UndoRecursiveStep
@@ -15,6 +16,18 @@ class MissingPrefabError(UndoRecursiveStep):
 
 
 MIN_DEFAULT_RHYTHM_BEFORE_REST = 1 / 2
+
+
+class SingletonRhythm:
+    onsets: t.Tuple[TIME_TYPE] = (TIME_TYPE(0),)
+    metric_strength_str: str = "_"
+    allow_suspension = Allow.NO
+    allow_preparation = Allow.NO
+    allow_after_tie = False
+    allow_next_to_start_with_rest = False
+
+    def matches_criteria(self, *args, **kwargs):
+        return True
 
 
 @dataclass
@@ -209,8 +222,9 @@ PREFABS = scale_prefabs(PREFABS)
 
 
 class PrefabRhythmDirectory:
-    def __init__(self):
+    def __init__(self, allow_singleton_rhythm: bool = True):
         self._memo = {}
+        self._singleton = SingletonRhythm() if allow_singleton_rhythm else None
 
     def __call__(
         self,
@@ -233,17 +247,21 @@ class PrefabRhythmDirectory:
             return self._memo[tup].copy()
         out = [prefab for prefab in PREFABS if prefab.matches_criteria(*tup)]
         if not out:
-            raise MissingPrefabError(
-                textwrap.dedent(
-                    f"""No PrefabRhythms instance matching criteria
-                    \ttotal_dur: {total_dur}
-                    \tendpoint_metric_strength_str: {endpoint_metric_strength_str}
-                    \tis_suspension: {is_suspension}
-                    \tis_preparation: {is_preparation}
-                    \tis_after_tie: {is_after_tie}
-                    \tstart_with_rest: {start_with_rest}
-                    """
+            if self._singleton is not None:
+                # TODO store missing rhythms for reference
+                out = [self._singleton]
+            else:
+                raise MissingPrefabError(
+                    textwrap.dedent(
+                        f"""No PrefabRhythms instance matching criteria
+                        \ttotal_dur: {total_dur}
+                        \tendpoint_metric_strength_str: {endpoint_metric_strength_str}
+                        \tis_suspension: {is_suspension}
+                        \tis_preparation: {is_preparation}
+                        \tis_after_tie: {is_after_tie}
+                        \tstart_with_rest: {start_with_rest}
+                        """
+                    )
                 )
-            )
         self._memo[tup] = out
         return out.copy()
