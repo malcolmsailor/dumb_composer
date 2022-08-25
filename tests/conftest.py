@@ -117,6 +117,9 @@ def pytest_addoption(parser):
         "--quick", action="store_true", help="run 'quick' version of tests"
     )
     parser.addoption(
+        "--slow", action="store_true", help="run 'slow', comprehensive tests"
+    )
+    parser.addoption(
         "--romantext", type=str, help="path to romantext file", default=""
     )
 
@@ -124,6 +127,11 @@ def pytest_addoption(parser):
 @pytest.fixture(scope="session")
 def quick(request):
     return request.config.option.quick
+
+
+@pytest.fixture(scope="session")
+def slow(request):
+    return request.config.option.slow
 
 
 @pytest.fixture(scope="session")

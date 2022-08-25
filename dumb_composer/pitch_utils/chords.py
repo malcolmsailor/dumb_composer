@@ -83,8 +83,8 @@ class Chord:
 
 def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
     """
-    Keys of dict are indices into "inverted pcs" (i.e., the pcs in close
-    position with the bass as the first element).
+    Keys of returned dict are indices into "inverted pcs" (i.e., the pcs in
+    close position with the bass as the first element).
 
     >>> RN = music21.roman.RomanNumeral
     >>> apply_tendencies(RN("V"))
@@ -196,9 +196,9 @@ def get_chords_from_rntxt(
     out_list = []
     for rn in score[music21.roman.RomanNumeral]:
         if pickup_offset is None:
-            pickup_offset = (
-                TIME_TYPE(rn.beat) - 1
-            ) * rn.beatDuration.quarterLength
+            pickup_offset = TIME_TYPE(
+                ((rn.beat) - 1) * rn.beatDuration.quarterLength
+            )
         chord = _get_chord_pcs(rn)
         scale = fit_scale_to_rn(rn)
         if scale != prev_scale or chord != prev_chord.pcs:

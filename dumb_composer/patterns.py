@@ -27,6 +27,7 @@ class PatternMaker:
         ts: t.Union[Meter, str],
         inertia: float = 0.75,
         include_bass: bool = True,
+        pattern_changes_on_downbeats_only: bool = True,
     ):
         """Makes patterns from chords.
 
@@ -41,10 +42,12 @@ class PatternMaker:
         """
         if isinstance(ts, str):
             ts = Meter(ts)
+        self._ts = ts
         self._patterns = self._filter_patterns(ts, include_bass)
         self.rf = RhythmFetcher(ts)
         self._inertia = inertia
         self._prev_pattern: t.Optional[str] = None
+        self._downbeats_only = pattern_changes_on_downbeats_only
 
     def _filter_patterns(self, ts: Meter, include_bass: bool) -> t.List[str]:
         out = []
@@ -342,7 +345,13 @@ class PatternMaker:
         chord_change: bool = True,
     ) -> t.List[Note]:
         if pattern is None:
-            if self._prev_pattern is None or random.random() > self._inertia:
+            if self._prev_pattern is None or (
+                (
+                    not self._downbeats_only
+                    or self._ts.weight(onset) == self._ts.max_weight
+                )
+                and random.random() > self._inertia
+            ):
                 pattern = random.choice(self._patterns)
                 self._prev_pattern = pattern
             else:

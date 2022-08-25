@@ -50,6 +50,7 @@ class DumbAccompanistSettings(SimpleSpacerSettings):
     accompaniment_above: t.Optional[t.Union[str, t.Sequence[str]]] = None
     include_bass: bool = True
     end_with_solid_chord: bool = True
+    pattern_changes_on_downbeats_only: bool = True
 
     def __post_init__(self):
         if hasattr(super(), "__post_init__"):
@@ -159,7 +160,11 @@ class DumbAccompanist:
         raise DeadEnd()
 
     def init_new_piece(self, ts: str):
-        self._pm = PatternMaker(ts, include_bass=self.settings.include_bass)
+        self._pm = PatternMaker(
+            ts,
+            include_bass=self.settings.include_bass,
+            pattern_changes_on_downbeats_only=self.settings.pattern_changes_on_downbeats_only,
+        )
 
     def __call__(
         self,

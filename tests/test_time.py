@@ -1,12 +1,27 @@
 from dataclasses import dataclass
 from numbers import Number
 import random
-from dumb_composer.time import Meter, RhythmFetcher
 import typing as t
+
+from dumb_composer.constants import TIME_TYPE
+from dumb_composer.time import Meter, RhythmFetcher
 
 
 def test_meter():
     tests = {
+        "6/8": {
+            "weights": {
+                0: 1,
+                1.5: 0,
+                0.5: -1,
+                1: -1,
+                2: -1,
+                2.5: -1,
+                0.25: -2,
+            },
+            "durs": (1.5, 0.5, 3),
+            "weight_properties": (0, 1),
+        },
         "4/4": {
             "weights": {
                 0: 2,
@@ -60,30 +75,17 @@ def test_meter():
             "durs": (2, 1, 6),
             "weight_properties": (0, 1),
         },
-        "5/4": {
-            "weights": {
-                # I don't know if this is the ideal behavior but it is the expected
-                # behavior as the algorithm stands. Don't expect to use this with
-                # odd meters very much anyway.
-                0: 3,
-                2: 1,
-                3: 0,
-                4: 2,
-            },
-        },
-        "6/8": {
-            "weights": {
-                0: 1,
-                1.5: 0,
-                0.5: -1,
-                1: -1,
-                2: -1,
-                2.5: -1,
-                0.25: -2,
-            },
-            "durs": (1.5, 0.5, 3),
-            "weight_properties": (0, 1),
-        },
+        # "5/4": {
+        #     "weights": {
+        #         # I don't know if this is the ideal behavior but it is the expected
+        #         # behavior as the algorithm stands. Don't expect to use this with
+        #         # odd meters very much anyway.
+        #         0: 3,
+        #         2: 1,
+        #         3: 0,
+        #         4: 2,
+        #     },
+        # },
         "6/4": {
             "weights": {
                 0: 1,
@@ -107,6 +109,19 @@ def test_meter():
                 0.25: -2,
             },
         },
+        "12/8": {
+            "weights": {
+                0: 2,
+                3: 1,
+                1.5: 0,
+                0.5: -1,
+                1.0: -1,
+                2.5: -1,
+                0.25: -2,
+                4.5: 0,
+                6: 2,
+            }
+        },
     }
     for ts, test_dict in tests.items():
         meter = Meter(ts)
@@ -122,6 +137,49 @@ def test_meter():
             assert (meter.beat_weight, meter.max_weight) == test_dict[
                 "weight_properties"
             ]
+
+    for ts in Meter._ts_dict:
+        meter = Meter(ts)
+        if meter.is_compound:
+            assert meter.beat_dur / meter.semibeat_dur == 3
+            assert sum(meter.stuttersemibeat_durs) == meter.beat_dur
+        else:
+            assert meter.beat_dur / meter.semibeat_dur == 2
+        if meter.is_triple:
+            assert meter.bar_dur / meter.beat_dur == 3
+            assert meter.superbeat_dur == meter.bar_dur
+            assert sum(meter.stutterbeat_durs) == meter.bar_dur
+        else:
+
+            assert meter.bar_dur / meter.beat_dur in (2, 4)
+            if meter.bar_dur / meter.beat_dur == 2:
+                assert meter.superbeat_dur == meter.bar_dur
+            else:
+                assert meter.superbeat_dur * 2 == meter.bar_dur
+        if meter.is_compound and meter.is_triple:
+            assert sorted(meter.non_odd_lengths) == [
+                meter.scale_factor * dur
+                for dur in (0.25, 0.5, 0.75, 1.0, 1.5, 2.5, 3.0, 4.5, 7.5, 9)
+            ]
+        elif meter.is_compound:
+            if meter.n_beats == 2:
+                # test not implemented for 4
+                assert sorted(meter.non_odd_lengths) == [
+                    meter.scale_factor * dur
+                    for dur in (0.25, 0.5, 0.75, 1.0, 1.5, 2.5, 3.0, 4.5, 6)
+                ]
+        elif meter.is_triple:
+            assert sorted(meter.non_odd_lengths) == [
+                meter.scale_factor * dur
+                for dur in (0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 6)
+            ]
+        else:
+            if meter.n_beats == 4:
+                # test ot implemented for 2
+                assert sorted(meter.non_odd_lengths) == [
+                    meter.scale_factor * dur
+                    for dur in (0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8)
+                ]
 
 
 def test_rhythm_fetcher():
@@ -209,7 +267,6 @@ def test_duration_is_odd():
             ),
             not_odd=(
                 1 / 4,
-                3 / 8,
                 1 / 2,
                 3 / 4,
                 1,
@@ -226,8 +283,8 @@ def test_duration_is_odd():
         ),
         TestCase(
             "9/4",
-            odd=(4, 5, 7, 8, 10, 12, 13, 15),
-            not_odd=(3 / 4, 3 / 2, 3, 6, 9, 18, 27, 2),
+            odd=(4, 7, 8, 10, 12, 13),
+            not_odd=(3 / 2, 3, 6, 9, 18, 27, 2),
         ),
         TestCase(
             "6/4",
@@ -241,3 +298,53 @@ def test_duration_is_odd():
             assert not meter.duration_is_odd(not_odd)
         for odd in testcase.odd:
             assert meter.duration_is_odd(odd)
+
+
+def test_split_at_metric_strong_points(slow):
+    @dataclass
+    class TestCase:
+        onset: TIME_TYPE
+        release: TIME_TYPE
+
+        @property
+        def dur(self):
+            return self.release - self.onset
+
+        def __repr__(self):
+            return f"{float(self.onset)}_to_{float(self.release)}"
+
+    # Temp
+    four_four = Meter("4/4")
+    result = four_four.split_at_metric_strong_points(
+        [TestCase(0, 9), TestCase(9, 14), TestCase(14, 18)]
+    )
+    if not slow:
+        random.seed(42)
+        p = 0.05
+    n_bars = 2
+    min_split_dur = 1.0  # TODO
+    for ts in Meter.available_time_signatures:
+        grid = TIME_TYPE(0.25)
+        meter = Meter(ts, min_weight=grid)
+        grid_n = int(meter.bar_dur / grid)
+        for offset_i in range(grid_n):
+            offset = grid * offset_i
+            for segment_i in range(2, grid_n * n_bars):
+                if not slow and random.random() > p:
+                    continue
+                dur = segment_i * grid
+                segment = [TestCase(offset, offset + dur)]
+                result = meter.split_at_metric_strong_points(
+                    segment, min_split_dur=min_split_dur
+                )
+                if dur <= min_split_dur:
+                    assert len(result) == 1
+                else:
+                    for item in result:
+                        onsets = meter.weights_between(
+                            grid, item.onset, item.release
+                        )
+                        assert item.dur <= min_split_dur or all(
+                            onsets[0]["weight"] > onset["weight"]
+                            for onset in onsets[1:]
+                        )

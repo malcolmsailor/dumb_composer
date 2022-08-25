@@ -60,14 +60,16 @@ class TimeClass:
             "4/2": (4, 2),
             "3/2": (3, 2),
             "2/2": (2, 2),
-            "5/4": (5, 1),
+            # Odd meters are not implemented
+            # "5/4": (5, 1),
             "4/4": (4, 1),
             "3/4": (3, 1),
             "2/4": (2, 1),
             "4/8": (4, 0.5),
             "3/8": (3, 0.5),
             "2/8": (2, 0.5),
-            "3/8": (1, 1.5),
+            # NB Fast 3/8 not implemented
+            # "3/8": (1, 1.5),
             "6/8": (2, 1.5),
             "9/8": (3, 1.5),
             "12/8": (4, 1.5),
@@ -79,6 +81,11 @@ class TimeClass:
             "12/2": (4, 6),
         }
     )
+
+    @classmethod
+    @property
+    def available_time_signatures(cls) -> t.Tuple[str]:
+        return tuple(cls._ts_dict.keys())
 
     @staticmethod
     def _get_bounds(onset=None, release=None, dur=None):
@@ -110,16 +117,87 @@ class MeterError(Exception):
 
 
 class Meter(TimeClass):
+    """
+    >>> four_four = Meter("4/4")
+    >>> four_four.beat_dur
+    Fraction(1, 1)
+    >>> four_four.semibeat_dur
+    Fraction(1, 2)
+    >>> four_four.superbeat_dur
+    Fraction(2, 1)
+    >>> four_four.bar_dur
+    Fraction(4, 1)
+
+    The weight of "beat" is always 0 so we can get the duration of smaller
+    units as follows:
+
+    >>> four_four.weight_to_grid[-2]
+    Fraction(1, 4)
+
+    Other meters, for reference. If the denominator changes the durations are
+    scaled up or down by factors of two as appropriate.
+
+    >>> three_four = Meter("3/4")
+    >>> three_four.beat_dur
+    Fraction(1, 1)
+    >>> three_four.semibeat_dur
+    Fraction(1, 2)
+    >>> three_four.superbeat_dur # TODO reevaluate
+    Fraction(3, 1)
+    >>> three_four.bar_dur
+    Fraction(3, 1)
+
+    >>> six_eight = Meter("6/8")
+    >>> six_eight.beat_dur
+    Fraction(3, 2)
+    >>> six_eight.semibeat_dur
+    Fraction(1, 2)
+    >>> six_eight.superbeat_dur
+    Fraction(3, 1)
+    >>> six_eight.bar_dur
+    Fraction(3, 1)
+
+    >>> nine_eight = Meter("9/8")
+    >>> nine_eight.beat_dur
+    Fraction(3, 2)
+    >>> nine_eight.semibeat_dur
+    Fraction(1, 2)
+    >>> nine_eight.superbeat_dur # TODO reevaluate
+    Fraction(9, 2)
+    >>> nine_eight.bar_dur
+    Fraction(9, 2)
+
+    >>> nine_eight = Meter("12/8")
+    >>> nine_eight.beat_dur
+    Fraction(3, 2)
+    >>> nine_eight.semibeat_dur
+    Fraction(1, 2)
+    >>> nine_eight.superbeat_dur
+    Fraction(3, 1)
+    >>> nine_eight.bar_dur
+    Fraction(6, 1)
+    """
+
     # this class should return the metric strength (as an integer, where 0 is
     # tactus) of a given time point
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self._ts_str}')"
 
-    def __init__(self, ts_str, min_weight=-3):
+    def __init__(self, ts_str, min_weight: t.Union[int, Number] = -3):
+        """
+        If min_weight is an int, it specifies the min_weight directly.
+        >>> Meter("4/2", min_weight=-4).min_weight
+        -4
+
+        Otherwise, min_weight is calculated as the weight of the duration
+        provided (down to a minimum of -100):
+        >>> Meter("4/2", min_weight=0.25).min_weight
+        -4
+        """
         self._ts_str = ts_str
         n_beats, beat_dur = self._ts_dict[ts_str]
-        self._n_beats = TIME_TYPE(n_beats)
+        self._n_beats = int(n_beats)
         self._beat_dur = TIME_TYPE(beat_dur)
         self._total_dur = self._n_beats * self._beat_dur
         self._compound = bool(math.log2(self._beat_dur) % 1)
@@ -132,7 +210,13 @@ class Meter(TimeClass):
         )
         self._weight_memo = {}
         self._odd_memo: t.Dict[Number, bool] = {}
-        self._min_weight = min_weight
+        if isinstance(min_weight, int):
+            self._min_weight = min_weight
+        else:
+            # We need to temporarily set min_weight for the self.weight
+            #   algorithm to work
+            self._min_weight = -100
+            self._min_weight = self.weight(min_weight)
 
     @property
     def ts_str(self):
@@ -181,6 +265,20 @@ class Meter(TimeClass):
             small_weight = self.weight(small_dur)
         return out
 
+    @property
+    def scale_factor(self):
+        """
+        The amount by which a meter should be scaled to compare it to the
+        "standard" meters with 4 in the denominator (or 8, in the case of
+        compound meters).
+
+        >>> two_two = Meter("2/2")
+        >>> assert two_two.bar_dur / two_two.scale_factor == Meter("2/4").bar_dur
+        """
+        if self._compound:
+            return 2 / 3 * self._beat_dur
+        return self._beat_dur
+
     @cached_property
     def beat_weight(self):
         return self.weight(self._beat_dur)
@@ -228,8 +326,44 @@ class Meter(TimeClass):
         return self._superbeat_dur
 
     @property
+    def stutterbeat_durs(self) -> t.Tuple[TIME_TYPE, TIME_TYPE]:
+        """
+        >>> Meter("3/4").stutterbeat_durs
+        (Fraction(2, 1), Fraction(1, 1))
+        >>> Meter("6/8").stutterbeat_durs
+        Traceback (most recent call last):
+        ValueError: stutterbeat only valid for triple meters
+
+        For now, at least, stutterbeats aren't taken into consideration
+        for weight calculations. (Note that two has the same weight as
+        one despite being a "stutterbeat".)
+        >>> Meter("3/4").weight(1)
+        0
+        >>> Meter("3/4").weight(2)
+        0
+        """
+        if not self._triple:
+            raise ValueError("stutterbeat only valid for triple meters")
+        return (2 * self._beat_dur, self._beat_dur)
+
+    @property
+    def stuttersemibeat_durs(self) -> t.Tuple[TIME_TYPE, TIME_TYPE]:
+        """
+        >>> Meter("6/8").stuttersemibeat_durs
+        (Fraction(1, 1), Fraction(1, 2))
+        >>> Meter("3/4").stuttersemibeat_durs
+        Traceback (most recent call last):
+        ValueError: stuttersemibeat only valid for compound meters
+        """
+        if not self._compound:
+            raise ValueError("stuttersemibeat only valid for compound meters")
+        return (2 * self._semibeat_dur, self._semibeat_dur)
+
+    @property
     def is_compound(self):
         """
+        is_compound is True when beat_dur / sub_beat_dur == 3
+
         >>> Meter("4/4").is_compound
         False
         >>> Meter("6/8").is_compound
@@ -240,6 +374,8 @@ class Meter(TimeClass):
     @property
     def is_triple(self):
         """
+        is_triple is True when bar_dur / beat_dur == 2
+
         >>> Meter("9/8").is_triple
         True
         >>> Meter("6/8").is_triple
@@ -256,6 +392,37 @@ class Meter(TimeClass):
         True
         """
         return not self._triple
+
+    @cached_property
+    def non_odd_lengths(self):
+        # TODO rename this method
+        out = set()
+        demisemibeat = self.weight_to_grid[-2]
+        out.update({demisemibeat, demisemibeat * 3})
+        if self._compound:
+            out.update({self.semibeat_dur})
+            out.update(
+                {
+                    self.stuttersemibeat_durs[0],
+                    self.beat_dur + self.stuttersemibeat_durs[0],
+                }
+            )
+        else:
+            out.update({self.semibeat_dur, self.semibeat_dur * 3})
+        if self._triple:
+            out.update({self.beat_dur})
+            out.update(
+                {
+                    self.stutterbeat_durs[0],
+                    self.bar_dur + self.stutterbeat_durs[0],
+                }
+            )
+        else:
+            out.update({self.beat_dur, self.beat_dur * 3})
+            if self._n_beats > 2:
+                out.update({self.superbeat_dur, 3 * self.superbeat_dur})
+        out.update({self.bar_dur, 2 * self.bar_dur})
+        return out
 
     def __call__(self, time):
         """
@@ -283,6 +450,10 @@ class Meter(TimeClass):
         """
         return self.weight(time)
 
+    @property
+    def n_beats(self):  # pylint: disable=missing-docstring
+        return self._n_beats
+
     def _duple_weight(self, time, n_beats=None):
         if n_beats is None:
             n_beats = self._n_beats
@@ -300,10 +471,11 @@ class Meter(TimeClass):
         return self._duple_weight(time, n_beats=1)
 
     def _compound_weight(self, time):
-        if time == 0:
-            return 1
         if time % self._beat_dur == 0:
-            return 0
+            if self._triple:
+                return self._triple_weight(time)
+            else:
+                return self._duple_weight(time)
         normalize_factor = self._beat_dur / 1.5
         time /= normalize_factor
         exp = -1
@@ -472,62 +644,119 @@ class Meter(TimeClass):
         return tuple(onsets[1].values())
 
     def split_at_metric_strong_points(
-        self, items: t.List[t.Any]
+        self, items: t.List[t.Any], min_split_dur: t.Optional[Number] = None
     ) -> t.List[t.Any]:
         """
-        Items in input list must have mutable "onset" and "release" attributes.
-        They will be shallow-copied.
+        Items in input list must have mutable "onset" and "release" attributes
+        and they must be comparable for equality.
 
-        >>> class Foo:
+        The items will be shallow-copied.
+
+        >>> class Dur:
         ...     def __init__(self, onset, release):
         ...         self.onset, self.release = onset, release
         ...
         ...     def __repr__(self):
-        ...         return f"Foo({self.onset}, {self.release})"
+        ...         return f"{float(self.onset)}_to_{float(self.release)}"
+        ...
+        ...     def __eq__(self, other):
+        ...         return self.onset == other.onset and self.release == other.release
 
-        >>> three_four = Meter("4/4")
-        >>> three_four.split_at_metric_strong_points([Foo(0, 9), Foo(9, 14), Foo(14, 18)])
-        [Foo(0, 4), Foo(4, 8), Foo(8, 9), Foo(9, 12), Foo(12, 14), Foo(14, 16), Foo(16, 18)]
+        >>> four_four = Meter("4/4")
+        >>> four_four.split_at_metric_strong_points(
+        ...     [Dur(0, 9), Dur(9, 14), Dur(14, 18)])
+        [0.0_to_4.0, 4.0_to_8.0, 8.0_to_9.0, 9.0_to_12.0, 12.0_to_14.0, 14.0_to_16.0, 16.0_to_18.0]
 
+        The leading portion will be split recursively down to `min_split_dur`
+        (if passed).
+
+        >>> four_four.split_at_metric_strong_points([Dur(0.25, 2)])
+        [0.25_to_0.5, 0.5_to_1.0, 1.0_to_2.0]
+        >>> four_four.split_at_metric_strong_points([Dur(0.25, 2)],
+        ...     min_split_dur=1.0)
+        [0.25_to_1.0, 1.0_to_2.0]
+
+        Note that "odd" durations like the following are not avoided. For that,
+        see TODO
+
+        >>> four_four.split_at_metric_strong_points([Dur(0, 3.5)])
+        [0.0_to_3.5]
+        >>> four_four.split_at_metric_strong_points([Dur(0.0, 1.75)])
+        [0.0_to_1.75]
         """
-        out = []
-        for item in items:
-            start_onset = item.onset
-            start_weight = self.weight(item.onset)
-            mid_onset, mid_weight = self.get_onset_of_greatest_weight_between(
-                item.onset, item.release, include_start=False, return_first=True
-            )
-            while mid_weight >= start_weight:
-                new_item = copy(item)
-                new_item.onset = start_onset
-                new_item.release = mid_onset
-                out.append(new_item)
-                start_onset, start_weight = mid_onset, mid_weight
-                (
-                    mid_onset,
-                    mid_weight,
-                ) = self.get_onset_of_greatest_weight_between(
-                    start_onset,
-                    item.release,
-                    include_start=False,
-                    return_first=True,
-                )
-            item.onset = start_onset
-            out.append(item)
+
+        def _sub(items: t.List[t.Any]) -> t.List[t.Any]:
+            out = []
+            for item in items:
+                start_onset = item.onset
+                if (
+                    min_split_dur is not None
+                    and item.release - item.onset <= min_split_dur
+                ):
+                    out.append(copy(item))
+                    break
+                start_weight = self.weight(item.onset)
+                try:
+                    (
+                        mid_onset,
+                        mid_weight,
+                    ) = self.get_onset_of_greatest_weight_between(
+                        item.onset,
+                        item.release,
+                        include_start=False,
+                        return_first=True,
+                    )
+                except MeterError:
+                    # there are no weights between start_onset and item.release
+                    pass
+                else:
+                    while mid_weight >= start_weight:
+                        new_item = copy(item)
+                        new_item.onset = start_onset
+                        new_item.release = mid_onset
+                        out.append(new_item)
+                        start_onset, start_weight = mid_onset, mid_weight
+                        if (
+                            min_split_dur is not None
+                            and item.release - start_onset <= min_split_dur
+                        ):
+                            break
+                        try:
+                            (
+                                mid_onset,
+                                mid_weight,
+                            ) = self.get_onset_of_greatest_weight_between(
+                                start_onset,
+                                item.release,
+                                include_start=False,
+                                return_first=True,
+                            )
+                        except MeterError:
+                            # there are no weights between start_onset and
+                            # item.release
+                            break
+                final_item = copy(item)
+                final_item.onset = start_onset
+                out.append(final_item)
+            return out
+
+        out = _sub(items)
+        if not out:
+            return out
+        initial, remainder = [out[0]], out[1:]
+        while (split_initial := _sub(initial)) != initial:
+            out = split_initial + remainder
+            initial, remainder = [out[0]], out[1:]
         return out
 
-    def duration_is_odd(
-        self, duration: Number, _limit_denom: int = 1000
-    ) -> bool:
+    def duration_is_odd(self, duration: Number) -> bool:
         """
-        An 'odd' duration is one that is not either
-        - 2**n times a metric division (where n is an integer)
-        - 3 * 2**n times a metric division (where n is an integer)
 
-        TODO the above definition isn't correct for meters like 9/4.
-
-        Durations are internally converted to fractions to avoid float errors,
-        using the _limit_denom argument.
+        "Odd" durations are difficult to describe. In purely duple (i.e.,
+        non-compound) meters, an 'odd' duration is one that is not either
+            - 2**n times a metric division (where n is an integer)
+            - 3 * 2**n times a metric division (where n is an integer)
+        This definition doesn't work for other meters though.
 
         >>> four_four = Meter("4/4")
         >>> four_four.duration_is_odd(2)
@@ -549,30 +778,18 @@ class Meter(TimeClass):
         >>> nine_four.duration_is_odd(9)
         False
 
-        """
-        if duration in self._odd_memo:
-            return self._odd_memo[duration]
+        Will raise a ValueError if called on a duration at less than the
+        'demisemibeat' level (i.e., metric weight -3 or smaller).
 
-        orig_duration = duration
-        duration = Fraction(duration).limit_denominator(_limit_denom)
-        for weight in range(self.max_weight, self.min_weight - 1, -1):
-            grid = Fraction(self.weight_to_grid[weight]).limit_denominator(
-                _limit_denom
+        """
+        if duration in self.non_odd_lengths:
+            return False
+        if self.weight(duration) < -2:
+            raise ValueError(
+                f"Minimum metric weight for Meter.duration_is_odd is -2; "
+                f"got {self.weight(duration)}"
             )
-            if grid > duration * 3:
-                continue
-            x = duration / 3 / grid
-            if not math.log2(x) % 1:
-                self._odd_memo[orig_duration] = False
-                return False
-            if grid > duration:
-                continue
-            x = duration / grid
-            if not math.log2(x) % 1:
-                self._odd_memo[orig_duration] = False
-                return False
-        self._odd_memo[orig_duration] = True
-        return True
+        return bool(duration % self.bar_dur)
 
 
 class RhythmFetcher(TimeClass):
@@ -755,14 +972,6 @@ class RhythmFetcher(TimeClass):
             if sb["weight"] < omit_weight
         ]
         return out
-
-    # @rhythm_method()
-    # def beats(self, onset, release):
-    #     beats = self.meter.beats_between(onset, release)
-    #     return [
-    #         sb | {"release": min(release, sb["onset"] + self.meter.beat_dur)}
-    #         for sb in beats
-    #     ]
 
     # The definition of _all_rhythms should be the last line in the class
     # definition
