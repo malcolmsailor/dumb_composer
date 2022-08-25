@@ -641,7 +641,10 @@ class Meter(TimeClass):
         return tuple(onsets[1].values())
 
     def split_at_metric_strong_points(
-        self, items: t.List[t.Any], min_split_dur: t.Optional[Number] = None
+        self,
+        items: t.List[t.Any],
+        min_split_dur: t.Optional[Number] = None,
+        force_split: bool = False,
     ) -> t.List[t.Any]:
         """
         Items in input list must have mutable "onset" and "release" attributes
@@ -680,9 +683,16 @@ class Meter(TimeClass):
         [0.0_to_3.5]
         >>> four_four.split_at_metric_strong_points([Dur(0.0, 1.75)])
         [0.0_to_1.75]
+
+        If `force_split` is True, then at least one split will be made.
+        >>> four_four.split_at_metric_strong_points(
+        ...     [Dur(0, 3.5)], force_split=True)
+        [0.0_to_2.0, 2.0_to_3.5]
         """
 
-        def _sub(items: t.List[t.Any]) -> t.List[t.Any]:
+        def _sub(
+            items: t.List[t.Any], at_least_one_split: bool = False
+        ) -> t.List[t.Any]:
             out = []
             for item in items:
                 start_onset = item.onset
@@ -707,7 +717,7 @@ class Meter(TimeClass):
                     # there are no weights between start_onset and item.release
                     pass
                 else:
-                    while mid_weight >= start_weight:
+                    while mid_weight >= start_weight or at_least_one_split:
                         new_item = copy(item)
                         new_item.onset = start_onset
                         new_item.release = mid_onset
@@ -732,12 +742,13 @@ class Meter(TimeClass):
                             # there are no weights between start_onset and
                             # item.release
                             break
+                        at_least_one_split = False
                 final_item = copy(item)
                 final_item.onset = start_onset
                 out.append(final_item)
             return out
 
-        out = _sub(items)
+        out = _sub(items, at_least_one_split=force_split)
         if not out:
             return out
         initial, remainder = [out[0]], out[1:]
@@ -745,6 +756,36 @@ class Meter(TimeClass):
             out = split_initial + remainder
             initial, remainder = [out[0]], out[1:]
         return out
+
+    def split_odd_duration(
+        self, item: t.Any, min_split_dur: t.Optional[Number] = None
+    ) -> t.List[t.Any]:
+        """
+        Items in input list must have mutable "onset" and "release" attributes
+        and they must be comparable for equality.
+
+        The items will be shallow-copied.
+
+        >>> class Dur:
+        ...     def __init__(self, onset, release):
+        ...         self.onset, self.release = onset, release
+        ...
+        ...     def __repr__(self):
+        ...         return f"{float(self.onset)}_to_{float(self.release)}"
+        ...
+        ...     def __eq__(self, other):
+        ...         return self.onset == other.onset and self.release == other.release
+
+        >>> four_four = Meter("4/4")
+        >>> four_four.split_odd_duration(Dur(0, 1.25))
+        [0.0_to_1.0, 1.0_to_1.25]
+
+        """
+        if not self.duration_is_odd(item.release - item.onset):
+            return [item]
+        return self.split_at_metric_strong_points(
+            [item], min_split_dur=min_split_dur, force_split=True
+        )
 
     def duration_is_odd(self, duration: Number) -> bool:
         """

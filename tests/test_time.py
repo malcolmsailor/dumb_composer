@@ -340,6 +340,17 @@ def test_split_at_metric_strong_points(slow):
                 if dur <= min_split_dur:
                     assert len(result) == 1
                 else:
+                    if len(result) == 1:
+                        assert (
+                            len(
+                                meter.split_at_metric_strong_points(
+                                    segment,
+                                    min_split_dur=min_split_dur,
+                                    force_split=True,
+                                )
+                            )
+                            > 1
+                        )
                     for item in result:
                         onsets = meter.weights_between(
                             grid, item.onset, item.release
@@ -348,6 +359,48 @@ def test_split_at_metric_strong_points(slow):
                             onsets[0]["weight"] > onset["weight"]
                             for onset in onsets[1:]
                         )
+
+
+def test_split_odd_duration(slow):
+    @dataclass
+    class TestCase:
+        onset: TIME_TYPE
+        release: TIME_TYPE
+
+        @property
+        def dur(self):
+            return self.release - self.onset
+
+        def __repr__(self):
+            return f"{float(self.onset)}_to_{float(self.release)}"
+
+    # Temp
+    four_four = Meter("4/4")
+    result = four_four.split_at_metric_strong_points(
+        [TestCase(0, 9), TestCase(9, 14), TestCase(14, 18)]
+    )
+    if not slow:
+        random.seed(42)
+        p = 0.05
+    n_bars = 2
+    min_split_dur = 1.0
+    for ts in Meter.available_time_signatures:
+
+        meter = Meter(ts)
+        grid = meter.weight_to_grid[-2]
+        grid_n = int(meter.bar_dur / grid)
+        for offset_i in range(grid_n):
+            offset = grid * offset_i
+            for segment_i in range(2, grid_n * n_bars):
+                if not slow and random.random() > p:
+                    continue
+                dur = segment_i * grid
+                segment = TestCase(offset, offset + dur)
+                result = meter.split_odd_duration(segment, min_split_dur)
+                assert (
+                    not meter.duration_is_odd(result[0].dur)
+                    or result[0].dur <= min_split_dur
+                )
 
 
 def weight_to_grid_doctest():
