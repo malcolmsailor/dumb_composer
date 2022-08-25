@@ -198,13 +198,13 @@ class TwoPartContrapuntist:
             for step in (1, 2):
                 if step in intervals:
                     yield cur_mel_pitch + step
-                    intervals.pop(step)
+                    intervals.remove(step)
                     return
         if tendency is Tendency.DOWN:
             for step in (-1, -2):
                 if step in intervals:
                     yield cur_mel_pitch + step
-                    intervals.pop(step)
+                    intervals.remove(step)
                     return
 
     def _get_first_melody_pitch(self, score: Score, i: int):
@@ -223,6 +223,34 @@ class TwoPartContrapuntist:
 
     def _resolve_suspension(self, i: int):
         yield self._suspension_resolutions[i]
+
+    def _choose_intervals(
+        self,
+        next_bass_pitch: int,
+        next_chord: Chord,
+        cur_mel_pitch: int,
+        intervals: t.List[int],
+    ):
+        bass_has_tendency = (
+            next_chord.get_pitch_tendency(next_bass_pitch) is not Tendency.NONE
+        )
+        avoid_intervals = []
+        while intervals:
+            interval = self._ic(intervals)
+            candidate_pitch = cur_mel_pitch + interval
+            if (
+                bass_has_tendency
+                and candidate_pitch % 12 == next_bass_pitch % 12
+            ):
+                intervals.remove(interval)
+                avoid_intervals.append(interval)
+                continue
+            yield candidate_pitch
+            intervals.remove(interval)
+        while avoid_intervals:
+            interval = self._ic(avoid_intervals)
+            yield cur_mel_pitch + interval
+            avoid_intervals.remove(interval)
 
     def _get_next_melody_pitch(self, score: Score, i: int):
         next_bass_pitch = score.structural_bass[i]
@@ -257,11 +285,16 @@ class TwoPartContrapuntist:
                 for pitch in self._get_tendency(
                     score, i, cur_mel_pitch, next_chord, intervals
                 ):
+                    # self._get_tendency removes intervals
                     yield pitch
-                while intervals:
-                    interval = self._ic(intervals)
-                    yield cur_mel_pitch + interval
-                    intervals.remove(interval)
+                for pitch in self._choose_intervals(
+                    next_bass_pitch, next_chord, cur_mel_pitch, intervals
+                ):
+                    yield pitch
+                # while intervals:
+                #     interval = self._ic(intervals)
+                #     yield cur_mel_pitch + interval
+                #     intervals.remove(interval)
 
     def _step(self, score: Score):
         i = len(score.structural_melody)

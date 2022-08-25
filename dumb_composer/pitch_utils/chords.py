@@ -232,5 +232,12 @@ def get_chords_from_rntxt(
 
     out_list.append(prev_chord)
     if split_chords_at_metric_strong_points:
-        out_list = ts.split_at_metric_strong_points(out_list)
+        chord_list = ts.split_at_metric_strong_points(
+            out_list, min_split_dur=ts.beat_dur
+        )
+        out_list = []
+        for chord in chord_list:
+            out_list.extend(
+                ts.split_odd_duration(chord, min_split_dur=ts.beat_dur)
+            )
     return out_list, pickup_offset, ts

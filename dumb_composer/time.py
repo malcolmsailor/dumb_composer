@@ -7,7 +7,7 @@ import random
 
 import typing as t
 
-from functools import cached_property
+from functools import cached_property, reduce
 from types import MappingProxyType
 
 from dumb_composer.constants import METER_CONDITIONS, TIME_TYPE
@@ -114,6 +114,9 @@ class TimeClass:
 
 class MeterError(Exception):
     pass
+
+
+# TODO what to do about weight of triplets?
 
 
 class Meter(TimeClass):
@@ -665,7 +668,7 @@ class Meter(TimeClass):
         >>> four_four = Meter("4/4")
         >>> four_four.split_at_metric_strong_points(
         ...     [Dur(0, 9), Dur(9, 14), Dur(14, 18)])
-        [0.0_to_4.0, 4.0_to_8.0, 8.0_to_9.0, 9.0_to_12.0, 12.0_to_14.0, 14.0_to_16.0, 16.0_to_18.0]
+        [0.0_to_4.0, 4.0_to_8.0, 8.0_to_9.0, 9.0_to_10.0, 10.0_to_12.0, 12.0_to_14.0, 14.0_to_16.0, 16.0_to_18.0]
 
         The leading portion will be split recursively down to `min_split_dur`
         (if passed).
@@ -675,6 +678,9 @@ class Meter(TimeClass):
         >>> four_four.split_at_metric_strong_points([Dur(0.25, 2)],
         ...     min_split_dur=1.0)
         [0.25_to_1.0, 1.0_to_2.0]
+        >>> four_four.split_at_metric_strong_points([Dur(1, 4)],
+        ...     min_split_dur=1.0)
+        [1.0_to_2.0, 2.0_to_4.0]
 
         Note that "odd" durations like the following are not avoided. For that,
         see TODO
@@ -690,72 +696,75 @@ class Meter(TimeClass):
         [0.0_to_2.0, 2.0_to_3.5]
         """
 
-        def _sub(
-            items: t.List[t.Any], at_least_one_split: bool = False
+        def _inner_sub(
+            item: t.Any, at_least_one_split: bool = False
         ) -> t.List[t.Any]:
             out = []
-            for item in items:
-                start_onset = item.onset
-                if (
-                    min_split_dur is not None
-                    and item.release - item.onset <= min_split_dur
-                ):
-                    out.append(copy(item))
-                    break
-                start_weight = self.weight(item.onset)
-                try:
-                    (
-                        mid_onset,
-                        mid_weight,
-                    ) = self.get_onset_of_greatest_weight_between(
-                        item.onset,
-                        item.release,
-                        include_start=False,
-                        return_first=True,
-                    )
-                except MeterError:
-                    # there are no weights between start_onset and item.release
-                    pass
-                else:
-                    while mid_weight >= start_weight or at_least_one_split:
-                        new_item = copy(item)
-                        new_item.onset = start_onset
-                        new_item.release = mid_onset
-                        out.append(new_item)
-                        start_onset, start_weight = mid_onset, mid_weight
-                        if (
-                            min_split_dur is not None
-                            and item.release - start_onset <= min_split_dur
-                        ):
-                            break
-                        try:
-                            (
-                                mid_onset,
-                                mid_weight,
-                            ) = self.get_onset_of_greatest_weight_between(
-                                start_onset,
-                                item.release,
-                                include_start=False,
-                                return_first=True,
-                            )
-                        except MeterError:
-                            # there are no weights between start_onset and
-                            # item.release
-                            break
-                        at_least_one_split = False
-                final_item = copy(item)
-                final_item.onset = start_onset
-                out.append(final_item)
+            # for item in items:
+            start_onset = item.onset
+            if (
+                min_split_dur is not None
+                and item.release - item.onset <= min_split_dur
+            ):
+                out.append(copy(item))
+                return out
+            start_weight = self.weight(item.onset)
+            try:
+                (
+                    mid_onset,
+                    mid_weight,
+                ) = self.get_onset_of_greatest_weight_between(
+                    item.onset,
+                    item.release,
+                    include_start=False,
+                    return_first=True,
+                )
+            except MeterError:
+                # there are no weights between start_onset and item.release
+                pass
+            else:
+                while mid_weight >= start_weight or at_least_one_split:
+                    new_item = copy(item)
+                    new_item.onset = start_onset
+                    new_item.release = mid_onset
+                    out.append(new_item)
+                    start_onset, start_weight = mid_onset, mid_weight
+                    if (
+                        min_split_dur is not None
+                        and item.release - start_onset <= min_split_dur
+                    ):
+                        break
+                    try:
+                        (
+                            mid_onset,
+                            mid_weight,
+                        ) = self.get_onset_of_greatest_weight_between(
+                            start_onset,
+                            item.release,
+                            include_start=False,
+                            return_first=True,
+                        )
+                    except MeterError:
+                        # there are no weights between start_onset and
+                        # item.release
+                        break
+                    at_least_one_split = False
+            final_item = copy(item)
+            final_item.onset = start_onset
+            out.append(final_item)
             return out
 
-        out = _sub(items, at_least_one_split=force_split)
-        if not out:
-            return out
-        initial, remainder = [out[0]], out[1:]
-        while (split_initial := _sub(initial)) != initial:
-            out = split_initial + remainder
-            initial, remainder = [out[0]], out[1:]
-        return out
+        result = []
+        for item in items:
+            out = _inner_sub(item, at_least_one_split=force_split)
+            if not out:
+                continue
+            initial, remainder = out[0], out[1:]
+            while (split_initial := _inner_sub(initial)) != [initial]:
+                out = split_initial + remainder
+                initial, remainder = out[0], out[1:]
+            result.extend(out)
+        return result
 
     def split_odd_duration(
         self, item: t.Any, min_split_dur: t.Optional[Number] = None
@@ -779,10 +788,13 @@ class Meter(TimeClass):
         >>> four_four = Meter("4/4")
         >>> four_four.split_odd_duration(Dur(0, 1.25))
         [0.0_to_1.0, 1.0_to_1.25]
-
         """
-        if not self.duration_is_odd(item.release - item.onset):
-            return [item]
+        try:
+            if not self.duration_is_odd(item.release - item.onset):
+                return [item]
+        except ValueError:
+            # duration has weight < -3
+            pass
         return self.split_at_metric_strong_points(
             [item], min_split_dur=min_split_dur, force_split=True
         )
