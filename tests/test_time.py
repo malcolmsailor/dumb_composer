@@ -348,3 +348,22 @@ def test_split_at_metric_strong_points(slow):
                             onsets[0]["weight"] > onset["weight"]
                             for onset in onsets[1:]
                         )
+
+
+def weight_to_grid_doctest():
+    # TODO this doctest doesn't run because (apparently) it's under a
+    #   cached_property (rather than a property). Figure out a way around that.
+    assert sorted(
+        (weight, float(grid))
+        for (weight, grid) in Meter("4/4").weight_to_grid.items()
+    ) == [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 2.0), (2, 4.0)]
+
+    assert sorted(
+        (weight, float(grid))
+        for (weight, grid) in Meter("3/4").weight_to_grid.items()
+    ) == [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 3.0)]
+
+    assert sorted(
+        (weight, float(grid))
+        for (weight, grid) in Meter("12/8").weight_to_grid.items()
+    ) == [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.5), (1, 3.0), (2, 6.0)]

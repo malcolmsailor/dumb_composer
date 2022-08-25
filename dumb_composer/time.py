@@ -142,7 +142,7 @@ class Meter(TimeClass):
     Fraction(1, 1)
     >>> three_four.semibeat_dur
     Fraction(1, 2)
-    >>> three_four.superbeat_dur # TODO reevaluate
+    >>> three_four.superbeat_dur
     Fraction(3, 1)
     >>> three_four.bar_dur
     Fraction(3, 1)
@@ -162,7 +162,7 @@ class Meter(TimeClass):
     Fraction(3, 2)
     >>> nine_eight.semibeat_dur
     Fraction(1, 2)
-    >>> nine_eight.superbeat_dur # TODO reevaluate
+    >>> nine_eight.superbeat_dur
     Fraction(9, 2)
     >>> nine_eight.bar_dur
     Fraction(9, 2)
@@ -187,13 +187,12 @@ class Meter(TimeClass):
     def __init__(self, ts_str, min_weight: t.Union[int, Number] = -3):
         """
         If min_weight is an int, it specifies the min_weight directly.
-        >>> Meter("4/2", min_weight=-4).min_weight
-        -4
+        >>> meter1 = Meter("4/2", min_weight=-4)
 
         Otherwise, min_weight is calculated as the weight of the duration
         provided (down to a minimum of -100):
-        >>> Meter("4/2", min_weight=0.25).min_weight
-        -4
+        >>> meter2 = Meter("4/2", min_weight=0.125)
+        >>> assert meter1.min_weight == meter2.min_weight
         """
         self._ts_str = ts_str
         n_beats, beat_dur = self._ts_dict[ts_str]
@@ -238,12 +237,11 @@ class Meter(TimeClass):
         ... )
         [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 3.0)]
 
-        # TODO fix 12/8; shouldn't it end (1, 3.0), (2, 6.0)?
         >>> sorted(
         ...     (weight, float(grid))
         ...     for (weight, grid) in Meter("12/8").weight_to_grid.items()
         ... )
-        [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 3.0), (1, 6.0)]
+        [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.5), (1, 3.0), (2, 6.0)]
         """
         out = {}
         out[self.beat_weight] = self.beat_dur
@@ -395,7 +393,7 @@ class Meter(TimeClass):
 
     @cached_property
     def non_odd_lengths(self):
-        # TODO rename this method
+        """See the method 'duration_is_odd'."""
         out = set()
         demisemibeat = self.weight_to_grid[-2]
         out.update({demisemibeat, demisemibeat * 3})
@@ -514,10 +512,9 @@ class Meter(TimeClass):
         >>> two_four.weights_between(0.5, 0.5, 1.5)
         [{'onset': 0.5, 'weight': -1}, {'onset': 1.0, 'weight': 0}]
 
-        # TODO it seems to me that 12/8 weights are wrong
         >>> twelve_eight = Meter("12/8")
         >>> twelve_eight.weights_between(0.5, 3.0, 6.1, out_format="dict")
-        {3.0: 0, 3.5: -1, 4.0: -1, 4.5: 0, 5.0: -1, 5.5: -1, 6.0: 1}
+        {3.0: 1, 3.5: -1, 4.0: -1, 4.5: 0, 5.0: -1, 5.5: -1, 6.0: 2}
         """
         onset, release = self._get_bounds(onset, release)
         time = self._first_after(onset, grid_length, inclusive=include_start)
