@@ -18,13 +18,14 @@ class MissingPrefabError(UndoRecursiveStep):
 MIN_DEFAULT_RHYTHM_BEFORE_REST = 1 / 2
 
 
+@dataclass(frozen=True, init=False)
 class SingletonRhythm:
     onsets: t.Tuple[TIME_TYPE] = (TIME_TYPE(0),)
     metric_strength_str: str = "_"
-    allow_suspension = Allow.NO
-    allow_preparation = Allow.NO
-    allow_after_tie = False
-    allow_next_to_start_with_rest = False
+    allow_suspension: Allow = Allow.NO
+    allow_preparation: Allow = Allow.NO
+    allow_after_tie: bool = False
+    allow_next_to_start_with_rest: bool = False
 
     def matches_criteria(self, *args, **kwargs):
         return True

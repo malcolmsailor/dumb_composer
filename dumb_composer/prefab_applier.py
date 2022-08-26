@@ -76,7 +76,7 @@ class PrefabApplier:
         #   fail.
         orig_scale_degree = scale.index(initial_pitch)
         if isinstance(prefab_rhythms, SingletonRhythm):
-            releases = [current_chord.release]
+            releases = [current_chord.release - current_chord.onset]
         else:
             releases = prefab_rhythms.releases
         offset = current_chord.onset

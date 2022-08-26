@@ -25,6 +25,16 @@ MAX_IOI_REGEX = re.compile(r"M(?:(?P<frac>\d/\d)|(?P<float>\d+(?:\.\d+)?))")
 MIN_IOI_REGEX = re.compile(r"m(?:(?P<frac>\d/\d)|(?P<float>\d+(?:\.\d+)?))")
 
 
+@dataclass(frozen=True, init=False)
+class SingletonPitch:
+    relative_degrees: t.Tuple[int] = (0,)
+    tie_to_next: bool = False
+    alterations: t.Tuple = ()
+
+    def matches_criteria(self, *args, **kwargs):
+        return True
+
+
 @dataclass
 class PrefabPitches:
     """
@@ -207,7 +217,7 @@ PP = PrefabPitches
 
 TWO_PREFABS = (
     PP([-1, 2, 3], "__", [0, -2], [-2]),
-    PP([-1, -2, 2], "__", [0, -3], [-3]),
+    PP([-1, -2, 2], "__", [0, -3], [-3], allow_suspension=Allow.NO),
     PP([1, 3, 4, 5, -2, -3], "__", [0, 2], [2]),
     PP(
         [1, 2, 5],
@@ -223,7 +233,13 @@ THREE_PREFABS = (
     PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3]),
     PP([-2], "__w", [0, -3, -1], [-3]),
     PP(None, "___", [0, -1, 0], allow_preparation=Allow.YES),
-    PP(None, "___", [0, "#-1", 0], allow_preparation=Allow.YES),
+    PP(
+        None,
+        "___",
+        [0, "#-1", 0],
+        allow_preparation=Allow.YES,
+        allow_suspension=Allow.NO,
+    ),
     PP(
         [4],
         "___",
@@ -290,8 +306,9 @@ PREFABS = (
 
 
 class PrefabPitchDirectory:
-    def __init__(self):
+    def __init__(self, allow_singleton_pitch: bool = True):
         self._memo = {}
+        self._singleton = SingletonPitch() if allow_singleton_pitch else None
 
     def __call__(
         self,
@@ -312,16 +329,19 @@ class PrefabPitchDirectory:
             return self._memo[tup].copy()
         out = [prefab for prefab in PREFABS if prefab.matches_criteria(*tup)]
         if not out:
-            raise MissingPrefabError(
-                textwrap.dedent(
-                    f"""No PrefabPitches instance matching criteria
-                    \tinterval_to_next: {interval_to_next}
-                    \tmetric_strength_str: {metric_strength_str}
-                    \trelative_chord_factors: {relative_chord_factors}
-                    \tis_suspension: {is_suspension}
-                    \tis_preparation: {is_preparation}
+            if len(metric_strength_str) == 1 and self._singleton is not None:
+                out = [self._singleton]
+            else:
+                raise MissingPrefabError(
+                    textwrap.dedent(
+                        f"""No PrefabPitches instance matching criteria
+                        \tinterval_to_next: {interval_to_next}
+                        \tmetric_strength_str: {metric_strength_str}
+                        \trelative_chord_factors: {relative_chord_factors}
+                        \tis_suspension: {is_suspension}
+                        \tis_preparation: {is_preparation}
                     """
+                    )
                 )
-            )
         self._memo[tup] = out
         return out.copy()

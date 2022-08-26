@@ -32,8 +32,7 @@ from dumb_composer.from_ml_out import get_chord_df
 
 # TODO bass suspensions
 
-# TODO define "tendency tones" and have these tones first try to resolve
-#   according to their tendency
+# TODO don't permit suspension resolutions to tendency tones
 
 
 @dataclass

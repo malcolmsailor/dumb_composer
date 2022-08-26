@@ -97,7 +97,9 @@ class TimeClass:
 
     @staticmethod
     def _first_after(
-        threshold: Number, grid_length: Number, inclusive: bool = True
+        threshold: Number,
+        grid_length: Number,
+        inclusive: bool = True,
     ):
         """
         >>> TimeClass()._first_after(1.0, 1.0)
@@ -283,6 +285,14 @@ class Meter(TimeClass):
     @cached_property
     def beat_weight(self):
         return self.weight(self._beat_dur)
+
+    @cached_property
+    def semibeat_weight(self):
+        return self.weight(self._semibeat_dur)
+
+    @cached_property
+    def superbeat_weight(self):
+        return self.weight(self._superbeat_dur)
 
     @cached_property
     def max_weight(self):
@@ -509,6 +519,7 @@ class Meter(TimeClass):
         include_start: bool = True,
         include_end: bool = False,
         out_format: str = "list",
+        include_releases: bool = False,
     ) -> t.Union[t.Dict[Number, Number], t.List[t.Dict[str, Number]]]:
         """
         >>> two_four = Meter("2/4")
@@ -519,6 +530,10 @@ class Meter(TimeClass):
         >>> twelve_eight.weights_between(0.5, 3.0, 6.1, out_format="dict")
         {3.0: 1, 3.5: -1, 4.0: -1, 4.5: 0, 5.0: -1, 5.5: -1, 6.0: 2}
         """
+        if include_releases and out_format == "dict":
+            raise ValueError(
+                "`include_releases` only valid with `out_format` == 'list'"
+            )
         onset, release = self._get_bounds(onset, release)
         time = self._first_after(onset, grid_length, inclusive=include_start)
         out = {} if out_format == "dict" else []
@@ -526,6 +541,14 @@ class Meter(TimeClass):
         while op(time, release):
             if out_format == "dict":
                 out[time] = self(time)
+            elif include_releases:
+                out.append(
+                    {
+                        "onset": time,
+                        "weight": self(time),
+                        "release": min(time + grid_length, release),
+                    }
+                )
             else:
                 out.append({"onset": time, "weight": self(time)})
             time += grid_length
@@ -884,20 +907,27 @@ class RhythmFetcher(TimeClass):
         return out
 
     def _regularly_spaced(self, length, onset, release):
-        # we assume that the regularly spaced onsets begin from zero;
-        # perhaps this assumption needs to be modified?
-        time = self._first_after(onset, length)
-        out = []
-        while time < release:
-            out.append(
-                {
-                    "onset": time,
-                    "release": min(time + length, release),
-                    "weight": self.meter(time),
-                }
-            )
-            time += length
-        return out
+        return self.meter.weights_between(
+            length, onset, release, include_releases=True
+        )
+        # time = self._first_after(onset, length)
+        # out = []
+        # while time < release:
+        #     out.append(
+        #         {
+        #             "onset": time,
+        #             "release": min(time + length, release),
+        #             "weight": self.meter(time),
+        #         }
+        #     )
+        #     time += length
+        # return out
+
+    def _regularly_spaced_by_weight(self, weight, onset, release):
+        grid_length = self.meter.weight_to_grid[weight]
+        return self.meter.weights_between(
+            grid_length, onset, release, include_releases=True
+        )
 
     @rhythm_method()
     @empty_avoider("beat_after")
@@ -1021,6 +1051,34 @@ class RhythmFetcher(TimeClass):
             for sb in beats
             if sb["weight"] < omit_weight
         ]
+        return out
+
+    def next_n(
+        self,
+        weight_or_name: t.Union[int, str],
+        onset: Number,
+        n: int,
+        release: t.Optional[Number] = None,
+    ):
+        """
+        >>> rf = RhythmFetcher("4/4")
+        >>> rf.next_n("semibeat", onset=3.25, n=3)
+        [Fraction(7, 2), Fraction(4, 1), Fraction(9, 2)]
+        >>> rf.next_n("semibeat", onset=3.25, n=3, release=4.0)
+        [Fraction(7, 2)]
+        """
+        if isinstance(weight_or_name, str):
+            weight = getattr(self.meter, f"{weight_or_name}_weight")
+        else:
+            weight = weight_or_name
+        out = []
+        grid = self.meter.weight_to_grid[weight]
+        for i in range(n):
+            next_onset = self._first_after(onset, grid, inclusive=i == 0)
+            if release is not None and next_onset >= release:
+                break
+            out.append(next_onset)
+            onset = next_onset
         return out
 
     # The definition of _all_rhythms should be the last line in the class

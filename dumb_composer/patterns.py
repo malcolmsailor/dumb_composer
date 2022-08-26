@@ -1,3 +1,4 @@
+from enum import Enum, auto
 from numbers import Number
 import random
 from re import M
@@ -9,13 +10,22 @@ from dumb_composer.time import RhythmFetcher, Meter
 from dumb_composer.shared_classes import Allow, Note, notes, print_notes
 
 
+class ExtraPitches(Enum):
+    BOTTOM = auto()
+    MID = auto()
+    TOP = auto()
+
+
 def pattern_method(
-    requires_bass: bool = False, allow_compound: Allow = Allow.YES
+    requires_bass: bool = False,
+    allow_compound: Allow = Allow.YES,
+    allow_triple: Allow = Allow.YES,
 ):
     def wrap(f):
         setattr(f, "pattern_method", True)
         setattr(f, "requires_bass", requires_bass)
         setattr(f, "allow_compound", allow_compound)
+        setattr(f, "allow_triple", allow_triple)
         return f
 
     return wrap
@@ -53,12 +63,18 @@ class PatternMaker:
         out = []
         for pattern_name in self._all_patterns:
             pattern_method = getattr(self, pattern_name)
-            if ts.is_compound and pattern_method.allow_compound is Allow.NO:
-                continue
-            elif (
-                not ts.is_compound
-                and pattern_method.allow_compound is Allow.ONLY
+            go_on = False
+            for attr, constraint in (
+                (ts.is_compound, pattern_method.allow_compound),
+                (ts.is_triple, pattern_method.allow_triple),
             ):
+                if attr and constraint is Allow.NO:
+                    go_on = True
+                    break
+                elif not attr and constraint is Allow.ONLY:
+                    go_on = True
+                    break
+            if go_on:
                 continue
             if not include_bass and pattern_method.requires_bass:
                 continue
@@ -301,8 +317,8 @@ class PatternMaker:
 
     # TODO compound alberti bass
 
-    @pattern_method(allow_compound=Allow.NO)
-    def alberti(
+    @pattern_method()
+    def sustained_semibeat_arpeggio(
         self,
         pitches: t.Sequence[int],
         onset: Number,
@@ -310,29 +326,210 @@ class PatternMaker:
         track: int,
         chord_change: bool,
     ):
-        beat_weight = self.rf.beat_weight
-        sbs = self.rf.semibeats(onset, release)
+        # TODO accommodate chord_change
+        onsets = self.rf.next_n("semibeat", onset, len(pitches), release)
         out = []
+        for pitch_onset, pitch in zip(onsets, pitches):
+            out.append(Note(pitch, pitch_onset, release, track=track))
+        return out
+
+    def _three_pitch_arpeggio_pattern(
+        self,
+        bass_weight: int,
+        mid_weight_increment: int,
+        top_weight_increment: int,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+        extra_pitches_at: ExtraPitches = ExtraPitches.TOP,
+    ):
+        mid_weight = bass_weight + mid_weight_increment
+        top_weight = bass_weight + top_weight_increment
+        onsets = self.rf._regularly_spaced_by_weight(
+            min([bass_weight, mid_weight, top_weight]), onset, release
+        )
+        # bass_weight = weight + 2
+        # mid_weight = weight + 1
+        # onsets = self.rf._regularly_spaced_by_weight(weight, onset, release)
+        if len(pitches) > 3:
+            if extra_pitches_at is ExtraPitches.BOTTOM:
+                bass_i, mid_i, top_i = (slice(-2), -2, -1)
+            elif extra_pitches_at is ExtraPitches.MID:
+                bass_i, mid_i, top_i = (0, slice(1, -1), -1)
+            else:
+                bass_i, mid_i, top_i = (0, 1, slice(2, None))
+        else:
+            bass_i, mid_i, top_i = range(3)
         bass_has_sounded = False
-        for sb in sbs:
-            if sb["weight"] > beat_weight or (
+        out = []
+        for onset in onsets:
+            if onset["weight"] >= bass_weight or (
                 not bass_has_sounded
                 and chord_change
-                and sb["weight"] == beat_weight
+                and onset["weight"] == bass_weight - 1
             ):
-                out.append(
-                    Note(pitches[0], sb["onset"], sb["release"], track=track)
-                )
+                if isinstance(bass_i, slice):
+                    for pitch in pitches[bass_i]:
+                        out.append(
+                            Note(
+                                pitch,
+                                onset["onset"],
+                                onset["release"],
+                                track=track,
+                            )
+                        )
+                else:
+                    out.append(
+                        Note(
+                            pitches[bass_i],
+                            onset["onset"],
+                            onset["release"],
+                            track=track,
+                        )
+                    )
                 bass_has_sounded = True
-            elif sb["weight"] < beat_weight:
-                out.append(
-                    Note(pitches[2], sb["onset"], sb["release"], track=track)
-                )
+            elif onset["weight"] == mid_weight:
+                if isinstance(mid_i, slice):
+                    for pitch in pitches[mid_i]:
+                        out.append(
+                            Note(
+                                pitch,
+                                onset["onset"],
+                                onset["release"],
+                                track=track,
+                            )
+                        )
+                else:
+                    out.append(
+                        Note(
+                            pitches[mid_i],
+                            onset["onset"],
+                            onset["release"],
+                            track=track,
+                        )
+                    )
             else:
-                out.append(
-                    Note(pitches[1], sb["onset"], sb["release"], track=track)
-                )
+                if isinstance(top_i, slice):
+                    for pitch in pitches[top_i]:
+                        out.append(
+                            Note(
+                                pitch,
+                                onset["onset"],
+                                onset["release"],
+                                track=track,
+                            )
+                        )
+                else:
+                    out.append(
+                        Note(
+                            pitches[top_i],
+                            onset["onset"],
+                            onset["release"],
+                            track=track,
+                        )
+                    )
         return out
+
+    def _alberti(
+        self,
+        weight,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
+        return self._three_pitch_arpeggio_pattern(
+            weight,
+            -1,
+            -2,
+            pitches,
+            onset,
+            release,
+            track,
+            chord_change,
+            extra_pitches_at=ExtraPitches.MID,
+        )
+
+    @pattern_method()
+    def demisemibeat_alberti(self, *args, **kwargs):
+        return self._alberti(0, *args, **kwargs)
+
+    @pattern_method(allow_compound=Allow.NO)
+    def semibeat_alberti(self, *args, **kwargs):
+        return self._alberti(1, *args, **kwargs)
+
+    @pattern_method(allow_triple=Allow.NO)
+    def beat_alberti(self, *args, **kwargs):
+        return self._alberti(2, *args, **kwargs)
+
+    def _1_3_5(
+        self,
+        weight,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
+        return self._three_pitch_arpeggio_pattern(
+            weight,
+            -2,
+            -1,
+            pitches,
+            onset,
+            release,
+            track,
+            chord_change,
+            extra_pitches_at=ExtraPitches.TOP,
+        )
+
+    @pattern_method()
+    def demisemibeat_1_3_5(self, *args, **kwargs):
+        return self._1_3_5(0, *args, **kwargs)
+
+    @pattern_method(allow_compound=Allow.NO)
+    def semibeat_1_3_5(self, *args, **kwargs):
+        return self._1_3_5(1, *args, **kwargs)
+
+    @pattern_method(allow_triple=Allow.NO)
+    def beat_1_3_5(self, *args, **kwargs):
+        return self._1_3_5(2, *args, **kwargs)
+
+    # @pattern_method(allow_compound=Allow.NO)
+    # def alberti(
+    #     self,
+    #     pitches: t.Sequence[int],
+    #     onset: Number,
+    #     release: Number,
+    #     track: int,
+    #     chord_change: bool,
+    # ):
+    #     beat_weight = self.rf.beat_weight
+    #     sbs = self.rf.semibeats(onset, release)
+    #     out = []
+    #     bass_has_sounded = False
+    #     for sb in sbs:
+    #         if sb["weight"] > beat_weight or (
+    #             not bass_has_sounded
+    #             and chord_change
+    #             and sb["weight"] == beat_weight
+    #         ):
+    #             out.append(
+    #                 Note(pitches[0], sb["onset"], sb["release"], track=track)
+    #             )
+    #             bass_has_sounded = True
+    #         elif sb["weight"] < beat_weight:
+    #             out.append(
+    #                 Note(pitches[2], sb["onset"], sb["release"], track=track)
+    #             )
+    #         else:
+    #             out.append(
+    #                 Note(pitches[1], sb["onset"], sb["release"], track=track)
+    #             )
+    #     return out
 
     def __call__(
         self,

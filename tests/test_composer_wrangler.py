@@ -21,7 +21,7 @@ def test_composer_wrangler(romantext):
     failures = []
     i = 0
     for path in paths:
-        if not romantext and "Haydn" not in path:
+        if not romantext and "Mozart" not in path:
             continue
         i += 1
         if i == N_FILES:
