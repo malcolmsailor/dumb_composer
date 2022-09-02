@@ -424,4 +424,4 @@ class SimpleSpacer:
             spacing = sorted(spacing)
             self._prev_pitches = spacing
             yield spacing
-        raise NoSpacings()
+        raise NoSpacings(f"no spacings for pcs {pcs}")

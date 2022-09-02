@@ -1,5 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
+import logging
 from numbers import Number
 import typing as t
 import random
@@ -173,6 +174,9 @@ class PrefabApplier:
             generic_pitch_interval = current_scale.get_interval(
                 current_mel_pitch, next_mel_pitch, scale2=next_scale
             )
+            interval_is_diatonic = current_scale.pitch_is_diatonic(
+                next_mel_pitch
+            )
             relative_chord_factors = get_relative_chord_factors(
                 0
                 if self.settings.prefab_voice == "bass"
@@ -186,6 +190,7 @@ class PrefabApplier:
                 relative_chord_factors,
                 is_suspension=is_suspension,
                 is_preparation=is_preparation,
+                interval_is_diatonic=interval_is_diatonic,
             )
             pitch_weights = self._get_prefab_weights(
                 # I'm not completely sure what the appropriate value for
@@ -203,7 +208,7 @@ class PrefabApplier:
                 if pitches.tie_to_next:
                     assert current_i not in score.tied_prefab_indices
                     score.tied_prefab_indices.add(current_i)
-                yield self._append_from_prefabs(
+                out = self._append_from_prefabs(
                     current_mel_pitch,
                     current_chord,
                     pitches,
@@ -211,6 +216,11 @@ class PrefabApplier:
                     current_scale,
                     track=score.prefab_track,
                 )
+                logging.debug(
+                    f"{self.__class__.__name__} yielding notes "
+                    + " ".join(str(note) for note in out)
+                )
+                yield out
                 if pitches.tie_to_next:
                     score.tied_prefab_indices.remove(current_i)
                 self._prefab_pitch_stacks[segment_dur].pop()
@@ -223,10 +233,10 @@ class PrefabApplier:
         #   etc.
         current_i = len(score.prefabs)
         current_chord = score.chords[current_i]
-        yield [
-            Note(
-                self.get_decorated_voice(score)[current_i],
-                current_chord.onset,
-                current_chord.release,
-            )
-        ]
+        out = Note(
+            self.get_decorated_voice(score)[current_i],
+            current_chord.onset,
+            current_chord.release,
+        )
+        logging.debug(f"{self.__class__.__name__} yielding note {str(out)}")
+        yield [out]

@@ -58,6 +58,9 @@ class Note(pd.Series):
             }
         )
 
+    def __str__(self):
+        return f"{self.pitch}[{self.onset}-{self.release}]"
+
 
 def notes(
     pitches: t.Sequence[int],

@@ -67,6 +67,7 @@ class Scale:
         assert strictly_increasing(pcs)
         assert min(pcs) >= 0 and max(pcs) < tet
         self._pcs = pcs
+        self._pcs_set = set(pcs)
         self._tonic_idx = (-i) % len(pcs)
         self._len = len(pcs)
         self._zero_pitch = zero_pitch
@@ -315,3 +316,14 @@ class Scale:
         6
         """
         return self.get_interval(pitch1, pitch2, scale2) % len(self)
+
+    def pitch_is_diatonic(self, pitch: int) -> bool:
+        """
+        Indicates whether the pitch is diatonic to this scale.
+        >>> s = Scale([0,2,4,5,7,9,11]) # C major
+        >>> s.pitch_is_diatonic(60)
+        True
+        >>> s.pitch_is_diatonic(61)
+        False
+        """
+        return (pitch % 12) in self._pcs_set

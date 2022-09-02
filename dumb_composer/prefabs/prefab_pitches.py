@@ -106,7 +106,7 @@ class PrefabPitches:
     #   fifth of a triad, but not on the root. If constraints = [-2, -4], it
     #   could occur on only the fifth of a triad. Etc.
     constraints: t.Sequence[int] = ()
-    # constraints: specifies intervals relative to the initial pitch that
+    # negative_constraints: specifies intervals relative to the initial pitch that
     #   must NOT be contained in the chord.
     negative_constraints: t.Sequence[int] = ()
     allow_suspension: Allow = Allow.YES
@@ -147,6 +147,20 @@ class PrefabPitches:
                     raise ValueError(
                         "only last relative degree can be tied to next"
                     )
+                if len(self.interval_to_next) != 1:
+                    raise ValueError(
+                        "if last relative degree is tied, interval_to_next "
+                        "can only have length 1, but interval_to_next is "
+                        f"{self.interval_to_next}"
+                    )
+                if (
+                    not int(m.group("relative_degree"))
+                    == self.interval_to_next[0]
+                ):
+                    raise ValueError(
+                        f"tied final relative degree {m.group('relative_degree')}"
+                        f" != interval_to_next {self.interval_to_next}"
+                    )
                 self.tie_to_next = True
 
         self.relative_degrees = temp_degrees
@@ -169,6 +183,7 @@ class PrefabPitches:
         relative_chord_factors: t.Optional[int] = None,
         is_suspension: bool = False,
         is_preparation: bool = False,
+        interval_is_diatonic: bool = True,
     ) -> bool:
         if (
             None not in (interval_to_next, self.interval_to_next)
@@ -204,6 +219,10 @@ class PrefabPitches:
         if is_preparation and self.allow_preparation == Allow.NO:
             return False
         if not is_preparation and self.allow_preparation == Allow.ONLY:
+            return False
+        if not interval_is_diatonic and self.tie_to_next:
+            # we only want to tie diatonic notes ("chromatic" notes will
+            #   change in the next harmony)
             return False
         return True
 
@@ -277,17 +296,24 @@ FOUR_PREFABS = (
     PP([-1, -3, 0], "____", [0, -2, -4, -2], constraints=[-2, -4]),
     # PP([-6], )
     # triad arpeggiations up
-    PP([2], "swsw", [0, 2, 4, 3], constraints=[2, 4]),
-    PP([3], "swsw", [0, 2, 5, 4], constraints=[2, 5]),
-    PP([3], "swsw", [0, 3, 5, 4], constraints=[3, 5]),
-    PP([7], "swsw", [0, 2, 4, 6], constraints=[2, 4]),
-    PP([7], "swsw", [0, 2, 5, 6], constraints=[2, 5]),
-    PP([7], "swsw", [0, 3, 5, 6], constraints=[3, 5]),
+    PP([2], "___w", [0, 2, 4, 3], constraints=[2, 4]),
+    PP([3], "___w", [0, 2, 5, 4], constraints=[2, 5]),
+    PP([3], "___w", [0, 3, 5, 4], constraints=[3, 5]),
+    PP(
+        [7],
+        "___w",
+        [0, 2, 4, "#6"],
+        constraints=[2, 4],
+        negative_constraints=[6],
+    ),
+    PP([7], "___w", [0, 2, 5, "#6"], constraints=[2, 5]),
+    PP([7], "___w", [0, 3, 5, "#6"], constraints=[3, 5]),
     PP([6, 9], "____", [0, 2, 5, 7], constraints=[2, 5]),
     PP([6], "____", [0, 3, 5, 7], constraints=[3, 5]),
     PP([4, 6, 9], "____", [0, 2, 4, 7], constraints=[2, 4]),
     # triad arpeggiations down
     PP([-6, -3, -5], "____", [0, -3, -5, -7], constraints=[-3, -5]),
+    PP([-7, -4], "____", [0, -2, -4, -2], constraints=[-2, -4]),
 )
 
 ASC_SCALE_FRAGMENTS = tuple(
@@ -317,6 +343,7 @@ class PrefabPitchDirectory:
         relative_chord_factors: t.Sequence[int],
         is_suspension: bool = False,
         is_preparation: bool = False,
+        interval_is_diatonic: bool = True,
     ) -> t.List[PrefabPitches]:
         tup = (
             interval_to_next,
@@ -324,6 +351,7 @@ class PrefabPitchDirectory:
             relative_chord_factors,
             is_suspension,
             is_preparation,
+            interval_is_diatonic,
         )
         if tup in self._memo:
             return self._memo[tup].copy()
@@ -340,6 +368,7 @@ class PrefabPitchDirectory:
                         \trelative_chord_factors: {relative_chord_factors}
                         \tis_suspension: {is_suspension}
                         \tis_preparation: {is_preparation}
+                        \tinterval_is_diatonic: {interval_is_diatonic}
                     """
                     )
                 )

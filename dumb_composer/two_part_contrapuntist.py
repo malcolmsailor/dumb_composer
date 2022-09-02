@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from numbers import Number
 import random
+import logging
 
 import typing as t
 
@@ -300,12 +301,21 @@ class TwoPartContrapuntist:
         if not i:
             # generate the first note
             for pitch in self._get_first_melody_pitch(score, i):
+                logging.debug(
+                    f"{self.__class__.__name__} yielding pitch {pitch}"
+                )
                 yield pitch
         elif i in self._suspension_resolutions:
             for pitch in self._resolve_suspension(i):
+                logging.debug(
+                    f"{self.__class__.__name__} yielding pitch {pitch}"
+                )
                 yield pitch
         else:
             for pitch in self._get_next_melody_pitch(score, i):
+                logging.debug(
+                    f"{self.__class__.__name__} yielding pitch {pitch}"
+                )
                 yield pitch
         raise DeadEnd()
 

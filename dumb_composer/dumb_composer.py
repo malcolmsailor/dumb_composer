@@ -1,4 +1,5 @@
 from collections import Counter
+import logging
 import typing as t
 from dataclasses import dataclass
 
@@ -100,11 +101,13 @@ class PrefabComposer:
                 f"Max recursion calls {self.settings.max_recurse_calls} reached\n"
                 + self.get_missing_prefab_str()
             )
+
         self._n_recurse_calls += 1
         if i:
             assert i - 1 == len(score.accompaniments) == len(score.prefabs)
         assert i == len(score.structural_melody)
         if i == len(score.chords):
+            logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
             try:
                 for prefab in self.prefab_applier._final_step(score):
                     with append_attempt(score.prefabs, prefab):
@@ -114,6 +117,9 @@ class PrefabComposer:
             except MissingPrefabError as exc:
                 self.missing_prefabs[str(exc)] += 1
             raise DeadEnd
+        logging.debug(
+            f"{self.__class__.__name__}._recurse: {i} {score.chords[i].token}"
+        )
         # There should be two outcomes to the recursive stack:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
