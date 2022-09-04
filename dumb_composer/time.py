@@ -226,7 +226,6 @@ class Meter(TimeClass):
     def ts_str(self):
         return self._ts_str
 
-    # TODO doctest doesn't run with cached_property (at least in pytest)
     @cached_property
     def weight_to_grid(self) -> t.Dict[int, TIME_TYPE]:
         """
@@ -1088,3 +1087,8 @@ class RhythmFetcher(TimeClass):
         for name, f in locals().items()
         if getattr(f, "rhythm_method", False)
     )
+
+
+# doctests in cached_property methods are not discovered and need to be
+#   added explicitly to __test__; see https://stackoverflow.com/a/72500890/10155119
+__test__ = {"Meter.weight_to_grid": Meter.weight_to_grid}

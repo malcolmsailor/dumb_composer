@@ -88,14 +88,6 @@ class StructuralPartitioner:
             max_x=self.settings.always_split_dur_in_bars * self._ts.bar_dur,
         )
 
-    # @cached_property
-    # def _linear(self):
-    #     x1 = self.settings.never_split_dur_in_beats * self._ts.beat_dur
-    #     slope = 1 / (
-    #         self.settings.always_split_dur_in_bars * self._ts.bar_dur - x1
-    #     )
-    #     return lambda x: slope * (x - x1)
-
     def _step(
         self, chord_onset: Number, chord_release: Number
     ) -> t.Union[t.Tuple[Number, Number], t.List]:

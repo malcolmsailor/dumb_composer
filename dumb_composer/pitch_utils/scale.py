@@ -1,4 +1,5 @@
 from bisect import bisect
+from functools import cached_property
 import typing as t
 
 
@@ -44,7 +45,7 @@ class Scale:
 class Scale:
     def __init__(
         self,
-        pcs: t.Iterable[list],
+        pcs: t.Iterable[int],
         zero_pitch: int = 0,
         tet: int = 12,
     ):

@@ -3,3 +3,5 @@ tests/test_out/
 venvvars
 temp.*
 foo.*
+templog
+profiler.out

@@ -111,6 +111,7 @@ class PrefabPitches:
     negative_constraints: t.Sequence[int] = ()
     allow_suspension: Allow = Allow.YES
     allow_preparation: Allow = Allow.NO
+    # allow_resolution: Allow = Allow.YES # Not yet implemented
 
     # __post_init__ defines the following attributes:
     alterations: t.Dict[int, str] = field(default_factory=dict, init=False)
@@ -220,7 +221,7 @@ class PrefabPitches:
             return False
         if not is_preparation and self.allow_preparation == Allow.ONLY:
             return False
-        if not interval_is_diatonic and self.tie_to_next:
+        if (not interval_is_diatonic) and self.tie_to_next:
             # we only want to tie diatonic notes ("chromatic" notes will
             #   change in the next harmony)
             return False
@@ -236,7 +237,14 @@ PP = PrefabPitches
 
 TWO_PREFABS = (
     PP([-1, 2, 3], "__", [0, -2], [-2]),
-    PP([-1, -2, 2], "__", [0, -3], [-3], allow_suspension=Allow.NO),
+    PP(
+        [-1, -2, 2],
+        "__",
+        [0, -3],
+        [-3],
+        allow_suspension=Allow.NO,
+        negative_constraints=[-5],
+    ),
     PP([1, 3, 4, 5, -2, -3], "__", [0, 2], [2]),
     PP(
         [1, 2, 5],
@@ -249,7 +257,7 @@ TWO_PREFABS = (
 )
 
 THREE_PREFABS = (
-    PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3]),
+    PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3], negative_constraints=[-2]),
     PP([-2], "__w", [0, -3, -1], [-3]),
     PP(None, "___", [0, -1, 0], allow_preparation=Allow.YES),
     PP(
@@ -287,7 +295,7 @@ FOUR_PREFABS = (
     PP([0], "s___", [0, 1, 0, "#-1"]),
     PP([-2], "s___", [0, 1, 0, -1]),
     PP([0, 2], "s___", [0, "#-1", 0, 1]),
-    PP([0, -2], "s___", [0, -3, -2, -1], [-3]),
+    PP([0, -2], "s___", [0, -3, -2, -1], [-3], negative_constraints=[-5]),
     PP([1, -2, -3], "_w__", [0, 1, "#-1", 0], allow_suspension=Allow.NO),
     PP([-1, 1, 3, 4, 5, 7], "_w__", [0, 1, 2, 0], [2]),
     PP([-1, 1, 3, 4], "____", [0, 2, 1, 0], constraints=[2]),
@@ -368,8 +376,7 @@ class PrefabPitchDirectory:
                         \trelative_chord_factors: {relative_chord_factors}
                         \tis_suspension: {is_suspension}
                         \tis_preparation: {is_preparation}
-                        \tinterval_is_diatonic: {interval_is_diatonic}
-                    """
+                        \tinterval_is_diatonic: {interval_is_diatonic}"""
                     )
                 )
         self._memo[tup] = out

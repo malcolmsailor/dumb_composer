@@ -1,4 +1,6 @@
 from enum import Enum, auto
+from fractions import Fraction
+import logging
 from numbers import Number
 import random
 from re import M
@@ -20,12 +22,25 @@ def pattern_method(
     requires_bass: bool = False,
     allow_compound: Allow = Allow.YES,
     allow_triple: Allow = Allow.YES,
+    min_dur: t.Optional[Number] = None,
+    min_dur_fallback: str = "simple_chord",
+    min_pitch_count: t.Optional[int] = None,
+    min_pitch_count_fallback: str = "simple_chord",
 ):
+    """
+    Keyword args:
+        min_dur: denominated in 'beats'
+    """
+
     def wrap(f):
         setattr(f, "pattern_method", True)
         setattr(f, "requires_bass", requires_bass)
         setattr(f, "allow_compound", allow_compound)
         setattr(f, "allow_triple", allow_triple)
+        setattr(f, "min_dur", min_dur)
+        setattr(f, "min_dur_fallback", min_dur_fallback)
+        setattr(f, "min_pitch_count", min_pitch_count)
+        setattr(f, "min_pitch_count_fallback", min_pitch_count_fallback)
         return f
 
     return wrap
@@ -58,6 +73,7 @@ class PatternMaker:
         self._inertia = inertia
         self._prev_pattern: t.Optional[str] = None
         self._downbeats_only = pattern_changes_on_downbeats_only
+        self._memo = {}
 
     def _filter_patterns(self, ts: Meter, include_bass: bool) -> t.List[str]:
         out = []
@@ -210,6 +226,17 @@ class PatternMaker:
         return self._apply_pitches_to_rhythms(rhythms, pitches, track)
 
     @pattern_method()
+    def simple_chord(
+        self,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+    ):
+        return [Note(pitch, onset, release, track=track) for pitch in pitches]
+
+    @pattern_method()
     def off_beat_chords(
         self,
         pitches: t.Sequence[int],
@@ -333,6 +360,82 @@ class PatternMaker:
             out.append(Note(pitch, pitch_onset, release, track=track))
         return out
 
+    def _tremolo(
+        self,
+        onset_weight: int,
+        pitches: t.Sequence[int],
+        onset: Number,
+        release: Number,
+        track: int,
+        chord_change: bool,
+        extra_pitches_at: ExtraPitches = ExtraPitches.TOP,
+    ):
+        if extra_pitches_at is ExtraPitches.MID:
+            raise ValueError(
+                "for tremolo, extra_pitches_at must be either "
+                "ExtraPitches.BOTTOM or ExtraPitches.TOP"
+            )
+        bass_weight = onset_weight + 1
+        onsets = self.rf._regularly_spaced_by_weight(
+            onset_weight, onset, release
+        )
+        out = []
+        if extra_pitches_at is ExtraPitches.BOTTOM:
+            for onset in onsets:
+                if onset["weight"] >= bass_weight:
+                    for pitch in pitches[:-1]:
+                        out.append(
+                            Note(
+                                pitch,
+                                onset["onset"],
+                                onset["release"],
+                                track=track,
+                            )
+                        )
+                else:
+                    out.append(
+                        Note(
+                            pitches[-1],
+                            onset["onset"],
+                            onset["release"],
+                            track=track,
+                        )
+                    )
+        else:
+            for onset in onsets:
+                if onset["weight"] >= bass_weight:
+                    out.append(
+                        Note(
+                            pitches[0],
+                            onset["onset"],
+                            onset["release"],
+                            track=track,
+                        )
+                    )
+                else:
+                    for pitch in pitches[1:]:
+                        out.append(
+                            Note(
+                                pitch,
+                                onset["onset"],
+                                onset["release"],
+                                track=track,
+                            )
+                        )
+        return out
+
+    @pattern_method(min_dur=Fraction(1, 2))
+    def demisemibeat_tremolo(self, *args, **kwargs):
+        return self._tremolo(-2, *args, **kwargs)
+
+    @pattern_method(min_dur=Fraction(1, 1))
+    def semibeat_tremolo(self, *args, **kwargs):
+        return self._tremolo(-1, *args, **kwargs)
+
+    @pattern_method(min_dur=Fraction(2, 1))
+    def beat_tremolo(self, *args, **kwargs):
+        return self._tremolo(0, *args, **kwargs)
+
     def _three_pitch_arpeggio_pattern(
         self,
         bass_weight: int,
@@ -453,15 +556,29 @@ class PatternMaker:
             extra_pitches_at=ExtraPitches.MID,
         )
 
-    @pattern_method()
+    @pattern_method(
+        min_dur=Fraction(1, 2),
+        min_pitch_count=3,
+        min_pitch_count_fallback="demisemibeat_tremolo",
+    )
     def demisemibeat_alberti(self, *args, **kwargs):
         return self._alberti(0, *args, **kwargs)
 
-    @pattern_method(allow_compound=Allow.NO)
+    @pattern_method(
+        allow_compound=Allow.NO,
+        min_dur=Fraction(1, 1),
+        min_pitch_count=3,
+        min_pitch_count_fallback="semibeat_tremolo",
+    )
     def semibeat_alberti(self, *args, **kwargs):
         return self._alberti(1, *args, **kwargs)
 
-    @pattern_method(allow_triple=Allow.NO)
+    @pattern_method(
+        allow_triple=Allow.NO,
+        min_dur=Fraction(2, 1),
+        min_pitch_count=3,
+        min_pitch_count_fallback="beat_tremolo",
+    )
     def beat_alberti(self, *args, **kwargs):
         return self._alberti(2, *args, **kwargs)
 
@@ -486,80 +603,189 @@ class PatternMaker:
             extra_pitches_at=ExtraPitches.TOP,
         )
 
-    @pattern_method()
+    @pattern_method(
+        min_dur=Fraction(1, 2),
+        min_pitch_count=3,
+        min_pitch_count_fallback="demisemibeat_tremolo",
+    )
     def demisemibeat_1_3_5(self, *args, **kwargs):
         return self._1_3_5(0, *args, **kwargs)
 
-    @pattern_method(allow_compound=Allow.NO)
+    @pattern_method(
+        allow_compound=Allow.NO,
+        min_dur=Fraction(1, 1),
+        min_pitch_count=3,
+        min_pitch_count_fallback="semibeat_tremolo",
+    )
     def semibeat_1_3_5(self, *args, **kwargs):
         return self._1_3_5(1, *args, **kwargs)
 
-    @pattern_method(allow_triple=Allow.NO)
+    @pattern_method(
+        allow_triple=Allow.NO,
+        min_dur=Fraction(2, 1),
+        min_pitch_count=3,
+        min_pitch_count_fallback="beat_tremolo",
+    )
     def beat_1_3_5(self, *args, **kwargs):
         return self._1_3_5(2, *args, **kwargs)
 
-    # @pattern_method(allow_compound=Allow.NO)
-    # def alberti(
-    #     self,
-    #     pitches: t.Sequence[int],
-    #     onset: Number,
-    #     release: Number,
-    #     track: int,
-    #     chord_change: bool,
-    # ):
-    #     beat_weight = self.rf.beat_weight
-    #     sbs = self.rf.semibeats(onset, release)
-    #     out = []
-    #     bass_has_sounded = False
-    #     for sb in sbs:
-    #         if sb["weight"] > beat_weight or (
-    #             not bass_has_sounded
-    #             and chord_change
-    #             and sb["weight"] == beat_weight
-    #         ):
-    #             out.append(
-    #                 Note(pitches[0], sb["onset"], sb["release"], track=track)
-    #             )
-    #             bass_has_sounded = True
-    #         elif sb["weight"] < beat_weight:
-    #             out.append(
-    #                 Note(pitches[2], sb["onset"], sb["release"], track=track)
-    #             )
-    #         else:
-    #             out.append(
-    #                 Note(pitches[1], sb["onset"], sb["release"], track=track)
-    #             )
-    #     return out
+    def _get_pattern_options(
+        self, pitches, harmony_onset, harmony_release
+    ) -> t.List[t.Callable]:
+        params = (tuple(pitches), harmony_onset, harmony_release)
+        if params in self._memo:
+            return self._memo[params]
+        patterns = []
+        for pattern_name in self._patterns:
+            pattern_method = getattr(self, pattern_name)
+            pattern_fits = True
+            for constraint in (
+                lambda: (
+                    pattern_method.min_dur is None
+                    or (
+                        (harmony_release - harmony_onset) / self._ts.beat_dur
+                        >= pattern_method.min_dur
+                    )
+                ),
+                lambda: (
+                    pattern_method.min_pitch_count is None
+                    or len(pitches) >= pattern_method.min_pitch_count
+                ),
+            ):
+                if not constraint():
+                    pattern_fits = False
+                    break
+            if pattern_fits:
+                patterns.append(pattern_name)
+            # if (
+            #     pattern_method.min_dur is None
+            #     or harmony_dur / self._ts.beat_dur >= pattern_method.min_dur
+            # ):
+            #     patterns.append(pattern_name)
+        self._memo[params] = patterns
+        return patterns
+
+    def _call_pattern_method(
+        self,
+        pattern_name,
+        pitches,
+        harmony_onset,
+        harmony_release,
+        *args,
+        **kwargs,
+    ):
+        pattern_method = getattr(self, pattern_name)
+        for constraint, fallback in (
+            (
+                lambda: (
+                    pattern_method.min_dur is None
+                    or (
+                        (harmony_release - harmony_onset) / self._ts.beat_dur
+                        >= pattern_method.min_dur
+                    )
+                ),
+                pattern_method.min_dur_fallback,
+            ),
+            (
+                lambda: (
+                    pattern_method.min_pitch_count is None
+                    or len(pitches) >= pattern_method.min_pitch_count
+                ),
+                pattern_method.min_pitch_count_fallback,
+            ),
+        ):
+            if not constraint():
+                return self._call_pattern_method(
+                    fallback,
+                    pitches,
+                    harmony_onset,
+                    harmony_release,
+                    *args,
+                    **kwargs,
+                )
+        # if (
+        #     pattern_method.min_pitch_count is not None
+        #     and len(pitches) < pattern_method.min_pitch_count
+        # ):
+        #     breakpoint()
+        #     # return self._call_pattern_method(
+        #     #     pattern_method.min_pitch_count_fallback,
+        #     #     pitches,
+        #     #     *args,
+        #     #     **kwargs,
+        #     # )
+
+        return pattern_method(pitches, *args, **kwargs)
 
     def __call__(
         self,
         pitches,
         onset,
-        release=None,
-        dur=None,
+        release,
+        harmony_onset=None,
+        harmony_release=None,
+        dur=None,  # TODO I think I can remove 'dur'
         pattern=None,
         track=1,
         chord_change: bool = True,
     ) -> t.List[Note]:
-        if pattern is None:
-            if self._prev_pattern is None or (
-                (
-                    not self._downbeats_only
-                    or self._ts.weight(onset) == self._ts.max_weight
-                )
-                and random.random() > self._inertia
-            ):
-                pattern = random.choice(self._patterns)
-                self._prev_pattern = pattern
-            else:
-                pattern = self._prev_pattern
-        else:
+        if harmony_onset is None:
+            harmony_onset = onset
+        if harmony_release is None:
+            harmony_release = release
+        if pattern is not None:
+            # pattern is set explicitly
+            # pattern_method = getattr(self, pattern)
             self._prev_pattern = pattern
+            return self._call_pattern_method(
+                pattern, pitches, onset, release, track, chord_change
+            )
+        try_to_keep_same_pattern = self._downbeats_only and (
+            self._ts.weight(onset) != self._ts.max_weight
+        )
+        if self._prev_pattern is not None and (
+            try_to_keep_same_pattern or random.random() <= self._inertia
+        ):
+            pattern = self._prev_pattern
+            logging.debug(
+                f"{self.__class__.__name__} retrieving pattern {pattern}"
+            )
+        else:
+            pattern_options = self._get_pattern_options(
+                pitches, harmony_onset, harmony_release
+            )
+            pattern = random.choice(pattern_options)
+            self._prev_pattern = pattern
+            logging.debug(
+                f"{self.__class__.__name__} setting pattern {pattern}"
+            )
+
+        # if self._prev_pattern is None or (
+        #     (
+        #         not self._downbeats_only
+        #         or self._ts.weight(onset) == self._ts.max_weight
+        #     )
+        #     and random.random() > self._inertia
+        # ):
+        #     pattern = random.choice(self._patterns)
+        #     self._prev_pattern = pattern
+        # else:
+        #     pattern = self._prev_pattern
+
         if release is None:
             release = onset + dur
-        return getattr(self, pattern)(
-            pitches, onset, release, track, chord_change
+        return self._call_pattern_method(
+            pattern,
+            pitches,
+            harmony_onset,
+            harmony_release,
+            onset,
+            release,
+            track,
+            chord_change,
         )
+        # pattern_method = getattr(self, pattern)
+        # return pattern_method(pitches, onset, release, track, chord_change)
 
     @property
     def prev_pattern(self):

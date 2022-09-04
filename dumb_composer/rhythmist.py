@@ -64,16 +64,6 @@ class DumbRhythmist(RhythmistBase):
                 break
         return weight
 
-    # @cached_property
-    # def onset_positions(self):
-    #     return np.arange(0, self._total_dur, self._min_dur)
-
-    # @cached_property
-    # def onset_weights(self):
-    #     return np.array(
-    #         [self._get_weight(x) for x in self.onset_positions], dtype=int
-    #     )
-
     def __call__(self, n_measures: int, end_with_downbeat: bool = True):
         if end_with_downbeat:
             assert n_measures >= 1

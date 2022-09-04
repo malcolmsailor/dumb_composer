@@ -45,6 +45,7 @@ class PrefabRhythms:
     endpoint_metric_strength_str: str = "ss"
     allow_suspension: t.Optional[Allow] = None
     allow_preparation: Allow = Allow.NO
+    allow_resolution: t.Optional[Allow] = None
     allow_after_tie: t.Optional[Allow] = None
 
     # if allow_ext_to_start_with_rest is None, we set it according to the
@@ -73,6 +74,11 @@ class PrefabRhythms:
                 self.allow_suspension = Allow.NO
             else:
                 self.allow_suspension = Allow.YES
+        if self.allow_resolution is None:
+            if not self.onsets[0] == 0.0:
+                self.allow_resolution = Allow.NO
+            else:
+                self.allow_resolution = Allow.YES
         if self.releases is None:
             self.releases = self.onsets[1:] + [self.total_dur]
         if self.allow_next_to_start_with_rest is None:
@@ -98,6 +104,7 @@ class PrefabRhythms:
         endpoint_metric_strength_str: str,
         is_suspension: bool = False,
         is_preparation: bool = False,
+        is_resolution: bool = False,
         is_after_tie: bool = False,
         start_with_rest: Allow = Allow.YES,
     ):
@@ -114,6 +121,7 @@ class PrefabRhythms:
         for is_so, allowed in (
             (is_suspension, self.allow_suspension),
             (is_preparation, self.allow_preparation),
+            (is_resolution, self.allow_resolution),
             (is_after_tie, self.allow_after_tie),
         ):
             if is_so and allowed == Allow.NO:
@@ -233,6 +241,7 @@ class PrefabRhythmDirectory:
         endpoint_metric_strength_str: str = "ss",
         is_suspension: bool = False,
         is_preparation: bool = False,
+        is_resolution: bool = False,
         is_after_tie: bool = False,
         start_with_rest: Allow = Allow.YES,
     ) -> t.List[PrefabRhythms]:
@@ -241,6 +250,7 @@ class PrefabRhythmDirectory:
             endpoint_metric_strength_str,
             is_suspension,
             is_preparation,
+            is_resolution,
             is_after_tie,
             start_with_rest,
         )
@@ -259,9 +269,9 @@ class PrefabRhythmDirectory:
                         \tendpoint_metric_strength_str: {endpoint_metric_strength_str}
                         \tis_suspension: {is_suspension}
                         \tis_preparation: {is_preparation}
+                        \is_resolution: {is_resolution}
                         \tis_after_tie: {is_after_tie}
-                        \tstart_with_rest: {start_with_rest}
-                        """
+                        \tstart_with_rest: {start_with_rest}"""
                     )
                 )
         self._memo[tup] = out

@@ -6,7 +6,7 @@ import typing as t
 import random
 import warnings
 import pandas as pd
-from .pitch_utils.chords import Chord
+from .pitch_utils.chords import Chord, Inflection
 
 from dumb_composer.pitch_utils.intervals import (
     get_relative_chord_factors,
@@ -68,6 +68,7 @@ class PrefabApplier:
         prefab_pitches: PrefabPitches,
         prefab_rhythms: PrefabRhythms,
         scale: Scale,
+        next_mel_pitch: int,
         track: int = 1,
     ) -> t.List[Note]:
         notes = []
@@ -94,11 +95,66 @@ class PrefabApplier:
                 )
             else:
                 new_pitch = scale[orig_scale_degree + rel_scale_degree]
+            if (
+                i > 0
+                and abs(
+                    (
+                        current_mod_degree := (
+                            orig_scale_degree + rel_scale_degree
+                        )
+                        % len(scale)
+                    )
+                    - (
+                        prev_mod_degree := (
+                            orig_scale_degree
+                            + prefab_pitches.relative_degrees[i - 1]
+                        )
+                        % len(scale)
+                    )
+                )
+                in (1, len(scale) - 1)
+                and abs(new_pitch - notes[-1].pitch) > 2
+            ):
+                # The abs(new_pitch - notes[-1].pitch) > 2 condition is
+                #   necessary because we only want to run this logic if there
+                #   actually *is* an augmented second because of the case where
+                #   an augmented second is immediately repeated. E.g., given
+                #   pitches (G#, F, G#), if we raise the F after processing the
+                #   first pair of pitches, we would raise it *again* after
+                #   processing the second pair.
+                aug2nds = current_chord.augmented_second_adjustments
+                if all(
+                    degree in aug2nds
+                    for degree in (prev_mod_degree, current_mod_degree)
+                ):
+                    if (
+                        aug2nds[current_mod_degree] is Inflection.NONE
+                        and aug2nds[prev_mod_degree] is Inflection.NONE
+                    ):
+                        pass
+                    elif aug2nds[current_mod_degree] is Inflection.UP:
+                        new_pitch += 1
+                    elif aug2nds[current_mod_degree] is Inflection.DOWN:
+                        new_pitch -= 1
+                    elif aug2nds[prev_mod_degree] is Inflection.UP:
+                        notes[-1].pitch += 1
+                    elif aug2nds[prev_mod_degree] is Inflection.DOWN:
+                        notes[-1].pitch -= 1
+                    else:
+                        # Inflection of both pitches must be EITHER; we adjust
+                        # the previous pitch.
+                        if new_pitch > notes[-1].pitch:
+                            notes[-1].pitch += 1
+                        else:
+                            notes[-1].pitch -= 1
             notes.append(
                 Note(new_pitch, onset + offset, release + offset, track=track)
             )
         if prefab_pitches.tie_to_next:
             notes[-1].tie_to_next = True
+        # TODO I need to finish implementing augmented 2nds here
+        # elif abs(notes[-1].pitch - next_mel_pitch) > 2 and :
+        #     pass
         return notes
 
     def get_decorated_voice(self, score: Score):
@@ -143,6 +199,7 @@ class PrefabApplier:
         next_mel_pitch = decorated_voice[current_i + 1]
         is_suspension = current_i in score.suspension_indices
         is_preparation = current_i + 1 in score.suspension_indices
+        is_resolution = current_i - 1 in score.suspension_indices
         is_after_tie = current_i - 1 in score.tied_prefab_indices
         start_with_rest = (
             None
@@ -158,6 +215,7 @@ class PrefabApplier:
             # TODO metric strength
             is_suspension=is_suspension,
             is_preparation=is_preparation,
+            is_resolution=is_resolution,
             is_after_tie=is_after_tie,
             start_with_rest=start_with_rest,
         )
@@ -214,6 +272,7 @@ class PrefabApplier:
                     pitches,
                     rhythm,
                     current_scale,
+                    next_mel_pitch,
                     track=score.prefab_track,
                 )
                 logging.debug(

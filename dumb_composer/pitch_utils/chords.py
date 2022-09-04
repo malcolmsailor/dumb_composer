@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import cached_property
 from numbers import Number
 from types import MappingProxyType
 import music21
@@ -8,11 +9,25 @@ import pandas as pd
 import typing as t
 
 from dumb_composer.constants import TIME_TYPE
+from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.time import Meter
 from enum import Enum, auto
 
 
+class Allow(Enum):
+    NO = auto()
+    YES = auto()
+    ONLY = auto()
+
+
 class Tendency(Enum):
+    NONE = auto()
+    UP = auto()
+    DOWN = auto()
+
+
+class Inflection(Enum):
+    EITHER = auto()
     NONE = auto()
     UP = auto()
     DOWN = auto()
@@ -29,33 +44,6 @@ TENDENCIES = MappingProxyType(
 )
 
 
-# class Chord(pd.Series):
-#     def __init__(
-#         self,
-#         pcs: t.Tuple[int],
-#         scale_pcs: t.Tuple[int],
-#         onset: Number,
-#         release: Number,
-#         inversion: int,
-#         token: str,
-#         intervals_above_bass: t.Tuple[int],
-#     ):
-#         # Where, if anywhere, do I take advantage of this being a Pandas series?
-#         foot = pcs[0]
-#         super().__init__(
-#             {
-#                 "pcs": pcs,
-#                 "scale_pcs": scale_pcs,
-#                 "onset": onset,
-#                 "release": release,
-#                 "foot": foot,
-#                 "inversion": inversion,
-#                 "token": token,
-#                 "intervals_above_bass": intervals_above_bass,
-#             }
-#         )
-
-
 @dataclass
 class Chord:
     pcs: t.Tuple[int]
@@ -66,6 +54,14 @@ class Chord:
     token: str
     intervals_above_bass: t.Tuple[int]
     tendencies: t.Dict[int, Tendency]
+
+    # whereas 'onset' and 'release' should be the start of this particular
+    #   structural "unit" (which might, for example, break at a barline
+    #   without a change of harmony), `harmony_onset` and `harmony_release`
+    #   are for the onset and release of the harmony (i.e., the boundaries
+    #   of the preceding and succeeding *changes* in the harmony)
+    harmony_onset: t.Optional[Number] = field(default=None, compare=False)
+    harmony_release: t.Optional[Number] = field(default=None, compare=False)
 
     foot: t.Optional[int] = field(default=None, init=False)
 
@@ -79,6 +75,109 @@ class Chord:
     def get_pitch_tendency(self, pitch: int) -> Tendency:
         pc_i = self._lookup_pcs[pitch % 12]
         return self.tendencies.get(pc_i, Tendency.NONE)
+
+    def pc_must_be_omitted(
+        self, pc: int, existing_pitches: t.Sequence[int]
+    ) -> bool:
+        """
+        Returns true if the pc is a tendency tone that is already present
+        among the existing pitches.
+
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 C: V7
+        ... m2 I'''
+        >>> (dom7, tonic), _, _ = get_chords_from_rntxt(rntxt)
+        >>> dom7.pc_must_be_omitted(11, [62, 71]) # B already present in chord
+        True
+        >>> dom7.pc_must_be_omitted(5, [62, 71]) # F not present in chord
+        False
+        >>> not any(tonic.pc_must_be_omitted(pc, [60, 64, 67])
+        ...         for pc in (0, 4, 7)) # tonic has no tendency tones
+        True
+
+        """
+        return self.get_pitch_tendency(pc) is not Tendency.NONE and any(
+            pitch % 12 == pc for pitch in existing_pitches
+        )
+
+    def get_omissions(
+        self,
+        existing_pitches: t.Tuple[int],
+        suspensions: t.Tuple[int],
+        iq: IntervalQuerier,
+    ) -> t.List[Allow]:
+        out = []
+        semitone_resolutions = {(s - 1) % 12 for s in suspensions}
+        wholetone_resolutions = {(s - 2) % 12 for s in suspensions}
+        for pc in self.pcs:
+            if pc in semitone_resolutions or self.pc_must_be_omitted(
+                pc, existing_pitches
+            ):
+                out.append(Allow.ONLY)
+            elif pc in wholetone_resolutions or iq.pc_can_be_omitted(
+                pc, existing_pitches
+            ):
+                out.append(Allow.YES)
+            else:
+                out.append(Allow.NO)
+        return out
+
+    @cached_property
+    def augmented_second_adjustments(self) -> t.Dict[int, Inflection]:
+        """
+        Suppose that a scale contains an augmented second. Then, to remove the
+        augmented 2nd
+            - if both notes are members of the chord, we should not remove
+                the augmented 2nd (musically speaking this isn't necessarily
+                so but it seems like a workable assumption for now)
+            - if the higher note is a member of the chord, we raise the lower
+                note
+            - if the lower note is a member of the chord, we lower the higher
+                note
+            - if neither note is a member of the chord, we can adjust either
+                note, depending on the direction of melodic motion
+
+        This function assumes that there are no consecutive augmented seconds
+        in the scale.
+
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 a: V7
+        ... m2 viio7
+        ... m3 i
+        ... m4 iv'''
+        >>> (dom7, viio7, i, iv), _, _ = get_chords_from_rntxt(rntxt)
+        >>> dom7.augmented_second_adjustments # ^6 should be raised
+        {5: <Inflection.UP: 3>, 6: <Inflection.NONE: 2>}
+        >>> viio7.augmented_second_adjustments # both ^6 and ^7 are chord tones
+        {5: <Inflection.NONE: 2>, 6: <Inflection.NONE: 2>}
+        >>> i.augmented_second_adjustments # no augmented 2nd
+        {}
+        >>> i.scale_pcs = (9, 11, 0, 2, 4, 5, 8) # harmonic-minor scale
+        >>> del i.augmented_second_adjustments # rebuild augmented_second_adjustments
+        >>> i.augmented_second_adjustments
+        {5: <Inflection.EITHER: 1>, 6: <Inflection.EITHER: 1>}
+        >>> iv.scale_pcs = (9, 11, 0, 2, 4, 5, 8) # harmonic-minor scale
+        >>> iv.augmented_second_adjustments
+        {5: <Inflection.NONE: 2>, 6: <Inflection.DOWN: 4>}
+        """
+        out = {}
+        for i, (pc1, pc2) in enumerate(
+            zip(self.scale_pcs, self.scale_pcs[1:] + (self.scale_pcs[0],))
+        ):
+            if (pc2 - pc1) % 12 > 2:
+                if pc2 in self.pcs:
+                    if pc1 in self.pcs:
+                        out[i] = Inflection.NONE
+                    else:
+                        out[i] = Inflection.UP
+                    out[(i + 1) % len(self.scale_pcs)] = Inflection.NONE
+                elif pc1 in self.pcs:
+                    out[i] = Inflection.NONE
+                    out[(i + 1) % len(self.scale_pcs)] = Inflection.DOWN
+                else:
+                    out[i] = Inflection.EITHER
+                    out[(i + 1) % len(self.scale_pcs)] = Inflection.EITHER
+        return out
 
 
 def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
@@ -175,6 +274,29 @@ def _get_chord_pcs(rn: music21.roman.RomanNumeral) -> t.Tuple[int]:
         return tuple(rn.pitchClasses)
 
 
+def get_harmony_onsets_and_releases(chord_list: t.List[Chord]):
+    def _clear_accumulator():
+        nonlocal accumulator, prev_chord, release, onset
+        for accumulated in accumulator:
+            accumulated.harmony_onset = onset
+            accumulated.harmony_release = release
+        accumulator = []
+        prev_chord = chord
+
+    prev_chord = None
+    onset = None
+    release = None
+    accumulator = []
+    for chord in chord_list:
+        if chord != prev_chord:
+            if release is not None:
+                _clear_accumulator()
+            onset = chord.onset
+        accumulator.append(chord)
+        release = chord.release
+    _clear_accumulator()
+
+
 def get_chords_from_rntxt(
     rn_data: str, split_chords_at_metric_strong_points: bool = True
 ) -> t.Tuple[t.List[Chord], float, Meter]:
@@ -194,6 +316,8 @@ def get_chords_from_rntxt(
     prev_scale = duration = start = pickup_offset = key = None
     prev_chord = None
     out_list = []
+    # print("looping over roman numerals... ", end="", flush=True)
+    # This loop is very slow... profiling suggests it is due to music21
     for rn in score[music21.roman.RomanNumeral]:
         if pickup_offset is None:
             pickup_offset = TIME_TYPE(
@@ -231,7 +355,9 @@ def get_chords_from_rntxt(
             prev_chord.release += rn.duration.quarterLength
 
     out_list.append(prev_chord)
+
     if split_chords_at_metric_strong_points:
+        # print("splitting chords... ", end="", flush=True)
         chord_list = ts.split_at_metric_strong_points(
             out_list, min_split_dur=ts.beat_dur
         )
@@ -240,4 +366,13 @@ def get_chords_from_rntxt(
             out_list.extend(
                 ts.split_odd_duration(chord, min_split_dur=ts.beat_dur)
             )
+    # print("getting harmony onsets/releases... ", end="", flush=True)
+    get_harmony_onsets_and_releases(out_list)
     return out_list, pickup_offset, ts
+
+
+# doctests in cached_property methods are not discovered and need to be
+#   added explicitly to __test__; see https://stackoverflow.com/a/72500890/10155119
+__test__ = {
+    "Chord.augmented_second_adjustments": Chord.augmented_second_adjustments
+}

@@ -2,6 +2,7 @@ from collections import Counter
 import logging
 import typing as t
 from dataclasses import dataclass
+import itertools as it
 
 import pandas as pd
 
@@ -79,6 +80,7 @@ class PrefabComposer:
         self._mel_range = settings.mel_range
         self.missing_prefabs = Counter()
         self._n_recurse_calls = 0
+        self._spinner = it.cycle([char for char in r"/|\\-"])
 
     def _get_ranges(self, bass_range, mel_range):
         if bass_range is None:
@@ -100,8 +102,10 @@ class PrefabComposer:
             raise RecursionFailed(
                 f"Max recursion calls {self.settings.max_recurse_calls} reached\n"
                 + self.get_missing_prefab_str()
+                + "RECURSION FAILED"
             )
-
+        char = next(self._spinner)
+        print(char, end="\r", flush=True)
         self._n_recurse_calls += 1
         if i:
             assert i - 1 == len(score.accompaniments) == len(score.prefabs)
@@ -118,7 +122,9 @@ class PrefabComposer:
                 self.missing_prefabs[str(exc)] += 1
             raise DeadEnd
         logging.debug(
-            f"{self.__class__.__name__}._recurse: {i} {score.chords[i].token}"
+            f"{self.__class__.__name__}._recurse: {i} {score.chords[i].token} "
+            f"onset={score.chords[i].onset} "
+            f"structural_bass={score.structural_bass[i]}"
         )
         # There should be two outcomes to the recursive stack:
         #   1. success
@@ -162,7 +168,9 @@ class PrefabComposer:
             function or similar."""
         self._n_recurse_calls = 0
         bass_range, mel_range = self._get_ranges(bass_range, mel_range)
+        print("Reading score... ", end="", flush=True)
         score = Score(chord_data, bass_range, mel_range)
+        print("done.")
         self.structural_partitioner(score)
         self.dumb_accompanist.init_new_piece(score.ts)
         if self.settings.accompaniment_annotations is AccompAnnots.NONE:

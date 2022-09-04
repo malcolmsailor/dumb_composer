@@ -1,9 +1,14 @@
 from dataclasses import dataclass
 import itertools as it
+import logging
 import random
 import typing as t
 
-from voice_leader import voice_lead_pitches, NoMoreVoiceLeadingsError
+from voice_leader import (
+    voice_lead_pitches,
+    NoMoreVoiceLeadingsError,
+    CardinalityDiffersTooMuch,
+)
 
 from dumb_composer.constants import (
     CLOSE_REGISTERS,
@@ -13,7 +18,7 @@ from dumb_composer.constants import (
     OPEN_REGISTERS,
     TET,
 )
-
+from dumb_composer.shared_classes import Allow
 from dumb_composer.utils.attr_compiler import attr_compiler
 from dumb_composer.pitch_utils.put_in_range import (
     get_all_in_range,
@@ -356,36 +361,33 @@ class SimpleSpacer:
         self._prev_pitches = None
         self.settings = settings
 
-    def __call__(
+    @staticmethod
+    def _apply_omissions(
+        pcs: t.Iterable[int],
+        omissions: t.Iterable[Allow],
+        include_bass: bool = True,
+    ):
+        retained_pcs, possible_omissions = [], []
+        i = 0
+        for j, (pc, omit) in enumerate(zip(pcs, omissions)):
+            if omit is Allow.ONLY and ((not include_bass) or j != 0):
+                continue
+            retained_pcs.append(pc)
+            if (not include_bass) or j != 0:
+                possible_omissions.append(i)
+            i += 1
+        return retained_pcs, possible_omissions
+
+    def _sub(
         self,
         pcs: t.Iterable[int],
+        possible_omissions: t.Sequence[int],
         min_accomp_pitch: t.Optional[int] = None,
         max_accomp_pitch: t.Optional[int] = None,
         include_bass: bool = True,
         min_bass_pitch: t.Optional[int] = None,
         max_bass_pitch: t.Optional[int] = None,
     ):
-        min_accomp_pitch = (
-            self.settings.accomp_range[0]
-            if min_accomp_pitch is None
-            else min_accomp_pitch
-        )
-        max_accomp_pitch = (
-            self.settings.accomp_range[1]
-            if max_accomp_pitch is None
-            else max_accomp_pitch
-        )
-        if include_bass:
-            min_bass_pitch = (
-                self.settings.accomp_bass_range[0]
-                if min_bass_pitch is None
-                else min_bass_pitch
-            )
-            max_bass_pitch = (
-                self.settings.accomp_bass_range[1]
-                if max_bass_pitch is None
-                else max_bass_pitch
-            )
         if self._prev_pitches is not None:
             try:
                 pitches = voice_lead_pitches(
@@ -396,10 +398,13 @@ class SimpleSpacer:
                     min_pitch=min_accomp_pitch,
                     max_pitch=max_accomp_pitch,
                 )
-            except NoMoreVoiceLeadingsError:
+            except (NoMoreVoiceLeadingsError, CardinalityDiffersTooMuch):
                 pass
             else:
                 self._prev_pitches = pitches
+                logging.debug(
+                    f"{self.__class__.__name__} yielding spacing {pitches}"
+                )
                 yield pitches
         if include_bass:
             bass_options = get_all_in_range(
@@ -423,5 +428,81 @@ class SimpleSpacer:
             # put pitches in ascending order
             spacing = sorted(spacing)
             self._prev_pitches = spacing
+            logging.debug(
+                f"{self.__class__.__name__} yielding spacing {spacing}"
+            )
             yield spacing
-        raise NoSpacings(f"no spacings for pcs {pcs}")
+        for i in range(len(possible_omissions)):
+            for indices in it.combinations(possible_omissions, i + 1):
+                logging.debug(
+                    f"{self.__class__.__name__} omitting indices {indices}"
+                )
+                try:
+                    for spacing in self._sub(
+                        [pc for i, pc in enumerate(pcs) if i not in indices],
+                        (),
+                        min_accomp_pitch,
+                        max_accomp_pitch,
+                        include_bass,
+                        min_bass_pitch,
+                        max_bass_pitch,
+                    ):
+                        yield spacing
+                except NoSpacings:
+                    pass
+        if include_bass:
+            raise NoSpacings(
+                f"no spacings for pcs {pcs} with bass between "
+                f"{min_bass_pitch} and {max_bass_pitch} and other parts "
+                f"between {min_accomp_pitch} and {max_accomp_pitch}"
+            )
+        else:
+            raise NoSpacings(
+                f"no spacings for pcs {pcs} between "
+                f"{min_accomp_pitch} and {max_accomp_pitch}"
+            )
+
+    def __call__(
+        self,
+        pcs: t.Iterable[int],
+        omissions: t.Iterable[Allow],
+        min_accomp_pitch: t.Optional[int] = None,
+        max_accomp_pitch: t.Optional[int] = None,
+        include_bass: bool = True,
+        min_bass_pitch: t.Optional[int] = None,
+        max_bass_pitch: t.Optional[int] = None,
+    ):
+        pcs, possible_omissions = self._apply_omissions(
+            pcs, omissions, include_bass
+        )
+        min_accomp_pitch = (
+            self.settings.accomp_range[0]
+            if min_accomp_pitch is None
+            else min_accomp_pitch
+        )
+        max_accomp_pitch = (
+            self.settings.accomp_range[1]
+            if max_accomp_pitch is None
+            else max_accomp_pitch
+        )
+        if include_bass:
+            min_bass_pitch = (
+                self.settings.accomp_bass_range[0]
+                if min_bass_pitch is None
+                else min_bass_pitch
+            )
+            max_bass_pitch = (
+                self.settings.accomp_bass_range[1]
+                if max_bass_pitch is None
+                else max_bass_pitch
+            )
+        for item in self._sub(
+            pcs,
+            possible_omissions,
+            min_accomp_pitch,
+            max_accomp_pitch,
+            include_bass,
+            min_bass_pitch,
+            max_bass_pitch,
+        ):
+            yield item

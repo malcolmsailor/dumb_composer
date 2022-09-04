@@ -1,5 +1,6 @@
 from collections import defaultdict, deque
 from functools import cached_property
+import logging
 from numbers import Number
 import re
 import pandas as pd
@@ -13,16 +14,8 @@ from .pitch_utils.scale import Scale, ScaleDict
 
 from .pitch_utils.put_in_range import put_in_range
 
-from .pitch_utils.chords import get_chords_from_rntxt
+from .pitch_utils.chords import get_chords_from_rntxt, Allow
 from dumb_composer.pitch_utils.chords import Chord
-
-from enum import Enum
-
-
-class Allow(Enum):
-    NO = 1
-    YES = 2
-    ONLY = 3
 
 
 class Annotation(pd.Series):
@@ -306,11 +299,15 @@ class Score:
 
     @cached_property
     def structural_bass(self) -> t.List[int]:
-        return list(
+        out = list(
             put_in_range(
                 (chord.foot for chord in self._chords), *self.bass_range
             )
         )
+        logging.debug(
+            f"Initializing {self.__class__.__name__}.structural_bass: {out}"
+        )
+        return out
 
     @property
     def chords(self) -> t.List[Chord]:
@@ -389,6 +386,17 @@ class Score:
             temp.append(new_annot)
         out = pd.DataFrame(temp)
         return out
+
+    def get_existing_pitches(
+        self,
+        idx: int,
+        attr_names: t.Sequence[str] = ("structural_bass", "structural_melody"),
+    ):
+        return tuple(
+            getattr(self, attr_name)[idx]
+            for attr_name in attr_names
+            if len(getattr(self, attr_name)) > idx
+        )
 
     def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
         if isinstance(contents, str):

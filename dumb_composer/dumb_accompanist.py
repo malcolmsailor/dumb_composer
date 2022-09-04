@@ -7,6 +7,7 @@ import typing as t
 from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
 from dumb_composer.patterns import PatternMaker
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
+from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.shared_classes import Annotation, Chord, Note, Score
 from .utils.recursion import DeadEnd
 
@@ -68,6 +69,7 @@ class DumbAccompanist:
             settings = DumbAccompanistSettings()
         self.settings = settings
         self._cs = SimpleSpacer()
+        self._iq = IntervalQuerier()
         self._pm: t.Optional[PatternMaker] = None
 
     def _get_below(self, score: Score):
@@ -102,8 +104,15 @@ class DumbAccompanist:
         chord = score.chords[i]
         below = self._get_below(score)
         above = self._get_above(score)
+        omissions = chord.get_omissions(
+            existing_pitches=score.get_existing_pitches(i),
+            # the last step should never have a suspension
+            suspensions=(),
+            iq=self._iq,
+        )
         for pitches in self._cs(
             chord.pcs,
+            omissions=omissions,
             min_accomp_pitch=above + 1,
             max_accomp_pitch=below - 1,
             include_bass=self.settings.include_bass,
@@ -126,8 +135,20 @@ class DumbAccompanist:
         chord_change = (i == 0) or (chord != score.chords[i - 1])
         below = self._get_below(score)
         above = self._get_above(score)
+        if i in score.suspension_indices:
+            suspensions = (score.structural_melody[i],)
+        else:
+            suspensions = ()
+        omissions = chord.get_omissions(
+            # TODO is there anything besides structural_bass and
+            #   structural_melody to be included in omissions?
+            existing_pitches=score.get_existing_pitches(i),
+            suspensions=suspensions,
+            iq=self._iq,
+        )
         for pitches in self._cs(
             chord.pcs,
+            omissions=omissions,
             min_accomp_pitch=above + 1,
             max_accomp_pitch=below - 1,
             include_bass=self.settings.include_bass,
@@ -136,6 +157,8 @@ class DumbAccompanist:
                 pitches,
                 chord.onset,
                 release=chord.release,
+                harmony_onset=chord.harmony_onset,
+                harmony_release=chord.harmony_release,
                 pattern=self.settings.pattern,
                 track=score.accompaniments_track,
                 chord_change=chord_change,

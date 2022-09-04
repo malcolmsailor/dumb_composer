@@ -53,6 +53,8 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     #   suspension (so far, by default 1.0) into a softmax together with the
     #   following "no_suspension_score".
     no_suspension_score: float = 1.0
+    allow_avoid_intervals: bool = False
+    allow_steps_outside_of_range: bool = True
 
 
 class TwoPartContrapuntist:
@@ -114,7 +116,11 @@ class TwoPartContrapuntist:
         )
 
     def _choose_suspension(
-        self, score: Score, next_chord: Chord, cur_mel_pitch: int
+        self,
+        score: Score,
+        next_chord: Chord,
+        cur_mel_pitch: int,
+        next_bass_has_tendency: bool,
     ):
         suspension_releases = find_suspension_releases(
             next_chord.onset,
@@ -126,13 +132,17 @@ class TwoPartContrapuntist:
         if not suspension_releases:
             yield None
             return
+        if next_bass_has_tendency:
+            eligible_pcs = next_chord.pcs[1:]
+        else:
+            eligible_pcs = next_chord.pcs
         suspensions = find_suspensions(
             # TODO providing next_scale_pcs prohibits "chromatic" suspensions
             #   (see the definition of find_suspensions()) but in the long
             #   run I'm not sure whether this is indeed something we want to
             #   do.
             cur_mel_pitch,
-            next_chord.pcs,
+            eligible_pcs,
             next_scale_pcs=next_chord.scale_pcs,
             resolve_up_by=self._upward_suspension_resolutions,
         )
@@ -192,6 +202,8 @@ class TwoPartContrapuntist:
     ) -> t.Optional[int]:
         cur_chord = score.chords[i - 1]
         tendency = cur_chord.get_pitch_tendency(cur_mel_pitch)
+        # if cur_mel_pitch == 78:
+        #     breakpoint()
         if tendency is Tendency.NONE or cur_chord == next_chord:
             return
         if tendency is Tendency.UP:
@@ -206,6 +218,10 @@ class TwoPartContrapuntist:
                     yield cur_mel_pitch + step
                     intervals.remove(step)
                     return
+        logging.debug(
+            f"resolving tendency-tone with pitch {cur_mel_pitch} "
+            f"would exceed range"
+        )
 
     def _get_first_melody_pitch(self, score: Score, i: int):
         next_bass_pitch = score.structural_bass[i]
@@ -227,37 +243,38 @@ class TwoPartContrapuntist:
     def _choose_intervals(
         self,
         next_bass_pitch: int,
-        next_chord: Chord,
+        next_bass_has_tendency: bool,
         cur_mel_pitch: int,
         intervals: t.List[int],
     ):
-        bass_has_tendency = (
-            next_chord.get_pitch_tendency(next_bass_pitch) is not Tendency.NONE
-        )
         avoid_intervals = []
         while intervals:
             interval = self._ic(intervals)
             candidate_pitch = cur_mel_pitch + interval
-            if (
-                bass_has_tendency
-                and candidate_pitch % 12 == next_bass_pitch % 12
+            if next_bass_has_tendency and (candidate_pitch % 12) == (
+                next_bass_pitch % 12
             ):
                 intervals.remove(interval)
                 avoid_intervals.append(interval)
                 continue
             yield candidate_pitch
             intervals.remove(interval)
-        while avoid_intervals:
-            interval = self._ic(avoid_intervals)
-            yield cur_mel_pitch + interval
-            avoid_intervals.remove(interval)
+        if self.settings.allow_avoid_intervals:
+            while avoid_intervals:
+                interval = self._ic(avoid_intervals)
+                logging.warn(f"must use avoid interval {interval}")
+                yield cur_mel_pitch + interval
+                avoid_intervals.remove(interval)
 
     def _get_next_melody_pitch(self, score: Score, i: int):
         next_bass_pitch = score.structural_bass[i]
         next_chord = score.chords[i]
         cur_mel_pitch = score.structural_melody[i - 1]
+        next_bass_has_tendency = (
+            next_chord.get_pitch_tendency(next_bass_pitch) is not Tendency.NONE
+        )
         for suspension in self._choose_suspension(
-            score, next_chord, cur_mel_pitch
+            score, next_chord, cur_mel_pitch, next_bass_has_tendency
         ):
             if suspension is not None:
                 yield self._apply_suspension(score, i, *suspension)
@@ -279,6 +296,7 @@ class TwoPartContrapuntist:
                     *score.mel_range,
                     max_interval=self.settings.max_interval,
                     forbidden_intervals=forbidden_intervals,
+                    allow_steps_outside_of_range=self.settings.allow_steps_outside_of_range,
                 )
                 # TODO for now tendency tones are only considered if there is
                 #   no suspension.
@@ -286,10 +304,19 @@ class TwoPartContrapuntist:
                     score, i, cur_mel_pitch, next_chord, intervals
                 ):
                     # self._get_tendency removes intervals
+                    logging.debug(
+                        f"{self.__class__.__name__} yielding tendency resolution pitch {pitch}"
+                    )
                     yield pitch
                 for pitch in self._choose_intervals(
-                    next_bass_pitch, next_chord, cur_mel_pitch, intervals
+                    next_bass_pitch,
+                    next_bass_has_tendency,
+                    cur_mel_pitch,
+                    intervals,
                 ):
+                    logging.debug(
+                        f"{self.__class__.__name__} yielding pitch {pitch}"
+                    )
                     yield pitch
                 # while intervals:
                 #     interval = self._ic(intervals)
@@ -313,9 +340,6 @@ class TwoPartContrapuntist:
                 yield pitch
         else:
             for pitch in self._get_next_melody_pitch(score, i):
-                logging.debug(
-                    f"{self.__class__.__name__} yielding pitch {pitch}"
-                )
                 yield pitch
         raise DeadEnd()
 
