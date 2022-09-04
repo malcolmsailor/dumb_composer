@@ -88,11 +88,9 @@ class TimeClass:
         return tuple(cls._ts_dict.keys())
 
     @staticmethod
-    def _get_bounds(onset=None, release=None, dur=None):
+    def _get_bounds(onset=None, release=None):
         if onset is None:
             onset = TIME_TYPE(0)
-        if release is None:
-            release = onset + dur
         return onset, release
 
     @staticmethod
@@ -876,8 +874,8 @@ class RhythmFetcher(TimeClass):
             self.meter = ts
         self._rhythms = self._filter_rhythms()
 
-    def __call__(self, rhythm_type=None, onset=None, release=None, dur=None):
-        onset, release = self._get_bounds(onset, release, dur)
+    def __call__(self, rhythm_type=None, onset=None, release=None):
+        onset, release = self._get_bounds(onset, release)
         if rhythm_type is None:
             rhythm_type = random.choice(self._rhythms)
         return getattr(self, rhythm_type)(onset, release)

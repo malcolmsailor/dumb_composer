@@ -33,13 +33,10 @@ class Note(pd.Series):
         self,
         pitch: int,
         onset: Number,
-        release: t.Optional[Number] = None,
-        dur: t.Optional[Number] = None,
+        release: Number,
         track: int = 1,
         tie_to_next: bool = False,
     ):
-        if release is None:
-            release = onset + dur
         super().__init__(
             {
                 "pitch": pitch,
@@ -56,16 +53,9 @@ class Note(pd.Series):
 
 
 def notes(
-    pitches: t.Sequence[int],
-    onset: Number,
-    release: t.Optional[Number] = None,
-    dur: t.Optional[Number] = None,
-    track: int = 1,
+    pitches: t.Sequence[int], onset: Number, release: Number, track: int = 1
 ) -> t.List[Note]:
-    return [
-        Note(pitch, onset, release=release, dur=dur, track=track)
-        for pitch in pitches
-    ]
+    return [Note(pitch, onset, release, track=track) for pitch in pitches]
 
 
 def print_notes(notes: t.Iterable[Note]) -> None:

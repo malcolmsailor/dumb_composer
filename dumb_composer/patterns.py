@@ -718,7 +718,6 @@ class PatternMaker:
         release,
         harmony_onset=None,
         harmony_release=None,
-        dur=None,  # TODO I think I can remove 'dur'
         pattern=None,
         track=1,
         chord_change: bool = True,
@@ -761,8 +760,6 @@ class PatternMaker:
                 f"{self.__class__.__name__} setting pattern {pattern}"
             )
 
-        if release is None:
-            release = onset + dur
         return self._call_pattern_method(
             pattern,
             pitches,
