@@ -657,11 +657,6 @@ class PatternMaker:
                     break
             if pattern_fits:
                 patterns.append(pattern_name)
-            # if (
-            #     pattern_method.min_dur is None
-            #     or harmony_dur / self._ts.beat_dur >= pattern_method.min_dur
-            # ):
-            #     patterns.append(pattern_name)
         self._memo[params] = patterns
         return patterns
 
@@ -714,7 +709,6 @@ class PatternMaker:
         #     #     *args,
         #     #     **kwargs,
         #     # )
-
         return pattern_method(pitches, *args, **kwargs)
 
     def __call__(
@@ -738,7 +732,14 @@ class PatternMaker:
             # pattern_method = getattr(self, pattern)
             self._prev_pattern = pattern
             return self._call_pattern_method(
-                pattern, pitches, onset, release, track, chord_change
+                pattern,
+                pitches,
+                harmony_onset,
+                harmony_release,
+                onset,
+                release,
+                track,
+                chord_change,
             )
         try_to_keep_same_pattern = self._downbeats_only and (
             self._ts.weight(onset) != self._ts.max_weight
@@ -760,18 +761,6 @@ class PatternMaker:
                 f"{self.__class__.__name__} setting pattern {pattern}"
             )
 
-        # if self._prev_pattern is None or (
-        #     (
-        #         not self._downbeats_only
-        #         or self._ts.weight(onset) == self._ts.max_weight
-        #     )
-        #     and random.random() > self._inertia
-        # ):
-        #     pattern = random.choice(self._patterns)
-        #     self._prev_pattern = pattern
-        # else:
-        #     pattern = self._prev_pattern
-
         if release is None:
             release = onset + dur
         return self._call_pattern_method(
@@ -784,8 +773,6 @@ class PatternMaker:
             track,
             chord_change,
         )
-        # pattern_method = getattr(self, pattern)
-        # return pattern_method(pitches, onset, release, track, chord_change)
 
     @property
     def prev_pattern(self):
