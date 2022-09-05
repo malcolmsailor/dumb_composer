@@ -666,8 +666,10 @@ class PatternMaker:
         pitches,
         harmony_onset,
         harmony_release,
-        *args,
-        **kwargs,
+        onset,
+        release,
+        track,
+        chord_change,
     ):
         pattern_method = getattr(self, pattern_name)
         for constraint, fallback in (
@@ -690,26 +692,26 @@ class PatternMaker:
             ),
         ):
             if not constraint():
+                logging.debug(
+                    f"{self.__class__.__name__} "
+                    f"falling back from {pattern_name} to {fallback}"
+                )
                 return self._call_pattern_method(
                     fallback,
                     pitches,
                     harmony_onset,
                     harmony_release,
-                    *args,
-                    **kwargs,
+                    onset,
+                    release,
+                    track,
+                    chord_change,
                 )
-        # if (
-        #     pattern_method.min_pitch_count is not None
-        #     and len(pitches) < pattern_method.min_pitch_count
-        # ):
-        #     breakpoint()
-        #     # return self._call_pattern_method(
-        #     #     pattern_method.min_pitch_count_fallback,
-        #     #     pitches,
-        #     #     *args,
-        #     #     **kwargs,
-        #     # )
-        return pattern_method(pitches, *args, **kwargs)
+        logging.debug(
+            f"{self.__class__.__name__}: "
+            f"{pattern_name} time:{onset}--{release} "
+            f"chord_change:{'yes' if chord_change else 'no'}"
+        )
+        return pattern_method(pitches, onset, release, track, chord_change)
 
     def __call__(
         self,

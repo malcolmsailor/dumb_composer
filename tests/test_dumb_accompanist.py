@@ -22,7 +22,7 @@ def get_funcname():
     return inspect.currentframe().f_back.f_code.co_name
 
 
-def test_dumb_accompanist(quick):
+def test_dumb_accompanist(quick, pytestconfig):
     # rn_format = """Time signature: {}
     #     m1 C: I
     #     m2 V65
@@ -73,20 +73,27 @@ def test_dumb_accompanist(quick):
     """,
         ),
     ]
+    funcname = get_funcname()
+    test_out_dir = os.path.join(TEST_OUT_DIR, funcname)
+    os.makedirs(test_out_dir, exist_ok=True)
     for (numer, denom), rntxt in test_cases:
         ts = f"{numer}/{denom}"
         random.seed(42)
         for pattern in PatternMaker._all_patterns:
+            path_wo_ext = os.path.join(
+                test_out_dir, f"ts={ts.replace('/', '-')}_pattern={pattern}"
+            )
+            mid_path = path_wo_ext + ".mid"
+            log_path = path_wo_ext + ".log"
+            logging_plugin = pytestconfig.pluginmanager.get_plugin(
+                "logging-plugin"
+            )
+            logging_plugin.set_log_path(log_path)
             settings = DumbAccompanistSettings(
                 pattern=pattern, accompaniment_annotations=AccompAnnots.ALL
             )
             dc = DumbAccompanist(settings)
             out_df = dc(rntxt)
-            funcname = get_funcname()
-            mid_path = os.path.join(
-                TEST_OUT_DIR,
-                funcname + f"_ts={ts.replace('/', '-')}_pattern={pattern}.mid",
-            )
             print(f"writing {mid_path}")
             df_to_midi(out_df, mid_path, ts=(numer, denom))
             if quick:

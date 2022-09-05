@@ -14,7 +14,7 @@ from .pitch_utils.scale import Scale, ScaleDict
 
 from .pitch_utils.put_in_range import put_in_range
 
-from .pitch_utils.chords import get_chords_from_rntxt, Allow
+from .pitch_utils.chords import get_chords_from_rntxt, Allow, is_same_harmony
 from dumb_composer.pitch_utils.chords import Chord
 
 
@@ -446,3 +446,30 @@ class Score:
         if len(self.structural_melody) > i + 2:
             self.structural_melody.pop(i + 1)
         self._scale_getter.pop_scale_pcs(i + 1)
+
+    def is_chord_change(
+        self,
+        i,
+        compare_scales: bool = True,
+        compare_inversions: bool = True,
+        allow_subsets: bool = False,
+    ) -> bool:
+        """
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 I b4 V
+        ... m2 V'''
+        >>> score = Score(rntxt)
+        >>> score.is_chord_change(0)
+        True
+        >>> score.is_chord_change(1)
+        True
+        >>> score.is_chord_change(2)
+        False
+        """
+        return (i == 0) or not is_same_harmony(
+            self.chords[i - 1],
+            self.chords[i],
+            compare_scales,
+            compare_inversions,
+            allow_subsets,
+        )

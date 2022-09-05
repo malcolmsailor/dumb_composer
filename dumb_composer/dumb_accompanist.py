@@ -38,8 +38,6 @@ class AccompAnnots(Enum):
 
 # TODO prevent changing patterns on weak beats
 
-# TODO don't include tendency tones in chords if they are found in the melody
-
 
 @dataclass
 class DumbAccompanistSettings(SimpleSpacerSettings):
@@ -132,7 +130,7 @@ class DumbAccompanist:
     ) -> t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]:
         i = len(score.accompaniments)
         chord = score.chords[i]
-        chord_change = (i == 0) or (chord != score.chords[i - 1])
+        chord_change = score.is_chord_change(i)
         below = self._get_below(score)
         above = self._get_above(score)
         if i in score.suspension_indices:
@@ -140,7 +138,7 @@ class DumbAccompanist:
         else:
             suspensions = ()
         omissions = chord.get_omissions(
-            # TODO is there anything besides structural_bass and
+            # LONGTERM is there anything besides structural_bass and
             #   structural_melody to be included in omissions?
             existing_pitches=score.get_existing_pitches(i),
             suspensions=suspensions,

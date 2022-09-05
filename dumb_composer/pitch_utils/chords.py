@@ -9,6 +9,7 @@ import pandas as pd
 import typing as t
 
 from dumb_composer.constants import TIME_TYPE
+from dumb_composer.utils.cache_lib import cacher
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.time import Meter
 from enum import Enum, auto
@@ -180,6 +181,75 @@ class Chord:
         return out
 
 
+def is_same_harmony(
+    chord1: Chord,
+    chord2: Chord,
+    compare_scales: bool = True,
+    compare_inversions: bool = True,
+    allow_subsets: bool = False,
+) -> bool:
+    """
+    >>> rntxt = '''Time Signature: 4/4
+    ... m1 C: I
+    ... m2 I b3 I6
+    ... m3 V7/IV
+    ... m4 F: V'''
+    >>> chords, _, _ = get_chords_from_rntxt(rntxt)
+    >>> is_same_harmony(chords[0], chords[1])
+    True
+    >>> is_same_harmony(chords[1], chords[2])
+    False
+    >>> is_same_harmony(chords[1], chords[2], compare_inversions=False)
+    True
+    >>> is_same_harmony(chords[0], chords[3], allow_subsets=True)
+    False
+    >>> is_same_harmony(chords[0], chords[3],
+    ...     compare_scales=False, allow_subsets=True)
+    True
+    >>> is_same_harmony(chords[0], chords[4], compare_scales=False)
+    True
+    >>> is_same_harmony(chords[0], chords[4], compare_scales=True)
+    False
+    >>> is_same_harmony(chords[3], chords[4], allow_subsets=True)
+    True
+    """
+    if compare_inversions:
+        if allow_subsets:
+            if chord1.pcs[0] != chord2.pcs[0] or len(
+                set(chord1.pcs) | set(chord2.pcs)
+            ) > max(len(chord1.pcs), len(chord2.pcs)):
+                return False
+            if compare_scales:
+                if chord1.scale_pcs[0] != chord2.scale_pcs[0] or len(
+                    set(chord1.scale_pcs) | set(chord2.scale_pcs)
+                ) > max(len(chord1.scale_pcs), len(chord2.scale_pcs)):
+                    return False
+        else:
+            if chord1.pcs != chord2.pcs:
+                return False
+            if compare_scales:
+                if chord1.scale_pcs != chord2.scale_pcs:
+                    return False
+    else:
+        if allow_subsets:
+            if len(set(chord1.pcs) | set(chord2.pcs)) > max(
+                len(chord1.pcs), len(chord2.pcs)
+            ):
+                return False
+            if compare_scales:
+                if len(set(chord1.scale_pcs) | set(chord2.scale_pcs)) > max(
+                    len(chord1.scale_pcs), len(chord2.scale_pcs)
+                ):
+                    return False
+        else:
+            if set(chord1.pcs) != set(chord2.pcs):
+                return False
+            if compare_scales:
+                if set(chord1.scale_pcs) != set(chord2.scale_pcs):
+                    return False
+    return True
+
+
 def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
     """
     Keys of returned dict are indices into "inverted pcs" (i.e., the pcs in
@@ -297,6 +367,7 @@ def get_harmony_onsets_and_releases(chord_list: t.List[Chord]):
     _clear_accumulator()
 
 
+@cacher()
 def get_chords_from_rntxt(
     rn_data: str, split_chords_at_metric_strong_points: bool = True
 ) -> t.Tuple[t.List[Chord], float, Meter]:

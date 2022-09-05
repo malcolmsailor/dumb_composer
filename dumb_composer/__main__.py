@@ -1,21 +1,11 @@
 import argparse
 import logging
-import os
 import random
 
 from midi_to_notes import df_to_midi
 
 from dumb_composer.dumb_composer import PrefabComposer
-
-
-def configure_logging(log_file_path, log_level, append_to_log):
-    if log_file_path is None:
-        return
-    if not append_to_log:
-        if os.path.exists(log_file_path):
-            os.remove(log_file_path)
-    loglevel = getattr(logging, log_level.upper())
-    logging.basicConfig(filename=log_file_path, level=loglevel)
+from dumb_composer.utils.logs import configure_logging
 
 
 SEED = 42  # TODO eventually remove
