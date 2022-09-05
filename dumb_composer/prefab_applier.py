@@ -44,6 +44,7 @@ class PrefabApplierSettings:
     #   The items in prefab_inertia should be in (0.0, 1.0) and should sum to
     #   at most 1.
     prefab_inertia: t.Optional[t.Tuple[float]] = (0.5, 0.2)
+    forbidden_parallels: t.Sequence[int] = (7, 0)
 
 
 class PrefabApplier:
@@ -162,6 +163,11 @@ class PrefabApplier:
             return score.structural_bass
         return score.structural_melody
 
+    def get_nondecorated_structural_voice(self, score: Score):
+        if self.settings.prefab_voice == "bass":
+            return score.structural_melody
+        return score.structural_bass
+
     def _get_prefab_weights(
         self,
         prefab_options: t.List[t.Union[PrefabPitches, PrefabRhythms]],
@@ -229,7 +235,7 @@ class PrefabApplier:
             score.allow_prefab_start_with_rest[
                 current_i + 1
             ] = rhythm.allow_next_to_start_with_rest
-            generic_pitch_interval = current_scale.get_interval(
+            generic_melody_pitch_interval = current_scale.get_interval(
                 current_mel_pitch, next_mel_pitch, scale2=next_scale
             )
             interval_is_diatonic = current_scale.pitch_is_diatonic(
@@ -243,7 +249,7 @@ class PrefabApplier:
                 len(current_scale),
             )
             pitch_options = self.prefab_pitch_dir(
-                generic_pitch_interval,
+                generic_melody_pitch_interval,
                 rhythm.metric_strength_str,
                 relative_chord_factors,
                 is_suspension=is_suspension,
@@ -275,17 +281,34 @@ class PrefabApplier:
                     next_mel_pitch,
                     track=score.prefab_track,
                 )
-                logging.debug(
-                    f"{self.__class__.__name__} yielding notes "
-                    + " ".join(str(note) for note in out)
-                )
-                yield out
+                if not self._has_forbidden_parallels(current_i, score, out):
+                    logging.debug(
+                        f"{self.__class__.__name__} yielding notes "
+                        + " ".join(str(note) for note in out)
+                    )
+                    yield out
                 if pitches.tie_to_next:
                     score.tied_prefab_indices.remove(current_i)
                 self._prefab_pitch_stacks[segment_dur].pop()
             del score.allow_prefab_start_with_rest[current_i + 1]
             self._prefab_rhythm_stacks[segment_dur].pop()
         raise DeadEnd()
+
+    def _has_forbidden_parallels(
+        self, current_i: int, score: Score, realized_notes: t.List[Note]
+    ):
+        decorated_voice = self.get_decorated_voice(score)
+        this_next_pitch = decorated_voice[current_i + 1]
+        nondecorated_voice = self.get_nondecorated_structural_voice(score)
+        other_next_pitch = nondecorated_voice[current_i + 1]
+        harmonic_interval = abs(this_next_pitch - other_next_pitch) % 12
+        logging.debug(f"harmonic_interval={harmonic_interval}")
+        if harmonic_interval not in self.settings.forbidden_parallels:
+            return False
+        other_current_pitch = nondecorated_voice[current_i]
+        other_mel_interval = other_next_pitch - other_current_pitch
+        this_mel_interval = this_next_pitch - realized_notes[-1].pitch
+        return other_mel_interval == this_mel_interval
 
     def _final_step(self, score: Score):
         # TODO eventually it would be nice to be able to decorate the last note

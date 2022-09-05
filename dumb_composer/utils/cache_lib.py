@@ -98,7 +98,11 @@ def check_cache(cache_dir, f, *args):
             return "CACHE_DOES_NOT_EXIST"
     cache_path = get_cache_path(cache_dir)
     with open(cache_path, "rb") as inf:
-        out = pickle.load(inf)
+        try:
+            out = pickle.load(inf)
+        except Exception as exc:
+            print(f"Error loading cache: {exc}")
+            return "CACHE_DOES_NOT_EXIST"
     return out
 
 

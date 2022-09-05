@@ -163,6 +163,7 @@ class PrefabComposer:
         bass_range: t.Optional[t.Tuple[int, int]] = None,
         mel_range: t.Optional[t.Tuple[int, int]] = None,
         return_ts: bool = False,
+        transpose: int = 0,
     ):
         """Args:
         chord_data: if string, should be in roman-text format.
@@ -171,7 +172,7 @@ class PrefabComposer:
         self._n_recurse_calls = 0
         bass_range, mel_range = self._get_ranges(bass_range, mel_range)
         print("Reading score... ", end="", flush=True)
-        score = Score(chord_data, bass_range, mel_range)
+        score = Score(chord_data, bass_range, mel_range, transpose=transpose)
         print("done.")
         self.structural_partitioner(score)
         self.dumb_accompanist.init_new_piece(score.ts)

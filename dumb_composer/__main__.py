@@ -28,6 +28,7 @@ if __name__ == "__main__":
         help="append to log file (if it exists)",
     )
     parser.add_argument("-s", "--seed", type=int, default=SEED)
+    parser.add_argument("--transpose", type=int, default=0)
     args = parser.parse_args()
     configure_logging(args.log_file, args.log_level, args.append_to_log)
     if args.output_file is None:
@@ -37,7 +38,9 @@ if __name__ == "__main__":
         random.seed(args.seed)
     composer = PrefabComposer()
     print(f"Building score from {args.input_file}")
-    out, ts = composer(args.input_file, return_ts=True)
+    out, ts = composer(
+        args.input_file, return_ts=True, transpose=args.transpose
+    )
     if args.output_file is not None:
         print(f"Writing {args.output_file}")
         df_to_midi(out, args.output_file, ts)

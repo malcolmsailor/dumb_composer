@@ -1,8 +1,10 @@
 from fractions import Fraction
 from types import MappingProxyType
 
-from mspell import Unspeller
+from mspell import Unspeller, Speller
 
+unspeller_pcs = Unspeller(pitches=False)
+speller_pcs = Speller(pitches=False)
 unspeller = Unspeller(pitches=True)
 
 LOW_PITCH = 21

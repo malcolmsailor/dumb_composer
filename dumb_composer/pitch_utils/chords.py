@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 from copy import deepcopy
+import copy
 from dataclasses import dataclass, field
 from functools import cached_property
 from numbers import Number
+import re
 from types import MappingProxyType
 import music21
 import pandas as pd
 
 import typing as t
 
-from dumb_composer.constants import TIME_TYPE
+from dumb_composer.constants import TIME_TYPE, speller_pcs, unspeller_pcs
 from dumb_composer.utils.cache_lib import cacher
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.time import Meter
@@ -74,6 +78,16 @@ class Chord:
         return deepcopy(self)
 
     def get_pitch_tendency(self, pitch: int) -> Tendency:
+        """
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 C: V7
+        ... m2 viio6'''
+        >>> (V7, viio6), _, _ = get_chords_from_rntxt(rntxt)
+        >>> V7.get_pitch_tendency(11)
+        <Tendency.UP: 2>
+        >>> viio6.get_pitch_tendency(5)
+        <Tendency.DOWN: 3>
+        """
         pc_i = self._lookup_pcs[pitch % 12]
         return self.tendencies.get(pc_i, Tendency.NONE)
 
@@ -180,6 +194,34 @@ class Chord:
                     out[(i + 1) % len(self.scale_pcs)] = Inflection.EITHER
         return out
 
+    def transpose(self, interval: int) -> Chord:
+        """
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 C: I
+        ... m2 V6
+        ... m3 G: V65'''
+        >>> (chord1, chord2, chord3), _, _ = get_chords_from_rntxt(rntxt)
+        >>> chord1.transpose(3).token
+        'Eb:I'
+        >>> chord2.transpose(3).token
+        'V6'
+        >>> chord2.transpose(3).pcs
+        (2, 5, 10)
+        >>> chord3.transpose(4).token
+        'B:V65'
+        """
+        out = copy.copy(self)
+        out.pcs = tuple((pc + interval) % 12 for pc in out.pcs)
+        out.scale_pcs = tuple((pc + interval) % 12 for pc in out.scale_pcs)
+        out.foot = (out.foot + interval) % 12
+        if ":" in out.token:
+            # we need to transpose the key symbol
+            m = re.match(r"(?P<key>[^:]+):(?P<numeral>.*)", out.token)
+            key = speller_pcs((unspeller_pcs(m.group("key")) + interval) % 12)
+            out.token = key + ":" + m.group("numeral")
+        out._lookup_pcs = {pc: i for (i, pc) in enumerate(out.pcs)}
+        return out
+
 
 def is_same_harmony(
     chord1: Chord,
@@ -250,6 +292,20 @@ def is_same_harmony(
     return True
 
 
+def get_inversionless_figure(figure: str):
+    """It seems that music21 doesn't provide a method for returning everything
+    *but* the numeric figures from a roman numeral token.
+
+    >>> get_inversionless_figure("V6")
+    'V'
+    >>> get_inversionless_figure("V+6")
+    'V+'
+    >>> get_inversionless_figure("viio6")
+    'viio'
+    """
+    return figure.rstrip("0123456789/")
+
+
 def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
     """
     Keys of returned dict are indices into "inverted pcs" (i.e., the pcs in
@@ -268,12 +324,16 @@ def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
     {3: <Tendency.UP: 2>, 0: <Tendency.DOWN: 3>}
     >>> apply_tendencies(RN("Fr43"))
     {3: <Tendency.UP: 2>, 0: <Tendency.DOWN: 3>}
+    >>> apply_tendencies(RN("viio6"))
+    {2: <Tendency.UP: 2>, 1: <Tendency.DOWN: 3>}
+
     """
     inversion = rn.inversion()
     cardinality = rn.pitchClassCardinality
-    if rn.romanNumeral not in TENDENCIES:
+    figure = get_inversionless_figure(rn.primaryFigure)
+    if figure not in TENDENCIES:
         return {}
-    raw_tendencies = TENDENCIES[rn.romanNumeral]
+    raw_tendencies = TENDENCIES[figure]
     return {
         (i - inversion) % cardinality: raw_tendencies[i]
         for i in range(cardinality)

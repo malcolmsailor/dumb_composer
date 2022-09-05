@@ -254,6 +254,7 @@ class Score:
         bass_track: int = 2,
         accompaniments_track: int = 3,
         ts: t.Optional[t.Union[Meter, str]] = None,
+        transpose: int = 0,
     ):
         if isinstance(chord_data, str):
             chord_data, _, ts = get_chords_from_rntxt(chord_data)
@@ -266,6 +267,10 @@ class Score:
         else:
             self.ts = ts
         self._chords = chord_data
+        if transpose:
+            self._chords = [
+                chord.transpose(transpose) for chord in self._chords
+            ]
         self._scale_getter = ScaleGetter(
             chord.scale_pcs for chord in chord_data
         )
