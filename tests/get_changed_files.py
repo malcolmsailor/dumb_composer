@@ -51,12 +51,6 @@ def get_changed_files(
         f".{mem_id}_file_mem.json",
     )
 
-    TEST_OUT_DIR = os.path.join(
-        os.path.dirname((os.path.realpath(__file__))), "test_out"
-    )
-    if not os.path.exists(TEST_OUT_DIR):
-        os.makedirs(TEST_OUT_DIR)
-
     if not os.path.exists(file_mem_path):
         file_mem = {}
     else:

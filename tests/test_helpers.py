@@ -1,5 +1,6 @@
 import typing as t
 import os
+import inspect
 
 import pandas as pd
 from midi_to_notes import df_to_midi
@@ -9,6 +10,10 @@ TEST_OUT_DIR = os.path.join(
 )
 if not os.path.exists(TEST_OUT_DIR):
     os.makedirs(TEST_OUT_DIR)
+
+
+def get_funcname():
+    return inspect.currentframe().f_back.f_code.co_name
 
 
 def write_df(

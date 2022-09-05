@@ -99,10 +99,12 @@ class PrefabComposer:
         score: Score,
     ):
         if self._n_recurse_calls > self.settings.max_recurse_calls:
-            raise RecursionFailed(
+            logging.info(
                 f"Max recursion calls {self.settings.max_recurse_calls} reached\n"
                 + self.get_missing_prefab_str()
-                + "RECURSION FAILED"
+            )
+            raise RecursionFailed(
+                f"Max recursion calls {self.settings.max_recurse_calls} reached"
             )
         char = next(self._spinner)
         print(char, end="\r", flush=True)
@@ -197,11 +199,16 @@ class PrefabComposer:
                 score,
             )
         except DeadEnd:
-            raise RecursionFailed(
-                "Couldn't satisfy parameters\n" + self.get_missing_prefab_str()
+            logging.info(
+                f"Recursion reached a terminal dead end. Missing prefabs "
+                "encountered along the way:\n" + self.get_missing_prefab_str()
             )
+            raise RecursionFailed("Reached a terminal dead end")
         if self.settings.print_missing_prefabs:
-            print(self.get_missing_prefab_str())
+            logging.info(
+                "Completed score. Missing prefabs encountered along the way:\n"
+                + self.get_missing_prefab_str()
+            )
         if return_ts:
             return (
                 score.get_df(["prefabs", "accompaniments", "annotations"]),

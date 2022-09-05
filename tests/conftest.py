@@ -7,12 +7,7 @@ import pytest
 from tqdm import tqdm
 
 from get_changed_files import get_changed_files
-
-TEST_OUT_DIR = os.path.join(
-    os.path.dirname((os.path.realpath(__file__))), "test_out"
-)
-if not os.path.exists(TEST_OUT_DIR):
-    os.makedirs(TEST_OUT_DIR)
+from tests.test_helpers import TEST_OUT_DIR
 
 
 def _mid_to_png():
