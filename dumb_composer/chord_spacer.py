@@ -394,9 +394,10 @@ class SimpleSpacer:
                     self._prev_pitches,
                     pcs,
                     preserve_root=include_bass,
-                    # TODO bass min/max pitches
                     min_pitch=min_accomp_pitch,
                     max_pitch=max_accomp_pitch,
+                    min_bass_pitch=min_bass_pitch,
+                    max_bass_pitch=max_bass_pitch,
                 )
             except (NoMoreVoiceLeadingsError, CardinalityDiffersTooMuch):
                 pass

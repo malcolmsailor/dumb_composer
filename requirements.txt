@@ -1,6 +1,7 @@
 mido
 music21
 pandas
+scipy
 -e ../voice_leader
 -e ../midi_to_notes
 -e ../spell

@@ -273,6 +273,10 @@ class TwoPartContrapuntist:
                 avoid_intervals.append(interval)
                 continue
             bass_interval = next_bass_pitch - cur_bass_pitch
+            # adjusting the bass_intervals in this way isn't really ideal
+            #   I think it is only necessary because "bass_range" and
+            #   "accomp_bass_range" don't necessarily agree. I should
+            #   enforce agreement between them. TODO
             if abs(bass_interval) > 6:
                 if bass_interval > 0:
                     bass_interval -= 12
@@ -299,7 +303,7 @@ class TwoPartContrapuntist:
         if self.settings.allow_avoid_intervals:
             while avoid_intervals:
                 interval = self._ic(avoid_intervals)
-                logging.warn(f"must use avoid interval {interval}")
+                logging.warning(f"must use avoid interval {interval}")
                 yield cur_mel_pitch + interval
                 avoid_intervals.remove(interval)
         while direct_intervals:

@@ -5,6 +5,7 @@ from mspell import Unspeller, Speller
 
 unspeller_pcs = Unspeller(pitches=False)
 speller_pcs = Speller(pitches=False)
+speller = Speller(pitches=True)
 unspeller = Unspeller(pitches=True)
 
 LOW_PITCH = 21

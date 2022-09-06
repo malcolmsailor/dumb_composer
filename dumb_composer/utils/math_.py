@@ -10,6 +10,11 @@ def softmax(x, temperature=1.0):
     return exp / exp.sum()
 
 
+def softmax_from_slope(n: int, slope: float) -> np.array:
+    x = np.arange(n + 1)
+    return softmax(x * slope)
+
+
 def quadratic_arc(
     min_x: float, max_x: float, min_y: float = 0.0, max_y: float = 1.0
 ) -> t.Callable[[float], float]:

@@ -97,7 +97,7 @@ class PatternMaker:
             out.append(pattern_name)
         return out
 
-    @pattern_method(requires_bass=True)
+    @pattern_method(requires_bass=True, min_dur=2)
     def oompah(
         self,
         pitches: t.Sequence[int],
@@ -153,7 +153,7 @@ class PatternMaker:
                 )
         return out
 
-    @pattern_method(requires_bass=True)
+    @pattern_method(requires_bass=True, min_dur=3, min_dur_fallback="oompah")
     def oompahpah(
         self,
         pitches: t.Sequence[int],
