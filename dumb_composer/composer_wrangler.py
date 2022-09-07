@@ -86,10 +86,10 @@ class ComposerWrangler:
         return out, ts
 
     @staticmethod
-    def _default_path_formatter(path, i, transpose):
+    def _default_path_formatter(path, i, transpose, prefab_voice):
         return (
             os.path.splitext(os.path.basename(path))[0]
-            + f"_transpose={transpose}_{i+1:03d}"
+            + f"_{prefab_voice}_transpose={transpose}_{i+1:03d}"
         )
 
     @staticmethod
@@ -106,6 +106,7 @@ class ComposerWrangler:
         paths: t.Sequence[str],
         shuffle: bool = True,
         random_transpose: bool = True,
+        prefab_voice: t.Optional[str] = None,
         path_formatter: t.Optional[t.Callable[[str, int, int], str]] = None,
         _pytestconfig=None,
         _log_wo_pytest=False,
@@ -134,8 +135,12 @@ class ComposerWrangler:
                 transpose = random.choice(range(12))
             else:
                 transpose = 0
+            if prefab_voice is None:
+                prefab_voice = random.choices(
+                    self._prefab_voices, cum_weights=self._prefab_weights, k=1
+                )[0]
             output_path_wo_ext = os.path.join(
-                output_dir, path_formatter(path, i, transpose)
+                output_dir, path_formatter(path, i, transpose, prefab_voice)
             )
             mid_path = f"{output_path_wo_ext}.mid"
             log_path = f"{output_path_wo_ext}.log"

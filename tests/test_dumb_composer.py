@@ -151,3 +151,31 @@ def test_problem_files():
             composer(f)
         except MeterError:
             pass
+        except RecursionError:
+            print("Recursion error")
+            pass
+
+
+"""
+TODO Several of the "problem files" from the Mozart/Beethoven variations have
+Recursion errors. Is this because the files are simply too long? Worth 
+investigating. Perhaps I can restart the recursive stack every certain number
+of chords so that it doesn't get arbitrarily deep. (If it's made it 100 chords,
+it's unlikely to have to go back to the first chord in any case.)
+"""
+"""
+48/53: /Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Variations_and_Grounds_Beethoven,_Ludwig_van_WoO_65_A.txt
+Reading score... done.
+Recursion error
+49/53: /Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Variations_and_Grounds_Beethoven,_Ludwig_van_WoO_66_A.txt
+Reading score... done.
+Recursion error
+50/53: /Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Variations_and_Grounds_Beethoven,_Ludwig_van_WoO_71_B.txt
+Reading score... done.
+Recursion error
+51/53: /Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Variations_and_Grounds_Beethoven,_Ludwig_van_WoO_75_B.txt
+Reading score... done.
+Recursion error
+52/53: /Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Variations_and_Grounds_Mozart,_Wolfgang_Amadeus_K613_B.txt
+Reading score... done.
+Recursion error"""

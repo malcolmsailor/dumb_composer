@@ -93,7 +93,10 @@ def check_cache(cache_dir, f, *args):
     ]
     if paths:
         paths_mtime = max(os.path.getmtime(p) for p in paths)
-        cache_mtime = os.path.getmtime(cache_dir)
+        cache_mtime = min(
+            os.path.getmtime(os.path.join(cache_dir, p))
+            for p in os.listdir(cache_dir)
+        )
         if cache_mtime <= paths_mtime:
             return "CACHE_DOES_NOT_EXIST"
     cache_path = get_cache_path(cache_dir)

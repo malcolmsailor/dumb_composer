@@ -20,11 +20,11 @@ def test_composer_wrangler(pytestconfig):
     )
     random.seed(42)
     path_formatter = (
-        lambda path, i, transpose: os.path.dirname(path)
+        lambda path, i, transpose, prefab_voice: os.path.dirname(path)
         .replace(WHEN_IN_ROME_DIR, "")
         .lstrip(os.path.sep)
         .replace(os.path.sep, "_")
-        + f"_transpose={transpose}_{i+1:09d}"
+        + f"_{prefab_voice}_transpose={transpose}_{i+1:09d}"
     )
     cw.call_n_times(
         20,
