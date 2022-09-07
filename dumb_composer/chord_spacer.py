@@ -17,6 +17,8 @@ from dumb_composer.constants import (
     LOW_PITCH,
     OPEN_REGISTERS,
     TET,
+    DEFAULT_BASS_RANGE,
+    DEFAULT_ACCOMP_RANGE,
 )
 from dumb_composer.shared_classes import Allow
 from dumb_composer.utils.attr_compiler import attr_compiler
@@ -350,8 +352,17 @@ def spacing_method(f):
 
 @dataclass
 class SimpleSpacerSettings:
-    accomp_bass_range: t.Tuple[int, int] = (33, 53)
-    accomp_range: t.Tuple[int, int] = (49, 76)
+    bass_range: t.Tuple[int, int] = (33, 53)
+    accomp_range: t.Tuple[int, int] = None
+
+    def __post_init__(self):
+        logging.debug(f"running SimpleSpacerSettings __post_init__()")
+        if self.bass_range is None:
+            self.bass_range = DEFAULT_BASS_RANGE
+        if self.accomp_range is None:
+            self.accomp_range = DEFAULT_ACCOMP_RANGE
+        if hasattr(super(), "__post_init__"):
+            super().__post_init__()
 
 
 class SimpleSpacer:
@@ -488,12 +499,12 @@ class SimpleSpacer:
         )
         if include_bass:
             min_bass_pitch = (
-                self.settings.accomp_bass_range[0]
+                self.settings.bass_range[0]
                 if min_bass_pitch is None
                 else min_bass_pitch
             )
             max_bass_pitch = (
-                self.settings.accomp_bass_range[1]
+                self.settings.bass_range[1]
                 if max_bass_pitch is None
                 else max_bass_pitch
             )

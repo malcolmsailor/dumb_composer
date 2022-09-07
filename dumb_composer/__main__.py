@@ -4,7 +4,7 @@ import random
 
 from midi_to_notes import df_to_midi
 
-from dumb_composer.dumb_composer import PrefabComposer
+from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.utils.logs import configure_logging
 
 
@@ -29,6 +29,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("-s", "--seed", type=int, default=SEED)
     parser.add_argument("--transpose", type=int, default=0)
+    parser.add_argument(
+        "--voice",
+        type=str,
+        choices=("soprano", "tenor", "bass"),
+        default="soprano",
+    )
     args = parser.parse_args()
     configure_logging(args.log_file, args.log_level, args.append_to_log)
     if args.output_file is None:
@@ -36,7 +42,8 @@ if __name__ == "__main__":
     if args.seed is not None:
         logging.debug(f"Setting seed {args.seed}")
         random.seed(args.seed)
-    composer = PrefabComposer()
+    settings = PrefabComposerSettings(prefab_voice=args.voice)
+    composer = PrefabComposer(settings)
     print(f"Building score from {args.input_file}")
     out, ts = composer(
         args.input_file, return_ts=True, transpose=args.transpose

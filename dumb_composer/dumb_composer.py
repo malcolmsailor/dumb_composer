@@ -1,10 +1,13 @@
 from collections import Counter
 import logging
+import textwrap
 import typing as t
 from dataclasses import dataclass
 import itertools as it
 
 import pandas as pd
+
+from dumb_composer.pitch_utils.ranges import Ranger
 
 from .chord_spacer import NoSpacings
 
@@ -32,6 +35,11 @@ from dumb_composer.two_part_contrapuntist import (
     TwoPartContrapuntistSettings,
 )
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
+from dumb_composer.constants import (
+    DEFAULT_BASS_RANGE,
+    DEFAULT_TENOR_ACCOMP_RANGE,
+    DEFAULT_TENOR_MEL_RANGE,
+)
 
 
 @dataclass
@@ -41,20 +49,34 @@ class PrefabComposerSettings(
     PrefabApplierSettings,
     StructuralPartitionerSettings,
 ):
-    max_recurse_calls: int = 1000
+    max_recurse_calls: t.Optional[int] = None
     print_missing_prefabs: bool = True
 
     def __post_init__(self):
         # We need to reconcile DumbAccompanistSettings'
         # settings with PrefabApplierSettings 'prefab_voice' setting.
+        if (
+            self.mel_range is None
+            and self.accomp_range is None
+            and self.bass_range is None
+        ):
+            ranges = Ranger()(melody_part=self.prefab_voice)
+            self.mel_range = ranges["mel_range"]
+            self.bass_range = ranges["bass_range"]
+            self.accomp_range = ranges["accomp_range"]
+        logging.debug(f"running PrefabComposerSettings __post_init__()")
         if self.prefab_voice == "bass":
             self.accompaniment_below = None
             self.accompaniment_above = ["prefabs"]
             self.include_bass = False
+            if self.mel_range is None:
+                self.mel_range = DEFAULT_BASS_RANGE
         elif self.prefab_voice == "tenor":
             # TODO set ranges in a better/more dynamic way
-            self.mel_range = (48, 67)
-            self.accomp_range = (60, 84)
+            if self.mel_range is None:
+                self.mel_range = DEFAULT_TENOR_MEL_RANGE
+            if self.accomp_range is None:
+                self.accomp_range = DEFAULT_TENOR_ACCOMP_RANGE
             self.accompaniment_below = None
             self.accompaniment_above = ["prefabs"]
             self.include_bass = True
@@ -75,6 +97,11 @@ class PrefabComposer:
         self.prefab_applier = PrefabApplier(settings)
         self.dumb_accompanist = DumbAccompanist(settings)
         self.settings = settings
+        logging.debug(
+            textwrap.fill(
+                f"settings: {self.settings}", subsequent_indent=" " * 4
+            )
+        )
         self._scales = ScaleDict()
         self._bass_range = settings.bass_range
         self._mel_range = settings.mel_range
@@ -83,13 +110,10 @@ class PrefabComposer:
         self._spinner = it.cycle([char for char in r"/|\\-"])
 
     def _get_ranges(self, bass_range, mel_range):
+        # TODO I think I can remove this function
         if bass_range is None:
-            if self._bass_range is None:
-                raise ValueError
             bass_range = self._bass_range
         if mel_range is None:
-            if self._mel_range is None:
-                raise ValueError
             mel_range = self._mel_range
         return bass_range, mel_range
 
@@ -98,7 +122,10 @@ class PrefabComposer:
         i: int,
         score: Score,
     ):
-        if self._n_recurse_calls > self.settings.max_recurse_calls:
+        if (
+            self.settings.max_recurse_calls is not None
+            and self._n_recurse_calls > self.settings.max_recurse_calls
+        ):
             logging.info(
                 f"Max recursion calls {self.settings.max_recurse_calls} reached\n"
                 + self.get_missing_prefab_str()

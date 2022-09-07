@@ -5,6 +5,7 @@ import copy
 from dataclasses import dataclass, field
 from functools import cached_property
 from numbers import Number
+import os
 import re
 from types import MappingProxyType
 import music21
@@ -45,6 +46,9 @@ TENDENCIES = MappingProxyType(
         "Ger": {0: Tendency.UP, 1: Tendency.DOWN},
         "Fr": {1: Tendency.UP, 2: Tendency.DOWN},
         "iv": {1: Tendency.DOWN},
+        # To get the correct tendencies for the cadential 64 chord we need
+        #   to index into it as I
+        "Cad": {0: Tendency.DOWN, 1: Tendency.DOWN},
     }
 )
 
@@ -81,11 +85,14 @@ class Chord:
         """
         >>> rntxt = '''Time Signature: 4/4
         ... m1 C: V7
-        ... m2 viio6'''
-        >>> (V7, viio6), _, _ = get_chords_from_rntxt(rntxt)
+        ... m2 viio6
+        ... m3 Cad64'''
+        >>> (V7, viio6, Cad64), _, _ = get_chords_from_rntxt(rntxt)
         >>> V7.get_pitch_tendency(11)
         <Tendency.UP: 2>
         >>> viio6.get_pitch_tendency(5)
+        <Tendency.DOWN: 3>
+        >>> Cad64.get_pitch_tendency(0)
         <Tendency.DOWN: 3>
         """
         pc_i = self._lookup_pcs[pitch % 12]
@@ -292,18 +299,24 @@ def is_same_harmony(
     return True
 
 
-def get_inversionless_figure(figure: str):
+def get_inversionless_figure(rn: music21.roman.RomanNumeral):
     """It seems that music21 doesn't provide a method for returning everything
     *but* the numeric figures from a roman numeral token.
 
-    >>> get_inversionless_figure("V6")
+    >>> RN = music21.roman.RomanNumeral
+    >>> get_inversionless_figure(RN("V6"))
     'V'
-    >>> get_inversionless_figure("V+6")
+    >>> get_inversionless_figure(RN("V+6"))
     'V+'
-    >>> get_inversionless_figure("viio6")
+    >>> get_inversionless_figure(RN("viio6"))
     'viio'
+    >>> get_inversionless_figure(RN("Cad64"))
+    'Cad'
     """
-    return figure.rstrip("0123456789/")
+    if rn.figure.startswith("Cad"):
+        # Cadential 6/4 chord is a special case
+        return "Cad"
+    return rn.primaryFigure.rstrip("0123456789/")
 
 
 def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
@@ -326,11 +339,12 @@ def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[int, Tendency]:
     {3: <Tendency.UP: 2>, 0: <Tendency.DOWN: 3>}
     >>> apply_tendencies(RN("viio6"))
     {2: <Tendency.UP: 2>, 1: <Tendency.DOWN: 3>}
-
+    >>> apply_tendencies(RN("Cad64"))
+    {1: <Tendency.DOWN: 3>, 2: <Tendency.DOWN: 3>}
     """
     inversion = rn.inversion()
     cardinality = rn.pitchClassCardinality
-    figure = get_inversionless_figure(rn.primaryFigure)
+    figure = get_inversionless_figure(rn)
     if figure not in TENDENCIES:
         return {}
     raw_tendencies = TENDENCIES[figure]
@@ -353,17 +367,40 @@ def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[int]:
     If the roman numeral has a secondary key, we use that as the scale.
     TODO I'm not sure this is always desirable.
 
-    >>> RN = music21.roman.RomanNumeral
     >>> fit_scale_to_rn(RN("V/V", keyOrScale="C"))
     (7, 9, 11, 0, 2, 4, 6)
     >>> fit_scale_to_rn(RN("viio7/V", keyOrScale="C"))
     (7, 9, 11, 0, 2, 3, 6)
     >>> fit_scale_to_rn(RN("viio7/bIII", keyOrScale="C")) # Note C-flat
     (3, 5, 7, 8, 10, 11, 2)
+
+    Sometimes flats are indicated for chord factors that are already flatted
+    in the relevant scale. We handle those with a bit of a hack:
+    >>> fit_scale_to_rn(RN("Vb9", keyOrScale="c"))
+    (0, 2, 3, 5, 7, 8, 11)
+    >>> fit_scale_to_rn(RN("Vb9/vi", keyOrScale="C"))
+    (9, 11, 0, 2, 4, 5, 8)
+
+    There can be a similar issue with raised degrees. If the would-be raised
+    degree is already in the scale, we leave it unaltered:
+    >>> fit_scale_to_rn(RN("V+", keyOrScale="c"))
+    (0, 2, 3, 5, 7, 8, 11)
     """
 
     def _add_inflection(degree: int, inflection: int):
-        scale_pcs[degree] = (scale_pcs[degree] + inflection) % 12
+        inflected_pitch = (scale_pcs[degree] + inflection) % 12
+        if (
+            inflection < 0
+            and inflected_pitch == scale_pcs[(degree - 1) % len(scale_pcs)]
+        ):
+            # hack to handle "b9" etc. when already in scale
+            return
+        if (
+            inflection > 0
+            and inflected_pitch == scale_pcs[(degree + 1) % len(scale_pcs)]
+        ):
+            return
+        scale_pcs[degree] = inflected_pitch
 
     if rn.secondaryRomanNumeralKey is None:
         key = rn.key
@@ -427,9 +464,26 @@ def get_harmony_onsets_and_releases(chord_list: t.List[Chord]):
     _clear_accumulator()
 
 
+def strip_added_tones(rn_data: str) -> str:
+    """
+    >>> rntxt = '''m1 f: i b2 V7[no3][add4] b2.25 V7[no5][no3][add6][add4]
+    ... m2 Cad64 b1.75 V b2 i[no3][add#7][add4] b2.5 i[add9] b2.75 i'''
+    >>> print(strip_added_tones(rntxt))
+    m1 f: i b2 V7 b2.25 V7
+    m2 Cad64 b1.75 V b2 i b2.5 i b2.75 i
+    """
+
+    if os.path.exists(rn_data):
+        with open(rn_data) as inf:
+            rn_data = inf.read()
+    return re.sub(r"\[(no|add)[^\]]+\]", "", rn_data)
+
+
 @cacher()
 def get_chords_from_rntxt(
-    rn_data: str, split_chords_at_metric_strong_points: bool = True
+    rn_data: str,
+    split_chords_at_metric_strong_points: bool = True,
+    no_added_tones: bool = True,
 ) -> t.Tuple[t.List[Chord], float, Meter]:
     """Converts roman numerals to pcs.
 
@@ -441,6 +495,8 @@ def get_chords_from_rntxt(
             - float indicating length of pickup (0 if no pickup)
             - Meter
     """
+    if no_added_tones:
+        rn_data = strip_added_tones(rn_data)
     score = music21.converter.parse(rn_data, format="romanText").flatten()
     ts = f"{score.timeSignature.numerator}/{score.timeSignature.denominator}"
     ts = Meter(ts)

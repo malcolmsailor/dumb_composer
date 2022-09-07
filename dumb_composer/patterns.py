@@ -613,7 +613,8 @@ class PatternMaker:
 
     @pattern_method(
         allow_compound=Allow.NO,
-        min_dur=Fraction(1, 1),
+        min_dur=Fraction(2, 1),
+        min_dur_fallback="semibeat_tremolo",
         min_pitch_count=3,
         min_pitch_count_fallback="semibeat_tremolo",
     )

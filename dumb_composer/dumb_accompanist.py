@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum, auto
+import logging
 import pandas as pd
 
 import typing as t
@@ -54,6 +55,7 @@ class DumbAccompanistSettings(SimpleSpacerSettings):
     def __post_init__(self):
         if hasattr(super(), "__post_init__"):
             super().__post_init__()
+        logging.debug(f"running DumbAccompanistSettings __post_init__()")
         if isinstance(self.accompaniment_below, str):
             self.accompaniment_below = [self.accompaniment_below]
 

@@ -73,6 +73,7 @@ class TimeClass:
             "6/8": (2, 1.5),
             "9/8": (3, 1.5),
             "12/8": (4, 1.5),
+            "12/16": (4, 0.75),
             "6/4": (2, 3),
             "9/4": (3, 3),
             "12/4": (4, 3),
@@ -198,7 +199,10 @@ class Meter(TimeClass):
         >>> assert meter1.min_weight == meter2.min_weight
         """
         self._ts_str = ts_str
-        n_beats, beat_dur = self._ts_dict[ts_str]
+        try:
+            n_beats, beat_dur = self._ts_dict[ts_str]
+        except KeyError:
+            raise MeterError(f"unsupported meter {ts_str}")
         self._n_beats = int(n_beats)
         self._beat_dur = TIME_TYPE(beat_dur)
         self._total_dur = self._n_beats * self._beat_dur

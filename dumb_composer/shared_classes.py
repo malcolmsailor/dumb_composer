@@ -3,6 +3,7 @@ from functools import cached_property
 import logging
 from numbers import Number
 import re
+import textwrap
 import pandas as pd
 import typing as t
 
@@ -257,6 +258,7 @@ class Score:
         transpose: int = 0,
     ):
         if isinstance(chord_data, str):
+            logging.debug(f"reading chords from {chord_data}")
             chord_data, _, ts = get_chords_from_rntxt(chord_data)
         elif ts is None:
             raise ValueError(
@@ -300,7 +302,10 @@ class Score:
             )
         )
         logging.debug(
-            f"Initializing {self.__class__.__name__}.structural_bass: {out}"
+            textwrap.fill(
+                f"Initializing {self.__class__.__name__}.structural_bass: {out}",
+                subsequent_indent=" " * 4,
+            )
         )
         return out
 

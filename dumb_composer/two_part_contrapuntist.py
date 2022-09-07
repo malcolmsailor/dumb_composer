@@ -30,16 +30,18 @@ from .utils.math_ import softmax, weighted_sample_wo_replacement
 from .shared_classes import Annotation, Score
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
 from dumb_composer.from_ml_out import get_chord_df
+from dumb_composer.constants import DEFAULT_BASS_RANGE, DEFAULT_MEL_RANGE
 
 # TODO bass suspensions
 
-# TODO don't permit suspension resolutions to tendency tones
+# TODO don't permit suspension resolutions to tendency tones (I think I may have
+# done this, double check)
 
 
 @dataclass
 class TwoPartContrapuntistSettings(IntervalChooserSettings):
-    bass_range: t.Tuple[int, int] = (30, 50)
-    mel_range: t.Tuple[int, int] = (60, 78)
+    bass_range: t.Optional[t.Tuple[int, int]] = None
+    mel_range: t.Optional[t.Tuple[int, int]] = None
     forbidden_parallels: t.Sequence[int] = (7, 0)
     forbidden_antiparallels: t.Sequence[int] = (0,)
     unpreferred_direct_intervals: t.Sequence[int] = (7, 0)
@@ -56,6 +58,15 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     no_suspension_score: float = 1.0
     allow_avoid_intervals: bool = False
     allow_steps_outside_of_range: bool = True
+
+    def __post_init__(self):
+        logging.debug(f"running TwoPartContrapuntistSettings __post_init__()")
+        if self.bass_range is None:
+            self.bass_range = DEFAULT_BASS_RANGE
+        if self.mel_range is None:
+            self.mel_range = DEFAULT_MEL_RANGE
+        if hasattr(super(), "__post_init__"):
+            super().__post_init__()
 
 
 class TwoPartContrapuntist:
