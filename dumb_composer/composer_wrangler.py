@@ -106,7 +106,6 @@ class ComposerWrangler:
         paths: t.Sequence[str],
         shuffle: bool = True,
         random_transpose: bool = True,
-        prefab_voice: t.Optional[str] = None,
         path_formatter: t.Optional[t.Callable[[str, int, int], str]] = None,
         _pytestconfig=None,
         _log_wo_pytest=False,
@@ -129,16 +128,16 @@ class ComposerWrangler:
             logging.basicConfig(filename="log_file_path", level="DEBUG")
         errors = []
         skipped = []
+
         for i, path in enumerate(paths_todo):
             print(f"{i + 1}/{len(paths_todo)}: {path}")
             if random_transpose:
                 transpose = random.choice(range(12))
             else:
                 transpose = 0
-            if prefab_voice is None:
-                prefab_voice = random.choices(
-                    self._prefab_voices, cum_weights=self._prefab_weights, k=1
-                )[0]
+            prefab_voice = random.choices(
+                self._prefab_voices, cum_weights=self._prefab_weights, k=1
+            )[0]
             output_path_wo_ext = os.path.join(
                 output_dir, path_formatter(path, i, transpose, prefab_voice)
             )
@@ -152,7 +151,7 @@ class ComposerWrangler:
             elif _log_wo_pytest:
                 self._change_logger(log_path)
             try:
-                out, ts = self(path)
+                out, ts = self(path, prefab_voice=prefab_voice)
             except KeyboardInterrupt:
                 raise
             except MeterError as exc:
