@@ -17,6 +17,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--log", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("-M", "--no-midi", action="store_true")
+    parser.add_argument("-c", "--csv", action="store_true")
     args = parser.parse_args()
     random.seed(args.seed)
     paths = [

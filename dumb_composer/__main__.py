@@ -38,11 +38,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     configure_logging(args.log_file, args.log_level, args.append_to_log)
     if args.output_file is None:
-        logging.warning("No output file provided, skipping output")
+        pass
+        # logging.warning("No output file provided, skipping output")
     if args.seed is not None:
-        logging.debug(f"Setting seed {args.seed}")
+        print(f"Setting seed {args.seed}")
+        # logging.debug(f"Setting seed {args.seed}")
         random.seed(args.seed)
     settings = PrefabComposerSettings(prefab_voice=args.voice)
+
     composer = PrefabComposer(settings)
     print(f"Building score from {args.input_file}")
     out, ts = composer(

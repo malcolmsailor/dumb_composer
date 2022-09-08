@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from functools import cached_property
 import logging
+import math
 from numbers import Number
 import re
 import textwrap
@@ -144,7 +145,7 @@ def apply_ties(
                 f"Tied notes have different pitches {note1.pitch} "
                 f"and {note2.pitch}"
             )
-        if note1.release != note2.onset:
+        if not math.isclose(note1.release, note2.onset):
             raise ValueError(
                 f"Release of note at {note1.release} != "
                 f"onset of note at {note2.onset}"
@@ -259,7 +260,7 @@ class Score:
     ):
         if isinstance(chord_data, str):
             logging.debug(f"reading chords from {chord_data}")
-            chord_data, _, ts = get_chords_from_rntxt(chord_data)
+            chord_data, ts = get_chords_from_rntxt(chord_data)
         elif ts is None:
             raise ValueError(
                 f"`ts` must be supplied if `chord_data` is not a string"

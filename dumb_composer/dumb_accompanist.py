@@ -210,7 +210,7 @@ class DumbAccompanist:
             raise ValueError("either chord_data or score must not be None")
         if score is None:
             if isinstance(chord_data, str):
-                chord_data, _, ts = get_chords_from_rntxt(chord_data)
+                chord_data, ts = get_chords_from_rntxt(chord_data)
             score = Score(chord_data, ts=ts)
 
         self.init_new_piece(ts)

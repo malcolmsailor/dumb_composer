@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from numbers import Number
 import random
 import logging
+import sys
 
 import typing as t
 
@@ -293,8 +294,6 @@ class TwoPartContrapuntist:
                     bass_interval -= 12
                 else:
                     bass_interval += 12
-            # if interval == -3 and candidate_pitch == 72:
-            #     breakpoint()
             if (
                 abs(interval) > 2
                 and (

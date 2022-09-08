@@ -158,7 +158,7 @@ class Melodist:
                 If Pandas DataFrame, must have "onset" and "release" columns.
         """
         if isinstance(chord_data, str):
-            chord_data, _, ts_unused = get_chords_from_rntxt(chord_data)
+            chord_data, _ = get_chords_from_rntxt(chord_data)
         if not isinstance(rhythm, pd.DataFrame):
             rhythm = pd.DataFrame(rhythm, columns=["onset", "release"])
         # we use numeric indexing above so we need to make sure the indexes

@@ -5,6 +5,10 @@ import itertools as it
 import numpy as np
 
 
+def set_seeds(seed: int):
+    random.seed(seed)
+
+
 def softmax(x, temperature=1.0):
     exp = np.exp(temperature * np.array(x))
     return exp / exp.sum()

@@ -107,9 +107,17 @@ class ComposerWrangler:
         shuffle: bool = True,
         random_transpose: bool = True,
         path_formatter: t.Optional[t.Callable[[str, int, int], str]] = None,
+        write_midi: bool = True,
+        write_csv: bool = False,
+        write_romantext: bool = False,
         _pytestconfig=None,
         _log_wo_pytest=False,
     ):
+        if not any((write_midi, write_csv, write_romantext)):
+            raise ValueError(
+                "all of `write_midi`, `write_csv`, and `write_romantext` are "
+                "False; there is nothing to do"
+            )
         paths_todo = []
         if path_formatter is None:
             path_formatter = self._default_path_formatter
@@ -141,8 +149,9 @@ class ComposerWrangler:
             output_path_wo_ext = os.path.join(
                 output_dir, path_formatter(path, i, transpose, prefab_voice)
             )
-            mid_path = f"{output_path_wo_ext}.mid"
+
             log_path = f"{output_path_wo_ext}.log"
+
             if _pytestconfig is not None:
                 logging_plugin = _pytestconfig.pluginmanager.get_plugin(
                     "logging-plugin"
@@ -160,7 +169,16 @@ class ComposerWrangler:
             except:
                 print(f"ERROR: {path}")
                 errors.append(path)
-            df_to_midi(out, mid_path, ts)
+            if write_midi:
+                mid_path = f"{output_path_wo_ext}.mid"
+                df_to_midi(out, mid_path, ts)
+            if write_csv:
+                csv_path = f"{output_path_wo_ext}.csv"
+                out.to_csv(csv_path)
+            if write_romantext:
+                rntxt_path = f"{output_path_wo_ext}.rntxt"
+                TODO
+
         if skipped:
             print(f"{len(skipped)} files skipped:")
             for path in skipped:

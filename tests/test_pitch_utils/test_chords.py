@@ -25,7 +25,7 @@ def test_get_chords_from_rntxt_fit_scale():
         TC("m1 C: bII7", (1, 5, 8, 0), (0, 1, 4, 5, 7, 8, 11)),
     ]
     for test_case in test_cases:
-        out_list, _, _ = chords.get_chords_from_rntxt(test_case.rntxt)
+        out_list, _ = chords.get_chords_from_rntxt(test_case.rntxt)
         chord = out_list[0]
         assert test_case.expected_pcs == chord.pcs
         assert test_case.expected_scale_pcs == chord.scale_pcs
@@ -45,7 +45,7 @@ def test_get_chords_from_rntxt_split_chords():
     ]
 
     for test_case in test_cases:
-        out_list, _, _ = chords.get_chords_from_rntxt(
+        out_list, _ = chords.get_chords_from_rntxt(
             test_case.rntxt, split_chords_at_metric_strong_points=True
         )
         for chord in out_list:

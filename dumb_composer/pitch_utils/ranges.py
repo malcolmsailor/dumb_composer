@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from functools import cached_property
 import logging
 import random
+import sys
 import typing as t
 
+import numpy as np
 from scipy.stats import truncnorm
 
 from dumb_composer.constants import unspeller
@@ -48,7 +50,9 @@ class Ranger:
 
     @cached_property
     def _truncnorm(self):
-        return truncnorm(-1, 1)
+        out = truncnorm(-1, 1)
+        out.random_state = np.random.default_rng(random.randrange(10000))
+        return out
 
     def within(self, top, bottom, dist="normal"):
         if dist != "normal":

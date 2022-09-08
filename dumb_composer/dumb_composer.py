@@ -1,5 +1,6 @@
 from collections import Counter
 import logging
+import random
 import textwrap
 import typing as t
 from dataclasses import dataclass
@@ -27,7 +28,6 @@ from dumb_composer.pitch_utils.chords import Chord
 
 from .utils.recursion import DeadEnd, RecursionFailed, append_attempt
 
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
 from dumb_composer.two_part_contrapuntist import (

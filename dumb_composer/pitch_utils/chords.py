@@ -16,6 +16,7 @@ import typing as t
 from dumb_composer.constants import TIME_TYPE, speller_pcs, unspeller_pcs
 from dumb_composer.utils.cache_lib import cacher
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
+from dumb_composer.pitch_utils.music21_handler import parse_rntxt
 from dumb_composer.time import Meter
 from enum import Enum, auto
 
@@ -87,7 +88,7 @@ class Chord:
         ... m1 C: V7
         ... m2 viio6
         ... m3 Cad64'''
-        >>> (V7, viio6, Cad64), _, _ = get_chords_from_rntxt(rntxt)
+        >>> (V7, viio6, Cad64), _ = get_chords_from_rntxt(rntxt)
         >>> V7.get_pitch_tendency(11)
         <Tendency.UP: 2>
         >>> viio6.get_pitch_tendency(5)
@@ -108,7 +109,7 @@ class Chord:
         >>> rntxt = '''Time Signature: 4/4
         ... m1 C: V7
         ... m2 I'''
-        >>> (dom7, tonic), _, _ = get_chords_from_rntxt(rntxt)
+        >>> (dom7, tonic), _ = get_chords_from_rntxt(rntxt)
         >>> dom7.pc_must_be_omitted(11, [62, 71]) # B already present in chord
         True
         >>> dom7.pc_must_be_omitted(5, [62, 71]) # F not present in chord
@@ -167,7 +168,7 @@ class Chord:
         ... m2 viio7
         ... m3 i
         ... m4 iv'''
-        >>> (dom7, viio7, i, iv), _, _ = get_chords_from_rntxt(rntxt)
+        >>> (dom7, viio7, i, iv), _ = get_chords_from_rntxt(rntxt)
         >>> dom7.augmented_second_adjustments # ^6 should be raised
         {5: <Inflection.UP: 3>, 6: <Inflection.NONE: 2>}
         >>> viio7.augmented_second_adjustments # both ^6 and ^7 are chord tones
@@ -207,7 +208,7 @@ class Chord:
         ... m1 C: I
         ... m2 V6
         ... m3 G: V65'''
-        >>> (chord1, chord2, chord3), _, _ = get_chords_from_rntxt(rntxt)
+        >>> (chord1, chord2, chord3), _ = get_chords_from_rntxt(rntxt)
         >>> chord1.transpose(3).token
         'Eb:I'
         >>> chord2.transpose(3).token
@@ -243,7 +244,7 @@ def is_same_harmony(
     ... m2 I b3 I6
     ... m3 V7/IV
     ... m4 F: V'''
-    >>> chords, _, _ = get_chords_from_rntxt(rntxt)
+    >>> chords, _ = get_chords_from_rntxt(rntxt)
     >>> is_same_harmony(chords[0], chords[1])
     True
     >>> is_same_harmony(chords[1], chords[2])
@@ -484,28 +485,26 @@ def get_chords_from_rntxt(
     rn_data: str,
     split_chords_at_metric_strong_points: bool = True,
     no_added_tones: bool = True,
-) -> t.Tuple[t.List[Chord], float, Meter]:
+    return_music21_score: bool = False,
+) -> t.Union[
+    t.Tuple[t.List[Chord], Meter, music21.stream.Score],
+    t.Tuple[t.List[Chord], Meter],
+]:
     """Converts roman numerals to pcs.
 
     Args:
         rn_data: either path to a romantext file or the contents thereof.
-    Returns:
-        Tuple of:
-            - list of Chord
-            - float indicating length of pickup (0 if no pickup)
-            - Meter
     """
     if no_added_tones:
         rn_data = strip_added_tones(rn_data)
-    score = music21.converter.parse(rn_data, format="romanText").flatten()
-    ts = f"{score.timeSignature.numerator}/{score.timeSignature.denominator}"
+    score = parse_rntxt(rn_data)
+    m21_ts = score[music21.meter.TimeSignature].first()
+    ts = f"{m21_ts.numerator}/{m21_ts.denominator}"
     ts = Meter(ts)
     prev_scale = duration = start = pickup_offset = key = None
     prev_chord = None
     out_list = []
-    # print("looping over roman numerals... ", end="", flush=True)
-    # This loop is very slow... profiling suggests it is due to music21
-    for rn in score[music21.roman.RomanNumeral]:
+    for rn in score.flatten()[music21.roman.RomanNumeral]:
         if pickup_offset is None:
             pickup_offset = TIME_TYPE(
                 ((rn.beat) - 1) * rn.beatDuration.quarterLength
@@ -539,12 +538,11 @@ def get_chords_from_rntxt(
             )
             prev_scale = scale
         else:
-            prev_chord.release += rn.duration.quarterLength
+            prev_chord.release += TIME_TYPE(rn.duration.quarterLength)
 
     out_list.append(prev_chord)
 
     if split_chords_at_metric_strong_points:
-        # print("splitting chords... ", end="", flush=True)
         chord_list = ts.split_at_metric_strong_points(
             out_list, min_split_dur=ts.beat_dur
         )
@@ -553,9 +551,10 @@ def get_chords_from_rntxt(
             out_list.extend(
                 ts.split_odd_duration(chord, min_split_dur=ts.beat_dur)
             )
-    # print("getting harmony onsets/releases... ", end="", flush=True)
     get_harmony_onsets_and_releases(out_list)
-    return out_list, pickup_offset, ts
+    if return_music21_score:
+        return out_list, ts, score
+    return out_list, ts
 
 
 # doctests in cached_property methods are not discovered and need to be

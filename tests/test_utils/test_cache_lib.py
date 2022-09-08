@@ -1,3 +1,4 @@
+import json
 import subprocess
 import os
 import shutil
@@ -5,7 +6,12 @@ import time
 import tempfile
 from pathlib import Path
 
-from dumb_composer.utils.cache_lib import cacher, get_func_path
+from dumb_composer.utils.cache_lib import (
+    cacher,
+    get_func_path,
+    default_read_cache_f,
+    default_write_cache_f,
+)
 
 
 def test_get_func_path():
@@ -32,77 +38,95 @@ def _make_temp_file(path):
         outf.write(f_contents)
 
 
+def _json_read_cache_f(cache_path):
+    with open(cache_path, "r") as inf:
+        return json.load(inf)
+
+
+def _json_write_cache_f(return_value, cache_path):
+    with open(cache_path, "w") as outf:
+        json.dump(return_value, outf)
+
+
 def test_cacher():
-    temp_dir = tempfile.mkdtemp()
-    _, path1 = tempfile.mkstemp()
-    _, path2 = tempfile.mkstemp()
+    for read_f, write_f in (
+        (_json_read_cache_f, _json_write_cache_f),
+        (default_read_cache_f, default_write_cache_f),
+    ):
+        temp_dir = tempfile.mkdtemp()
+        _, path1 = tempfile.mkstemp()
+        _, path2 = tempfile.mkstemp()
 
-    try:
-        f_execution_times = {}
+        try:
+            f_execution_times = {}
 
-        @cacher(cache_base=temp_dir)
-        def f(path):
-            f_execution_times[path] = time.time()
-            with open(path, "r") as inf:
-                return inf.read()
+            @cacher(
+                cache_base=temp_dir, write_cache_f=write_f, read_cache_f=read_f
+            )
+            def f(path):
+                f_execution_times[path] = time.time()
+                with open(path, "r") as inf:
+                    return inf.read()
 
-        _make_temp_file(path1)
-        _make_temp_file(path2)
-        f1_contents = f(path1)
-        f2_contents = f(path2)
+            _make_temp_file(path1)
+            _make_temp_file(path2)
+            f1_contents = f(path1)
+            f2_contents = f(path2)
 
-        # f should execute for path2 as well
-        assert path2 in f_execution_times
-        assert f_execution_times[path1] != f_execution_times[path2]
+            # f should execute for path2 as well
+            assert path2 in f_execution_times
+            assert f_execution_times[path1] != f_execution_times[path2]
 
-        f_last_ran_for_path1 = f_execution_times[path1]
-        f_last_ran_for_path2 = f_execution_times[path2]
+            f_last_ran_for_path1 = f_execution_times[path1]
+            f_last_ran_for_path2 = f_execution_times[path2]
 
-        # file 1 has not changed, f should not execute
-        f1_contents_again = f(path1)
-        assert f_execution_times[path1] == f_last_ran_for_path1
-        assert f1_contents_again == f1_contents
+            # file 1 has not changed, f should not execute
+            f1_contents_again = f(path1)
+            assert f_execution_times[path1] == f_last_ran_for_path1
+            assert f1_contents_again == f1_contents
 
-        # touch file 2, f should execute
-        Path(path2).touch()
-        touched_f2_contents = f(path2)
-        assert f_execution_times[path2] != f_last_ran_for_path2
-        assert touched_f2_contents == f2_contents
+            # touch file 2, f should execute
+            Path(path2).touch()
+            touched_f2_contents = f(path2)
+            assert f_execution_times[path2] != f_last_ran_for_path2
+            assert touched_f2_contents == f2_contents
 
-        _make_temp_file(path1)
-        changed_f1_contents = f(path1)
-        # file 2 has changed, f should execute
-        assert f_execution_times[path1] != f_last_ran_for_path1
-        assert changed_f1_contents != f1_contents
+            _make_temp_file(path1)
+            changed_f1_contents = f(path1)
+            # file 2 has changed, f should execute
+            assert f_execution_times[path1] != f_last_ran_for_path1
+            assert changed_f1_contents != f1_contents
 
-        # # redefine f without changing it
-        # @cacher(cache_base=temp_dir)
-        # def f(path):
-        #     f_execution_times[path] = time.time()
-        #     with open(path, "r") as inf:
-        #         return inf.read()
+            # # redefine f without changing it
+            # @cacher(cache_base=temp_dir)
+            # def f(path):
+            #     f_execution_times[path] = time.time()
+            #     with open(path, "r") as inf:
+            #         return inf.read()
 
-        # # f has not changed, contents should be same
-        # redefined_f1_contents = f(path1)
-        # assert f_execution_times[path1] == f_last_ran_for_path1
-        # assert redefined_f1_contents == f1_contents
+            # # f has not changed, contents should be same
+            # redefined_f1_contents = f(path1)
+            # assert f_execution_times[path1] == f_last_ran_for_path1
+            # assert redefined_f1_contents == f1_contents
 
-        # redefine f and change it
-        @cacher(cache_base=temp_dir)
-        def f(path):
-            pointless_statement = None
-            f_execution_times[path] = time.time()
-            with open(path, "r") as inf:
-                return inf.read()
+            # redefine f and change it
+            @cacher(
+                cache_base=temp_dir, write_cache_f=write_f, read_cache_f=read_f
+            )
+            def f(path):
+                pointless_statement = None
+                f_execution_times[path] = time.time()
+                with open(path, "r") as inf:
+                    return inf.read()
 
-        changed_f_f1_contents = f(path1)
-        assert f_execution_times[path1] != f_last_ran_for_path1
-        assert changed_f_f1_contents != f1_contents
-    finally:
-        print("removing temporary files")
-        os.remove(path1)
-        os.remove(path2)
-        shutil.rmtree(temp_dir)
+            changed_f_f1_contents = f(path1)
+            assert f_execution_times[path1] != f_last_ran_for_path1
+            assert changed_f_f1_contents != f1_contents
+        finally:
+            print("removing temporary files")
+            os.remove(path1)
+            os.remove(path2)
+            shutil.rmtree(temp_dir)
 
 
 def test_cacher_across_runs():
