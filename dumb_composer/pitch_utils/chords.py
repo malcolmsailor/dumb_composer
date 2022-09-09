@@ -485,7 +485,6 @@ def get_chords_from_rntxt(
     rn_data: str,
     split_chords_at_metric_strong_points: bool = True,
     no_added_tones: bool = True,
-    return_music21_score: bool = False,
 ) -> t.Union[
     t.Tuple[t.List[Chord], Meter, music21.stream.Score],
     t.Tuple[t.List[Chord], Meter],
@@ -552,8 +551,6 @@ def get_chords_from_rntxt(
                 ts.split_odd_duration(chord, min_split_dur=ts.beat_dur)
             )
     get_harmony_onsets_and_releases(out_list)
-    if return_music21_score:
-        return out_list, ts, score
     return out_list, ts
 
 

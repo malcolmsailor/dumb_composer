@@ -8,6 +8,10 @@ import itertools as it
 from midi_to_notes import df_to_midi
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.pitch_utils.ranges import Ranger
+from dumb_composer.pitch_utils.music21_handler import (
+    parse_rntxt,
+    transpose_and_write_rntxt,
+)
 from dumb_composer.time import MeterError
 
 PREFAB_VOICE_WEIGHTS = {
@@ -82,8 +86,8 @@ class ComposerWrangler:
             prefab_voice, transpose
         )
         composer = PrefabComposer(settings)
-        out, ts = composer(rntxt_path, return_ts=True, transpose=transpose)
-        return out, ts
+        out = composer(rntxt_path, return_ts=True, transpose=transpose)
+        return out
 
     @staticmethod
     def _default_path_formatter(path, i, transpose, prefab_voice):
@@ -166,18 +170,25 @@ class ComposerWrangler:
             except MeterError as exc:
                 print(f"Skipping due to meter error: {exc}")
                 skipped.append(path)
-            except:
+            except Exception as exc:
                 print(f"ERROR: {path}")
                 errors.append(path)
-            if write_midi:
-                mid_path = f"{output_path_wo_ext}.mid"
-                df_to_midi(out, mid_path, ts)
-            if write_csv:
-                csv_path = f"{output_path_wo_ext}.csv"
-                out.to_csv(csv_path)
-            if write_romantext:
-                rntxt_path = f"{output_path_wo_ext}.rntxt"
-                TODO
+            else:
+                if write_midi:
+                    mid_path = f"{output_path_wo_ext}.mid"
+                    df_to_midi(out, mid_path, ts)
+                if write_csv:
+                    csv_path = f"{output_path_wo_ext}.csv"
+                    out.to_csv(csv_path)
+                if write_romantext:
+                    new_rntxt_path = f"{output_path_wo_ext}.rntxt"
+                    contents = transpose_and_write_rntxt(path, transpose)
+                    with open(new_rntxt_path, "w") as outf:
+                        outf.write(contents)
+                    # score = parse_rntxt(path)
+                    # score.transpose(transpose).write(
+                    #     "romanText", new_rntxt_path
+                    # )
 
         if skipped:
             print(f"{len(skipped)} files skipped:")
