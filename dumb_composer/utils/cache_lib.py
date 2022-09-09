@@ -86,14 +86,18 @@ def default_read_cache_f(cache_path: str) -> t.Any:
         return pickle.load(inf)
 
 
-def check_cache(cache_dir, f, *args, read_cache_sub=default_read_cache_f):
+def check_cache(
+    cache_dir, f, *args, read_cache_sub=default_read_cache_f, **kwargs
+):
     if not os.path.exists(cache_dir):
         return "CACHE_DOES_NOT_EXIST"
     if not check_f_hash(f, cache_dir):
         return "CACHE_DOES_NOT_EXIST"
 
     paths = [
-        arg for arg in args if (isinstance(arg, str) and os.path.exists(arg))
+        arg
+        for arg in (args + tuple(kwargs.values()))
+        if (isinstance(arg, str) and os.path.exists(arg))
     ]
     if paths:
         paths_mtime = max(os.path.getmtime(p) for p in paths)
@@ -134,7 +138,7 @@ def cacher(
 
     A dir path is created inside cache_base by joining the args and kwargs to
     the decorated function. If that dir exists, we check whether the files in
-    it are newer than all paths in args. (We don't check kwargs for paths.)
+    it are newer than all paths in args.
     If so, we return the cache. Otherwise, we call the function (but cache
     the result for next time).
 
@@ -172,7 +176,7 @@ def cacher(
         def f1(*args, **kwargs):
             cache_dir = get_cache_dir(f, *args, cache_base=cache_base, **kwargs)
             cached = check_cache(
-                cache_dir, f, *args, read_cache_sub=read_cache_f
+                cache_dir, f, *args, read_cache_sub=read_cache_f, **kwargs
             )
             if cached != "CACHE_DOES_NOT_EXIST":
                 return cached

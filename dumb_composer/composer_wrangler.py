@@ -9,7 +9,6 @@ from midi_to_notes import df_to_midi
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.pitch_utils.ranges import Ranger
 from dumb_composer.pitch_utils.music21_handler import (
-    parse_rntxt,
     transpose_and_write_rntxt,
 )
 from dumb_composer.time import MeterError
@@ -164,7 +163,9 @@ class ComposerWrangler:
             elif _log_wo_pytest:
                 self._change_logger(log_path)
             try:
-                out, ts = self(path, prefab_voice=prefab_voice)
+                out, ts = self(
+                    path, prefab_voice=prefab_voice, transpose=transpose
+                )
             except KeyboardInterrupt:
                 raise
             except MeterError as exc:
@@ -185,10 +186,6 @@ class ComposerWrangler:
                     contents = transpose_and_write_rntxt(path, transpose)
                     with open(new_rntxt_path, "w") as outf:
                         outf.write(contents)
-                    # score = parse_rntxt(path)
-                    # score.transpose(transpose).write(
-                    #     "romanText", new_rntxt_path
-                    # )
 
         if skipped:
             print(f"{len(skipped)} files skipped:")

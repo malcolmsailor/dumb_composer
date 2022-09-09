@@ -56,6 +56,7 @@ def test_cacher():
         temp_dir = tempfile.mkdtemp()
         _, path1 = tempfile.mkstemp()
         _, path2 = tempfile.mkstemp()
+        _, kwargpath = tempfile.mkstemp()
 
         try:
             f_execution_times = {}
@@ -63,15 +64,20 @@ def test_cacher():
             @cacher(
                 cache_base=temp_dir, write_cache_f=write_f, read_cache_f=read_f
             )
-            def f(path):
+            def f(path, kwargpath=None):
                 f_execution_times[path] = time.time()
                 with open(path, "r") as inf:
-                    return inf.read()
+                    out = inf.read()
+                if kwargpath is not None:
+                    with open(kwargpath, "r") as inf:
+                        out += inf.read()
+                return out
 
             _make_temp_file(path1)
             _make_temp_file(path2)
+            _make_temp_file(kwargpath)
             f1_contents = f(path1)
-            f2_contents = f(path2)
+            f2_contents = f(path2, kwargpath=kwargpath)
 
             # f should execute for path2 as well
             assert path2 in f_execution_times
@@ -87,9 +93,16 @@ def test_cacher():
 
             # touch file 2, f should execute
             Path(path2).touch()
-            touched_f2_contents = f(path2)
+            touched_f2_contents = f(path2, kwargpath=kwargpath)
             assert f_execution_times[path2] != f_last_ran_for_path2
             assert touched_f2_contents == f2_contents
+
+            f_last_ran_for_path2 = f_execution_times[path2]
+            # touch kwargpath, f should execute again
+            Path(kwargpath).touch()
+            touched_again_f2_contents = f(path2, kwargpath=kwargpath)
+            assert f_execution_times[path2] != f_last_ran_for_path2
+            assert touched_again_f2_contents == f2_contents
 
             _make_temp_file(path1)
             changed_f1_contents = f(path1)
@@ -126,6 +139,7 @@ def test_cacher():
             print("removing temporary files")
             os.remove(path1)
             os.remove(path2)
+            os.remove(kwargpath)
             shutil.rmtree(temp_dir)
 
 
