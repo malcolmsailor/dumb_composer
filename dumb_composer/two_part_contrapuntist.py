@@ -56,6 +56,9 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     # when choosing whether to insert a suspension, we put the "score" of each
     #   suspension (so far, by default 1.0) into a softmax together with the
     #   following "no_suspension_score".
+    # To ensure that suspensions will be used wherever possible,
+    #   `no_suspension_score` can be set to a large negative number (which
+    #   will become zero after the softmax) or even float("-inf").
     no_suspension_score: float = 1.0
     allow_avoid_intervals: bool = False
     allow_steps_outside_of_range: bool = True

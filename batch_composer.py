@@ -17,6 +17,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--log", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("-S", "--settings", type=str, default=None)
     parser.add_argument("-M", "--no-midi", action="store_true")
     parser.add_argument("-C", "--no-csv", action="store_true")
     parser.add_argument("-R", "--no-rntxt", action="store_true")
@@ -38,4 +39,5 @@ if __name__ == "__main__":
         write_csv=(not args.no_csv),
         write_romantext=(not args.no_rntxt),
         _log_wo_pytest=args.log,
+        settings_path=args.settings,
     )

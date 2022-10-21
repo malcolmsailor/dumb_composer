@@ -46,7 +46,10 @@ def test_prefab_composer(quick, pytestconfig):
                 )
                 logging_plugin.set_log_path(log_path)
                 rn_temp = rn_format.format(ts)
-                settings = PrefabComposerSettings(prefab_voice=prefab_voice)
+                settings = PrefabComposerSettings(
+                    prefab_voice=prefab_voice,
+                    top_down_tie_prob={0: 0.5, 1: 1.0},  # TODO move elsewhere
+                )
                 pfc = PrefabComposer(settings)
                 out_df = pfc(rn_temp)
                 write_df(

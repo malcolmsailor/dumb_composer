@@ -1,3 +1,6 @@
+import ast
+from dataclasses import asdict
+import json
 import logging
 import os
 import random
@@ -20,6 +23,13 @@ PREFAB_VOICE_WEIGHTS = {
 }
 
 
+def read_settings(path: str):
+    with open(path, "r") as inf:
+        settings_dict = ast.literal_eval(inf.read())
+        # settings_dict = json.load(inf)
+    return settings_dict
+
+
 class ComposerWrangler:
     _prefab_voices = list(PREFAB_VOICE_WEIGHTS.keys())
     _prefab_weights = list(it.accumulate(PREFAB_VOICE_WEIGHTS.values()))
@@ -27,10 +37,7 @@ class ComposerWrangler:
     def __init__(self):
         self._ranger = Ranger()
 
-    # TODO:
-    #   - choose register
-    #   - choose disposition (i.e., melody on top, melody in middle, melody
-    #       in bass)
+    # TODO?
     #   - optionally choose time signature?
 
     def _get_paths(
@@ -59,7 +66,9 @@ class ComposerWrangler:
         for path in self._get_paths(base_path, exts, basename_startswith):
             self(path)
 
-    def _init_composer_settings(self, prefab_voice, transpose):
+    def _init_composer_settings(self, settings_dict, prefab_voice, transpose):
+        if settings_dict is None:
+            settings_dict = {}
         if prefab_voice is None:
             prefab_voice = random.choices(
                 self._prefab_voices, cum_weights=self._prefab_weights, k=1
@@ -70,19 +79,22 @@ class ComposerWrangler:
             logging.debug(f"setting transpose to {transpose}")
         ranges = self._ranger(melody_part=prefab_voice)
         return (
-            PrefabComposerSettings(prefab_voice=prefab_voice, **ranges),
+            PrefabComposerSettings(
+                prefab_voice=prefab_voice, **ranges, **settings_dict
+            ),
             transpose,
         )
 
     def __call__(
         self,
         rntxt_path: str,
+        settings_dict: t.Optional[dict] = None,
         prefab_voice: t.Optional[str] = None,
         transpose: t.Optional[int] = None,
     ):
         logging.info(f"Input path: {rntxt_path}")
         settings, transpose = self._init_composer_settings(
-            prefab_voice, transpose
+            settings_dict, prefab_voice, transpose
         )
         composer = PrefabComposer(settings)
         out = composer(rntxt_path, return_ts=True, transpose=transpose)
@@ -113,9 +125,24 @@ class ComposerWrangler:
         write_midi: bool = True,
         write_csv: bool = False,
         write_romantext: bool = False,
+        settings_path: t.Optional[str] = None,
         _pytestconfig=None,
         _log_wo_pytest=False,
     ):
+        def _log_composer_settings(settings_dict):
+            generic_settings = PrefabComposerSettings(
+                prefab_voice="varies",
+                mel_range="varies",
+                bass_range="varies",
+                accomp_range="varies",
+                **settings_dict,
+            )
+            dd = asdict(generic_settings)
+            with open(os.path.join(output_dir, "settings.txt"), "w") as outf:
+                json.dump(
+                    asdict(generic_settings), outf, indent=2, default=repr
+                )
+
         if not any((write_midi, write_csv, write_romantext)):
             raise ValueError(
                 "all of `write_midi`, `write_csv`, and `write_romantext` are "
@@ -139,6 +166,11 @@ class ComposerWrangler:
             logging.basicConfig(filename="log_file_path", level="DEBUG")
         errors = []
         skipped = []
+        if settings_path is None:
+            settings_dict = {}
+        else:
+            settings_dict = read_settings(settings_path)
+        _log_composer_settings(settings_dict)
 
         for i, path in enumerate(paths_todo):
             print(f"{i + 1}/{len(paths_todo)}: {path}")
@@ -164,7 +196,10 @@ class ComposerWrangler:
                 self._change_logger(log_path)
             try:
                 out, ts = self(
-                    path, prefab_voice=prefab_voice, transpose=transpose
+                    path,
+                    settings_dict,
+                    prefab_voice=prefab_voice,
+                    transpose=transpose,
                 )
             except KeyboardInterrupt:
                 raise
@@ -195,4 +230,5 @@ class ComposerWrangler:
             print(f"{len(errors)} errors:")
             for path in errors:
                 print(path)
+        print(f"Output folder: {output_dir}")
         print(f"{len(skipped)} files skipped. {len(errors)} files had errors.")

@@ -27,6 +27,7 @@ from .shared_classes import Note, Score
 from dumb_composer.pitch_utils.chords import Chord
 
 from .utils.recursion import DeadEnd, RecursionFailed, append_attempt
+from .time import Meter
 
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
@@ -51,6 +52,14 @@ class PrefabComposerSettings(
 ):
     max_recurse_calls: t.Optional[int] = None
     print_missing_prefabs: bool = True
+    # if top_down_tie_prob is a single number, it sets a probability of tying
+    #    melody notes through to the next chord anytime the pitch is repeated
+    #   from one chord to the next. If it is a dictionary of form (int, float)
+    #   it sets the probability of tying melody notes anytime the metric weight
+    #   of the note that would begin the tie is greater than or equal to the
+    #   next lesser key in the dict. (If there is no such key, then the note
+    #   is not tied.)
+    top_down_tie_prob: t.Optional[t.Union[float, t.Dict[int, float]]] = None
 
     def __post_init__(self):
         # We need to reconcile DumbAccompanistSettings'
@@ -184,6 +193,56 @@ class PrefabComposer:
                 self.missing_prefabs[str(exc)] += 1
         raise DeadEnd
 
+    def _apply_top_down_ties(self, score: Score):
+        """
+        Applies ties in a "top-down" manner.
+
+        After the score is finished, we look at any pitches that are repeated
+        from the end of one prefab to the beginning of the next, and tie them
+        according to `settings.top_down_tie_prob`
+
+        If top_down_tie_prob is a single number, it sets a probability of tying
+        melody notes through to the next chord anytime the pitch is repeated
+        from one chord to the next. If it is a dictionary of form (int, float)
+        it sets the probability of tying melody notes anytime the metric weight
+        of the note that would begin the tie is greater than or equal to the
+        next lesser key in the dict. (If there is no such key, then the note
+        is not tied.)
+
+        I implemented this function some time after doing my main work on the
+        rest of the script. It may be that there would be a way of achieving
+        similar results that would be more integrated into the rest of the
+        algorithm as opposed to this somewhat ad-hoc "top-down" approach.
+        """
+        top_down_tie_prob = self.settings.top_down_tie_prob
+        is_float = isinstance(top_down_tie_prob, float)
+        if not is_float:
+            # 10 should be higher than any metric weight we are likely to
+            # observe in wild
+            assert isinstance(top_down_tie_prob, dict)
+            for i in range(min(top_down_tie_prob), 10):
+                if i in top_down_tie_prob:
+                    prob = top_down_tie_prob[i]
+                else:
+                    top_down_tie_prob[i] = prob
+        for prefab1, prefab2 in zip(score.prefabs, score.prefabs[1:]):
+            before_note = prefab1[-1]
+            after_note = prefab2[0]
+            if before_note.tie_to_next:
+                continue
+            if before_note.pitch != after_note.pitch:
+                continue
+            if before_note.release != after_note.onset:
+                continue
+            if is_float:
+                if random.random() < top_down_tie_prob:
+                    before_note.tie_to_next = True
+            else:
+                note_weight = score.ts.weight(before_note.onset)
+                prob = top_down_tie_prob.get(note_weight, 0.0)
+                if random.random() < prob:
+                    before_note.tie_to_next = True
+
     def __call__(
         self,
         chord_data: t.Union[str, t.List[Chord]],
@@ -237,6 +296,8 @@ class PrefabComposer:
                 "Completed score. Missing prefabs encountered along the way:\n"
                 + self.get_missing_prefab_str()
             )
+        if self.settings.top_down_tie_prob is not None:
+            self._apply_top_down_ties(score)
         if return_ts:
             return (
                 score.get_df(["prefabs", "accompaniments", "annotations"]),
