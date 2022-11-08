@@ -3,6 +3,7 @@
 - suspensions in Bass
 - when "prefab voice" is bass, supposed suspensions are not realized in upper parts
 - suspensions in accompaniment would be good
+- if there is a tie in the "melody", avoid accompaniments that have no downbeat
 
 Because (tied) suspensions are hard to learn, we want to tie as many suspensions as possible.
 (It would also be good to allow for tied "anticipations".)

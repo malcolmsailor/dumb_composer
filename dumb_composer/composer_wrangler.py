@@ -26,7 +26,6 @@ PREFAB_VOICE_WEIGHTS = {
 def read_settings(path: str):
     with open(path, "r") as inf:
         settings_dict = ast.literal_eval(inf.read())
-        # settings_dict = json.load(inf)
     return settings_dict
 
 

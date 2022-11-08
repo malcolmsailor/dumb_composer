@@ -14,7 +14,7 @@ import pandas as pd
 import typing as t
 
 from dumb_composer.constants import TIME_TYPE, speller_pcs, unspeller_pcs
-from dumb_composer.utils.cache_lib import cacher
+from cache_lib import cacher
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.music21_handler import parse_rntxt
 from dumb_composer.time import Meter

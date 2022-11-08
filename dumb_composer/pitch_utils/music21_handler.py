@@ -6,7 +6,7 @@ import os
 
 import music21
 
-from dumb_composer.utils.cache_lib import cacher
+from cache_lib import cacher
 
 ################################################################################
 # In order for transposition to work for RomanNumerals we need to patch
@@ -50,14 +50,15 @@ from music21 import key
 from music21.romanText.translate import RomanTextTranslateException
 from music21.romanText import rtObjects
 
+
 def _copySingleMeasure(rtTagged, p, kCurrent):
-    '''
+    """
     Given a RomanText token, a Part used as the current container,
     and the current Key, return a Measure copied from the past of the Part.
 
     This is used in cases of definitions such as:
     m23=m21
-    '''
+    """
     m = None
     # copy from a past location; need to change key
     # environLocal.printDebug(['calling _copySingleMeasure()'])
@@ -65,7 +66,8 @@ def _copySingleMeasure(rtTagged, p, kCurrent):
     if len(targetNumber) > 1:  # pragma: no cover
         # this is an encoding error
         raise RomanTextTranslateException(
-            'a single measure cannot define a copy operation for multiple measures')
+            "a single measure cannot define a copy operation for multiple measures"
+        )
     # TODO: ignoring repeat letters
     target = targetNumber[0]
     for mPast in p.getElementsByClass(stream.Measure):
@@ -74,17 +76,19 @@ def _copySingleMeasure(rtTagged, p, kCurrent):
                 m = copy.deepcopy(mPast)
             except TypeError:  # pragma: no cover
                 raise RomanTextTranslateException(
-                    f'Failed to copy measure {mPast.number}:'
-                    + ' did you perhaps parse an RTOpus object with romanTextToStreamScore '
-                    + 'instead of romanTextToStreamOpus?')
+                    f"Failed to copy measure {mPast.number}:"
+                    + " did you perhaps parse an RTOpus object with romanTextToStreamScore "
+                    + "instead of romanTextToStreamOpus?"
+                )
             m.number = rtTagged.number[0]
             # update all keys
             for rnPast in m.getElementsByClass(roman.RomanNumeral):
                 if kCurrent is None:  # pragma: no cover
                     # should not happen
                     raise RomanTextTranslateException(
-                        'attempting to copy a measure but no past key definitions are found')
-                if rnPast.editorial.get('followsKeyChange'):
+                        "attempting to copy a measure but no past key definitions are found"
+                    )
+                if rnPast.editorial.get("followsKeyChange"):
                     kCurrent = rnPast.key
                 elif rnPast.pivotChord is not None:
                     kCurrent = rnPast.pivotChord.key
@@ -102,34 +106,42 @@ def _copySingleMeasure(rtTagged, p, kCurrent):
     return m, kCurrent
 
 
-def _copyMultipleMeasures(rtMeasure: rtObjects.RTMeasure,
-                          p: stream.Part,
-                          kCurrent: t.Optional[key.Key]):
-    '''
+def _copyMultipleMeasures(
+    rtMeasure: rtObjects.RTMeasure,
+    p: stream.Part,
+    kCurrent: t.Optional[key.Key],
+):
+    """
     Given a RomanText token for a RTMeasure, a
     Part used as the current container, and the current Key,
     return a Measure range copied from the past of the Part.
 
     This is used for cases such as:
     m23-25 = m20-22
-    '''
+    """
     # the key provided needs to be the current key
     # environLocal.printDebug(['calling _copyMultipleMeasures()'])
 
     targetNumbers, unused_targetRepeat = rtMeasure.getCopyTarget()
-    if len(targetNumbers) == 1:   # pragma: no cover
+    if len(targetNumbers) == 1:  # pragma: no cover
         # this is an encoding error
-        raise RomanTextTranslateException('a multiple measure range cannot copy a single measure')
+        raise RomanTextTranslateException(
+            "a multiple measure range cannot copy a single measure"
+        )
     # TODO: ignoring repeat letters
     targetStart = targetNumbers[0]
     targetEnd = targetNumbers[1]
 
-    if rtMeasure.number[1] - rtMeasure.number[0] != targetEnd - targetStart:  # pragma: no cover
+    if (
+        rtMeasure.number[1] - rtMeasure.number[0] != targetEnd - targetStart
+    ):  # pragma: no cover
         raise RomanTextTranslateException(
-            'both the source and destination sections need to have the same number of measures')
+            "both the source and destination sections need to have the same number of measures"
+        )
     if rtMeasure.number[0] < targetEnd:  # pragma: no cover
         raise RomanTextTranslateException(
-            'the source section cannot overlap with the destination section')
+            "the source section cannot overlap with the destination section"
+        )
 
     measures = []
     for mPast in p.getElementsByClass(stream.Measure):
@@ -138,10 +150,12 @@ def _copyMultipleMeasures(rtMeasure: rtObjects.RTMeasure,
                 m = copy.deepcopy(mPast)
             except TypeError:  # pragma: no cover
                 raise RomanTextTranslateException(
-                    'Failed to copy measure {0} to measure range {1}-{2}: '.format(
-                        mPast.number, targetStart, targetEnd)
-                    + 'did you perhaps parse an RTOpus object with romanTextToStreamScore '
-                    + 'instead of romanTextToStreamOpus?')
+                    "Failed to copy measure {0} to measure range {1}-{2}: ".format(
+                        mPast.number, targetStart, targetEnd
+                    )
+                    + "did you perhaps parse an RTOpus object with romanTextToStreamScore "
+                    + "instead of romanTextToStreamOpus?"
+                )
 
             m.number = rtMeasure.number[0] + mPast.number - targetStart
             measures.append(m)
@@ -151,8 +165,9 @@ def _copyMultipleMeasures(rtMeasure: rtObjects.RTMeasure,
                 if kCurrent is None:  # pragma: no cover
                     # should not happen
                     raise RomanTextTranslateException(
-                        'attempting to copy a measure but no past key definitions are found')
-                if rnPast.editorial.get('followsKeyChange'):
+                        "attempting to copy a measure but no past key definitions are found"
+                    )
+                if rnPast.editorial.get("followsKeyChange"):
                     kCurrent = rnPast.key
                 elif rnPast.pivotChord is not None:
                     kCurrent = rnPast.pivotChord.key
@@ -169,6 +184,7 @@ def _copyMultipleMeasures(rtMeasure: rtObjects.RTMeasure,
         if mPast.number == targetEnd:
             break
     return measures, kCurrent
+
 
 music21.romanText.translate._copySingleMeasure = _copySingleMeasure
 music21.romanText.translate._copyMultipleMeasures = _copyMultipleMeasures
@@ -197,7 +213,9 @@ def read_music21_cache(cache_path):
 def parse_rntxt(rn_data: str) -> music21.stream.Score:
     # forceSource=True disables music21's caching, which we want to do because
     #   music21 doesn't update cache after music21 itself is changed.
-    return music21.converter.parse(rn_data, format="romanText", forceSource=True)
+    return music21.converter.parse(
+        rn_data, format="romanText", forceSource=True
+    )
 
 
 @cacher()
