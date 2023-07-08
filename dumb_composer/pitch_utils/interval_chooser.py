@@ -55,7 +55,9 @@ class IntervalChooser:
             * (self._unison_weighted_as if interval == 0 else abs(interval))
         )
 
-    def __call__(self, intervals, n=1):
+    def choose_intervals(
+        self, intervals: t.Sequence[int], n: int = 1
+    ) -> t.List[int]:
         """Intervals should ideally be sorted so that the memo-ing is accurate
         but it probably isn't worth actually sorting them.
         """
@@ -68,16 +70,17 @@ class IntervalChooser:
                 weights = [1.0 for _ in intervals]
             self._weights_memo[intervals] = weights
         out = random.choices(intervals, weights=weights, k=n)
-        if n == 1:
-            return out[0]
         return out
 
+    def __call__(self, intervals: t.Sequence[int]) -> int:
+        return self.choose_intervals(intervals, n=1)[0]
 
-if __name__ == "__main__":
-    lambdas = [2**i for i in range(-5, 2)]
-    fig, ax = plt.subplots()
-    for lda in lambdas:
-        ic = IntervalChooser(lambda_=lda)
-        ic.plot_weights(ax=ax)
-    plt.legend()
-    plt.show()
+
+# if __name__ == "__main__":
+#     lambdas = [2**i for i in range(-5, 2)]
+#     fig, ax = plt.subplots()
+#     for lda in lambdas:
+#         ic = IntervalChooser(lambda_=lda)
+#         ic.plot_weights(ax=ax)
+#     plt.legend()
+#     plt.show()

@@ -10,6 +10,7 @@ from dumb_composer.patterns import PatternMaker
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.shared_classes import Annotation, Chord, Note, Score
+from dumb_composer.time import Meter
 from .utils.recursion import DeadEnd
 
 
@@ -118,7 +119,7 @@ class DumbAccompanist:
             include_bass=self.settings.include_bass,
         ):
             yield [
-                Note(
+                Note(  # type:ignore
                     pitch,
                     chord.onset,
                     chord.release,
@@ -129,7 +130,9 @@ class DumbAccompanist:
 
     def _step(
         self, score: Score
-    ) -> t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]:
+    ) -> t.Iterator[t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]]:
+        assert self._pm is not None
+
         i = len(score.accompaniments)
         chord = score.chords[i]
         chord_change = score.is_chord_change(i)
@@ -171,9 +174,7 @@ class DumbAccompanist:
                     AccompAnnots.PATTERNS,
                     AccompAnnots.ALL,
                 ):
-                    annotations.append(
-                        Annotation(chord.onset, self._pm.prev_pattern)
-                    )
+                    annotations.append(Annotation(chord.onset, self._pm.prev_pattern))
                 if self.settings.accompaniment_annotations in (
                     AccompAnnots.CHORDS,
                     AccompAnnots.ALL,
@@ -182,7 +183,7 @@ class DumbAccompanist:
                 yield (accompaniment_pattern, *annotations)
         raise DeadEnd()
 
-    def init_new_piece(self, ts: str):
+    def init_new_piece(self, ts: t.Union[str, Meter]):
         self._pm = PatternMaker(
             ts,
             include_bass=self.settings.include_bass,
@@ -210,25 +211,27 @@ class DumbAccompanist:
             raise ValueError("either chord_data or score must not be None")
         if score is None:
             if isinstance(chord_data, str):
-                chord_data, ts = get_chords_from_rntxt(chord_data)
-            score = Score(chord_data, ts=ts)
+                chord_data, ts = get_chords_from_rntxt(chord_data)  # type:ignore
+            score = Score(chord_data, ts=ts)  # type:ignore
+
+        assert ts is not None
 
         self.init_new_piece(ts)
         for _ in range(len(score.chords)):
             result = next(self._step(score))
             if self.settings.accompaniment_annotations is not AccompAnnots.NONE:
                 it = iter(result)
-                score.accompaniments.append(next(it))
+                score.accompaniments.append(next(it))  # type:ignore
                 if self.settings.accompaniment_annotations in (
                     AccompAnnots.ALL,
                     AccompAnnots.PATTERNS,
                 ):
-                    score.annotations["patterns"].append(next(it))
+                    score.annotations["patterns"].append(next(it))  # type:ignore
                 if self.settings.accompaniment_annotations in (
                     AccompAnnots.ALL,
                     AccompAnnots.CHORDS,
                 ):
-                    score.annotations["chords"].append(next(it))
+                    score.annotations["chords"].append(next(it))  # type:ignore
             else:
-                score.accompaniments.append(result)
+                score.accompaniments.append(result)  # type:ignore
         return score.get_df("accompaniments")

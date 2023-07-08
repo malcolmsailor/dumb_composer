@@ -14,7 +14,7 @@ def softmax(x, temperature=1.0):
     return exp / exp.sum()
 
 
-def softmax_from_slope(n: int, slope: float) -> np.array:
+def softmax_from_slope(n: int, slope: float) -> np.ndarray:
     x = np.arange(n + 1)
     return softmax(x * slope)
 
@@ -71,14 +71,14 @@ def weighted_sample_wo_replacement(
     choices: t.Sequence[t.Any], weights: t.Sequence[float]
 ) -> t.Iterator[t.Any]:
     """
-    # TODO look up how to skip a doctest (due to randomness here) then
-    #   provide one for this function.
     There is probably a faster algorithm for this...
 
     >>> choices = ["a", "b", "c"]
     >>> weights = [0.6, 0.3, 0.1]
-    >>> results = [weighted_sample_wo_replacement(
-    ...            choices, weights) for _ in range(100)]
+    >>> [x for x in weighted_sample_wo_replacement(choices, weights)]  # doctest: +SKIP
+    ['a', 'b', 'c']
+    >>> [x for x in weighted_sample_wo_replacement(choices, weights)]  # doctest: +SKIP
+    ['b', 'a', 'c']
     """
     # we need to copy weights to avoid modifying them in-place.
     if not choices:

@@ -26,7 +26,7 @@ class Annotation(pd.Series):
         #   text annotations to display correctly
         text = text.replace("_", "").replace(" ", "")
         super().__init__(
-            {"onset": onset, "text": text, "type": "text", "track": 0}
+            {"onset": onset, "text": text, "type": "text", "track": 0}  # type:ignore
         )
 
 
@@ -40,7 +40,7 @@ class Note(pd.Series):
         tie_to_next: bool = False,
     ):
         super().__init__(
-            {
+            {  # type:ignore
                 "pitch": pitch,
                 "onset": onset,
                 "release": release,
@@ -57,7 +57,9 @@ class Note(pd.Series):
 def notes(
     pitches: t.Sequence[int], onset: Number, release: Number, track: int = 1
 ) -> t.List[Note]:
-    return [Note(pitch, onset, release, track=track) for pitch in pitches]
+    return [
+        Note(pitch, onset, release, track=track) for pitch in pitches  # type:ignore
+    ]
 
 
 def print_notes(notes: t.Iterable[Note]) -> None:
@@ -79,7 +81,9 @@ def print_notes(notes: t.Iterable[Note]) -> None:
     for on, off in df["on_off"].unique():
         out["on"].append(on)
         out["off"].append(off)
-        out["pitches"].append(tuple(df[df["on_off"] == (on, off)]["pitch"]))
+        out["pitches"].append(
+            tuple(df[df["on_off"] == (on, off)]["pitch"])  # type:ignore
+        )
     df = pd.DataFrame(out)
     for line in str(df).split("\n"):
         m = re.match(r"^\d* +(.*)$", line)
@@ -142,8 +146,7 @@ def apply_ties(
     def _check_pair(note1: Note, note2: Note):
         if note1.pitch != note2.pitch:
             raise ValueError(
-                f"Tied notes have different pitches {note1.pitch} "
-                f"and {note2.pitch}"
+                f"Tied notes have different pitches {note1.pitch} " f"and {note2.pitch}"
             )
         if not math.isclose(note1.release, note2.onset):
             raise ValueError(
@@ -245,6 +248,15 @@ class StructuralMelodyIntervalGetter:
 class Score:
     """This class provides a "shared working area" for the various classes and
     functions that build a score. It doesn't encapsulate much of anything.
+
+    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
+    >>> score = Score(chord_data=rntxt)
+
+    >>> [chord.pcs for chord in score.chords]
+    [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
+
+    >>> score.structural_bass
+    [36, 41, 31, 40]
     """
 
     def __init__(
@@ -262,32 +274,24 @@ class Score:
             logging.debug(f"reading chords from {chord_data}")
             chord_data, ts = get_chords_from_rntxt(chord_data)
         elif ts is None:
-            raise ValueError(
-                f"`ts` must be supplied if `chord_data` is not a string"
-            )
+            raise ValueError(f"`ts` must be supplied if `chord_data` is not a string")
         if isinstance(ts, str):
             self.ts = Meter(ts)
         else:
             self.ts = ts
         self._chords = chord_data
         if transpose:
-            self._chords = [
-                chord.transpose(transpose) for chord in self._chords
-            ]
-        self._scale_getter = ScaleGetter(
-            chord.scale_pcs for chord in chord_data
-        )
+            self._chords = [chord.transpose(transpose) for chord in self._chords]
+        self._scale_getter = ScaleGetter(chord.scale_pcs for chord in chord_data)
         self.bass_range = bass_range
         self.mel_range = mel_range
         self.structural_melody: t.List[int] = []
-        self._structural_melody_interval_getter = (
-            StructuralMelodyIntervalGetter(
-                self.scales, self.structural_melody, self.structural_bass
-            )
+        self._structural_melody_interval_getter = StructuralMelodyIntervalGetter(
+            self.scales, self.structural_melody, self.structural_bass
         )
         self.prefabs: t.List[t.List[Note]] = []
         self.accompaniments: t.List[t.List[Note]] = []
-        self.annotations: defaultdict[t.List[Annotation]] = defaultdict(list)
+        self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
         self.prefab_track = prefab_track
         self.bass_track = bass_track
         self.accompaniments_track = accompaniments_track
@@ -298,9 +302,7 @@ class Score:
     @cached_property
     def structural_bass(self) -> t.List[int]:
         out = list(
-            put_in_range(
-                (chord.foot for chord in self._chords), *self.bass_range
-            )
+            put_in_range((chord.foot for chord in self._chords), *self.bass_range)
         )
         logging.debug(
             textwrap.fill(
@@ -320,13 +322,9 @@ class Score:
         # deleting self.structural_bass allows it to be regenerated next
         #   time it is needed
         del self.structural_bass
-        self._scale_getter = ScaleGetter(
-            chord.scale_pcs for chord in self._chords
-        )
-        self._structural_melody_interval_getter = (
-            StructuralMelodyIntervalGetter(
-                self.scales, self.structural_melody, self.structural_bass
-            )
+        self._scale_getter = ScaleGetter(chord.scale_pcs for chord in self._chords)
+        self._structural_melody_interval_getter = StructuralMelodyIntervalGetter(
+            self.scales, self.structural_melody, self.structural_bass
         )
 
     @property
@@ -361,17 +359,13 @@ class Score:
     @property
     def accompaniments_as_df(self) -> pd.DataFrame:
         return pd.DataFrame(
-            note
-            for accompaniment in self.accompaniments
-            for note in accompaniment
+            note for accompaniment in self.accompaniments for note in accompaniment
         )
 
     @property
     def annotations_as_df(self) -> pd.DataFrame:
         # return pd.DataFrame(self.annotations)
-        out = pd.concat(
-            [pd.DataFrame(annots) for annots in self.annotations.values()]
-        )
+        out = pd.concat([pd.DataFrame(annots) for annots in self.annotations.values()])
         # only one annotation per time-point appears in the kern files (or is it
         #   the verovio realizations?). Anyway, we merge them into one here. TODO
         #   is there a way around this constraint?
@@ -379,10 +373,7 @@ class Score:
         for onset in sorted(out.onset.unique()):
             new_annot = Annotation(
                 onset,
-                "".join(
-                    annot.text
-                    for _, annot in out[out.onset == onset].iterrows()
-                ),
+                "".join(annot.text for _, annot in out[out.onset == onset].iterrows()),
             )
             temp.append(new_annot)
         out = pd.DataFrame(temp)

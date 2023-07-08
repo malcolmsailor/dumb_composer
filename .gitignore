@@ -5,3 +5,6 @@ temp.*
 foo.*
 templog
 profiler.out
+temp_dir/
+batch_out*/
+foobar.*

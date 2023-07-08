@@ -76,7 +76,7 @@ class Melodist:
     def _recurse(
         self,
         chord_data: t.Union[str, pd.DataFrame],
-        rhythm: t.Sequence[Number],
+        rhythm: t.Sequence[Number], # TODO: (Malcolm) fix type annot
         _melody: t.Optional[t.List[Note]] = None,
         _melody_i: int = 0,
         _n_since_chord_tone: int = 2**31,
@@ -85,10 +85,7 @@ class Melodist:
         def _update_chord_i():
             nonlocal _chord_i
             for _chord_i in range(_chord_i, len(chord_data)):
-                if (
-                    rhythm.loc[_melody_i, "onset"]
-                    < chord_data[_chord_i].release
-                ):
+                if rhythm.loc[_melody_i, "onset"] < chord_data[_chord_i].release:
                     break
 
         def _get_eligible_pcs(chord_tone: bool):
@@ -98,9 +95,7 @@ class Melodist:
 
         def _update_n_since_chord_tone():
             nonlocal _n_since_chord_tone
-            last_p_is_chord_tone = (
-                _melody[-1].pitch % 12 in chord_data[_chord_i].pcs
-            )
+            last_p_is_chord_tone = _melody[-1].pitch % 12 in chord_data[_chord_i].pcs
             if last_p_is_chord_tone:
                 _n_since_chord_tone = 0
             else:
@@ -120,7 +115,8 @@ class Melodist:
         if _melody_i == len(rhythm):
             return pd.DataFrame(_melody)
         _update_chord_i()
-        if _melody_i == 0:
+        if _melody is None:
+            assert _melody_i == 0
             _melody = []
             # choose initial note
             chord_tone = random.random() < self._initial_chord_tone_prob
@@ -136,9 +132,7 @@ class Melodist:
                 prev_pitch, _get_eligible_pcs(chord_tone)
             )
             chosen_interval = self._ic(eligible_intervals)
-            _melody.append(
-                Note(prev_pitch + chosen_interval, *rhythm.loc[_melody_i])
-            )
+            _melody.append(Note(prev_pitch + chosen_interval, *rhythm.loc[_melody_i]))
 
         return _proceed()
 

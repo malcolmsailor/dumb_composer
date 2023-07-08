@@ -30,9 +30,7 @@ def rhythm_method(**kwargs):
 
 def empty_avoider(release_finder: str):
     def decorator(f):
-        def wrap(
-            self, onset, release, *args, avoid_empty: bool = False, **kwargs
-        ):
+        def wrap(self, onset, release, *args, avoid_empty: bool = False, **kwargs):
             out = f(self, onset, release, *args, **kwargs)
             if not out and avoid_empty:
                 out = [
@@ -41,9 +39,7 @@ def empty_avoider(release_finder: str):
                         "weight": self.meter.weight(onset),
                         "release": min(
                             release,
-                            getattr(self.meter, release_finder)(
-                                onset, inclusive=False
-                            ),
+                            getattr(self.meter, release_finder)(onset, inclusive=False),
                         ),
                     }
                 ]
@@ -85,7 +81,7 @@ class TimeClass:
 
     @classmethod
     @property
-    def available_time_signatures(cls) -> t.Tuple[str]:
+    def available_time_signatures(cls) -> t.Tuple[str, ...]:
         return tuple(cls._ts_dict.keys())
 
     @staticmethod
@@ -211,9 +207,7 @@ class Meter(TimeClass):
         self._semibeat_dur = (
             self._beat_dur / 3 if self._compound else self._beat_dur / 2
         )
-        self._superbeat_dur = (
-            self._beat_dur * 3 if self._triple else self._beat_dur * 2
-        )
+        self._superbeat_dur = self._beat_dur * 3 if self._triple else self._beat_dur * 2
         self._weight_memo = {}
         self._odd_memo: t.Dict[Number, bool] = {}
         if isinstance(min_weight, int):
@@ -720,16 +714,11 @@ class Meter(TimeClass):
         [0.0_to_2.0, 2.0_to_3.5]
         """
 
-        def _inner_sub(
-            item: t.Any, at_least_one_split: bool = False
-        ) -> t.List[t.Any]:
+        def _inner_sub(item: t.Any, at_least_one_split: bool = False) -> t.List[t.Any]:
             out = []
             # for item in items:
             start_onset = item.onset
-            if (
-                min_split_dur is not None
-                and item.release - item.onset <= min_split_dur
-            ):
+            if min_split_dur is not None and item.release - item.onset <= min_split_dur:
                 out.append(copy(item))
                 return out
             start_weight = self.weight(item.onset)
@@ -908,9 +897,7 @@ class RhythmFetcher(TimeClass):
         return out
 
     def _regularly_spaced(self, length, onset, release):
-        return self.meter.weights_between(
-            length, onset, release, include_releases=True
-        )
+        return self.meter.weights_between(length, onset, release, include_releases=True)
         # time = self._first_after(onset, length)
         # out = []
         # while time < release:
@@ -952,8 +939,7 @@ class RhythmFetcher(TimeClass):
         on_weight = self.meter.beat_weight + 1
         off_weight = self.meter.beat_weight - 1
         return [
-            beat
-            | {"release": min(beat["onset"] + self.meter.semibeat_dur, release)}
+            beat | {"release": min(beat["onset"] + self.meter.semibeat_dur, release)}
             for beat in semibeats
             if beat["weight"] >= on_weight or beat["weight"] <= off_weight
         ]
@@ -972,22 +958,14 @@ class RhythmFetcher(TimeClass):
             if append_next:
                 out.append(
                     sb
-                    | {
-                        "release": min(
-                            release, sb["onset"] + self.meter.semibeat_dur
-                        )
-                    }
+                    | {"release": min(release, sb["onset"] + self.meter.semibeat_dur)}
                 )
                 append_next = False
             elif sb["weight"] >= on_weight:
                 append_next = True
                 out.append(
                     sb
-                    | {
-                        "release": min(
-                            release, sb["onset"] + self.meter.semibeat_dur
-                        )
-                    }
+                    | {"release": min(release, sb["onset"] + self.meter.semibeat_dur)}
                 )
         return out
 
@@ -995,9 +973,7 @@ class RhythmFetcher(TimeClass):
     @empty_avoider("semibeat_after")
     def iamb(self, onset, release):
         inclusive = release % self.meter.beat_dur == 0
-        semibeats = self.meter.semibeats_between(
-            onset, release, include_end=inclusive
-        )
+        semibeats = self.meter.semibeats_between(onset, release, include_end=inclusive)
         if self.is_compound:
             on_weight = self.meter.beat_weight
         else:
@@ -1008,11 +984,7 @@ class RhythmFetcher(TimeClass):
             if append_next:
                 out.append(
                     sb
-                    | {
-                        "release": min(
-                            release, sb["onset"] + self.meter.semibeat_dur
-                        )
-                    }
+                    | {"release": min(release, sb["onset"] + self.meter.semibeat_dur)}
                 )
                 append_next = False
             elif sb["weight"] >= on_weight:
@@ -1035,8 +1007,7 @@ class RhythmFetcher(TimeClass):
         semibeats = self.meter.semibeats_between(onset, release)
         omit_weight = self.meter.beat_weight + 1
         out = [
-            sb
-            | {"release": min(release, sb["onset"] + self.meter.semibeat_dur)}
+            sb | {"release": min(release, sb["onset"] + self.meter.semibeat_dur)}
             for sb in semibeats
             if sb["weight"] < omit_weight
         ]
@@ -1085,9 +1056,7 @@ class RhythmFetcher(TimeClass):
     # The definition of _all_rhythms should be the last line in the class
     # definition
     _all_rhythms = tuple(
-        name
-        for name, f in locals().items()
-        if getattr(f, "rhythm_method", False)
+        name for name, f in locals().items() if getattr(f, "rhythm_method", False)
     )
 
 

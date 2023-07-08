@@ -1,19 +1,18 @@
 import ast
-from dataclasses import asdict
+import itertools as it
 import json
 import logging
 import os
 import random
 import re
 import typing as t
-import itertools as it
+from dataclasses import asdict
 
 from midi_to_notes import df_to_midi
+
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
+from dumb_composer.pitch_utils.music21_handler import transpose_and_write_rntxt
 from dumb_composer.pitch_utils.ranges import Ranger
-from dumb_composer.pitch_utils.music21_handler import (
-    transpose_and_write_rntxt,
-)
 from dumb_composer.time import MeterError
 
 PREFAB_VOICE_WEIGHTS = {
@@ -136,7 +135,6 @@ class ComposerWrangler:
                 accomp_range="varies",
                 **settings_dict,
             )
-            dd = asdict(generic_settings)
             with open(os.path.join(output_dir, "settings.txt"), "w") as outf:
                 json.dump(
                     asdict(generic_settings), outf, indent=2, default=repr

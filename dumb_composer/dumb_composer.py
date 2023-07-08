@@ -1,46 +1,35 @@
-from collections import Counter
+import itertools as it
 import logging
 import random
 import textwrap
 import typing as t
+from collections import Counter
 from dataclasses import dataclass
-import itertools as it
 
 import pandas as pd
 
-from dumb_composer.pitch_utils.ranges import Ranger
-
-from .chord_spacer import NoSpacings
-
-from .structural_partitioner import (
-    StructuralPartitioner,
-    StructuralPartitionerSettings,
-)
-
-from .dumb_accompanist import (
-    AccompAnnots,
-    DumbAccompanist,
-    DumbAccompanistSettings,
-)
-
-from .shared_classes import Note, Score
-from dumb_composer.pitch_utils.chords import Chord
-
-from .utils.recursion import DeadEnd, RecursionFailed, append_attempt
-from .time import Meter
-
-from dumb_composer.pitch_utils.scale import ScaleDict
-from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
-from dumb_composer.two_part_contrapuntist import (
-    TwoPartContrapuntist,
-    TwoPartContrapuntistSettings,
-)
-from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.constants import (
     DEFAULT_BASS_RANGE,
     DEFAULT_TENOR_ACCOMP_RANGE,
     DEFAULT_TENOR_MEL_RANGE,
 )
+from dumb_composer.pitch_utils.chords import Chord
+from dumb_composer.pitch_utils.ranges import Ranger
+from dumb_composer.pitch_utils.scale import ScaleDict
+from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
+from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
+from dumb_composer.two_part_contrapuntist import (
+    TwoPartContrapuntist,
+    TwoPartContrapuntistSettings,
+)
+
+from .chord_spacer import NoSpacings
+from .dumb_accompanist import AccompAnnots, DumbAccompanist, DumbAccompanistSettings
+from .shared_classes import Note, Score
+from .structural_partitioner import StructuralPartitioner, StructuralPartitionerSettings
+from .time import Meter
+from .utils.recursion import DeadEnd, RecursionFailed, append_attempt
+from .utils.display import Spinner
 
 
 @dataclass
@@ -107,24 +96,26 @@ class PrefabComposer:
         self.dumb_accompanist = DumbAccompanist(settings)
         self.settings = settings
         logging.debug(
-            textwrap.fill(
-                f"settings: {self.settings}", subsequent_indent=" " * 4
-            )
+            textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
         )
         self._scales = ScaleDict()
         self._bass_range = settings.bass_range
         self._mel_range = settings.mel_range
         self.missing_prefabs = Counter()
         self._n_recurse_calls = 0
-        self._spinner = it.cycle([char for char in r"/|\\-"])
+        self._spinner = Spinner()
 
-    def _get_ranges(self, bass_range, mel_range):
+    def _get_ranges(
+        self,
+        bass_range: t.Optional[t.Tuple[int, int]],
+        mel_range: t.Optional[t.Tuple[int, int]],
+    ) -> t.Tuple[t.Tuple[int, int], t.Tuple[int, int]]:
         # TODO I think I can remove this function
         if bass_range is None:
             bass_range = self._bass_range
         if mel_range is None:
             mel_range = self._mel_range
-        return bass_range, mel_range
+        return bass_range, mel_range  # type:ignore
 
     def _recurse(
         self,
@@ -142,12 +133,16 @@ class PrefabComposer:
             raise RecursionFailed(
                 f"Max recursion calls {self.settings.max_recurse_calls} reached"
             )
-        char = next(self._spinner)
-        print(char, end="\r", flush=True)
+
+        self._spinner()
+
         self._n_recurse_calls += 1
+
         if i:
             assert i - 1 == len(score.accompaniments) == len(score.prefabs)
         assert i == len(score.structural_melody)
+
+        # final step
         if i == len(score.chords):
             logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
             try:
@@ -182,9 +177,7 @@ class PrefabComposer:
                     else:
                         for prefab in self.prefab_applier._step(score):
                             with append_attempt(score.prefabs, prefab):
-                                for pattern in self.dumb_accompanist._step(
-                                    score
-                                ):
+                                for pattern in self.dumb_accompanist._step(score):
                                     with append_attempt(
                                         self._dumb_accompanist_target, pattern
                                     ):
@@ -216,7 +209,12 @@ class PrefabComposer:
         """
         top_down_tie_prob = self.settings.top_down_tie_prob
         is_float = isinstance(top_down_tie_prob, float)
+
         if not is_float:
+            # We expect prob to be defined before use in the loop below but we define
+            # it here to silence pylance warnings
+            prob = 0.0
+
             # 10 should be higher than any metric weight we are likely to
             # observe in wild
             assert isinstance(top_down_tie_prob, dict)
@@ -265,7 +263,7 @@ class PrefabComposer:
         if self.settings.accompaniment_annotations is AccompAnnots.NONE:
             self._dumb_accompanist_target = score.accompaniments
         else:
-            dumb_accompanist_target = [score.accompaniments]
+            dumb_accompanist_target: t.List[t.Any] = [score.accompaniments]
             if self.settings.accompaniment_annotations in (
                 AccompAnnots.ALL,
                 AccompAnnots.PATTERNS,
@@ -281,10 +279,7 @@ class PrefabComposer:
             #   (rather than append to it)
             self._dumb_accompanist_target = tuple(dumb_accompanist_target)
         try:
-            self._recurse(
-                0,
-                score,
-            )
+            self._recurse(0, score)
         except DeadEnd:
             logging.info(
                 f"Recursion reached a terminal dead end. Missing prefabs "

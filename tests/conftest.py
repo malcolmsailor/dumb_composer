@@ -1,22 +1,22 @@
-import shutil
 import os
+import shutil
 import subprocess
-from tempfile import mkstemp
 import tempfile
+from tempfile import mkstemp
+
 import pytest
+from get_changed_files import get_changed_files
 from tqdm import tqdm
 
-from get_changed_files import get_changed_files
-from tests.test_helpers import TEST_OUT_DIR
+# from tests.test_helpers import TEST_OUT_DIR
+TEST_OUT_DIR = os.path.join(os.path.dirname((os.path.realpath(__file__))), "test_out")
 
 
 def _mid_to_png():
     requirements = ("mid2hum", "verovio", "convert")
     for req in requirements:
         if not shutil.which(req):
-            print(
-                f"{req} not found in path, midi output won't be converted to png"
-            )
+            print(f"{req} not found in path, midi output won't be converted to png")
             return
     # basenames = [f for f in os.listdir(TEST_OUT_DIR) if f.endswith(".mid")]
     basenames = [
@@ -53,9 +53,7 @@ def _mid_to_png():
                 )
             except subprocess.CalledProcessError:
                 intermediate_files = []
-                intermediate_dir = os.path.join(
-                    TEST_OUT_DIR, "intermediate_files"
-                )
+                intermediate_dir = os.path.join(TEST_OUT_DIR, "intermediate_files")
                 os.makedirs(intermediate_dir, exist_ok=True)
                 xml_path = os.path.join(
                     intermediate_dir,
@@ -115,9 +113,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--slow", action="store_true", help="run 'slow', comprehensive tests"
     )
-    parser.addoption(
-        "--romantext", type=str, help="path to romantext file", default=""
-    )
+    parser.addoption("--romantext", type=str, help="path to romantext file", default="")
 
 
 @pytest.fixture(scope="session")

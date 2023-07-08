@@ -51,7 +51,7 @@ def put_in_range(p, low=None, high=None, tet=12, fail_silently: bool = False):
 
 
 def get_all_in_range(
-    p: t.Union[t.List[int], int],
+    p: t.Union[t.Sequence[int], int],
     low: int,
     high: int,
     tet: int = 12,

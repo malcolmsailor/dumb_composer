@@ -9,9 +9,7 @@ from dumb_composer.constants import (
 from .time import Meter, MeterError
 
 
-def pitch_dissonant_against_chord(
-    pitch: int, chord_pcs: t.Sequence[int]
-) -> bool:
+def pitch_dissonant_against_chord(pitch: int, chord_pcs: t.Sequence[int]) -> bool:
     """The first item of chord_pcs is understood to be the bass.
 
     This function should eventually be replaced by a function that
@@ -81,7 +79,7 @@ def find_suspensions(
     >>> find_suspensions(67, (2, 5, 7, 11))
     []
 
-    But the function isn't clever enough to recognize that this chord can be
+    But the function isn't clever enough to recognize that the next chord can be
     interpreted as an incomplete V7 chord:
 
     >>> find_suspensions(67, (2, 5, 11))
@@ -133,27 +131,33 @@ def find_suspensions(
     return out
 
 
-def find_suspension_releases(
+def find_suspension_release_times(
     start: Number,
     stop: Number,
     meter: Meter,
     max_weight_diff: t.Optional[int] = None,
     max_suspension_dur: t.Union[str, Number] = "bar",
 ) -> t.List[Number]:
-    """
+    """Returns a list of times at which suspension releases could occur.
+
     # TODO behavior is inconsistent between 9/8 and 3/4. FIX!
-    >>> find_suspension_releases(
+    >>> find_suspension_release_times(
     ...     0.0, 4.5, Meter("9/8"), max_weight_diff=2)
     [Fraction(3, 1), Fraction(1, 1)]
 
     By default, suspensions can be at most one bar long:
 
-    >>> find_suspension_releases(
+    >>> find_suspension_release_times(
     ...     0.0, 16.0, Meter("4/4"), max_weight_diff=2)
     [Fraction(4, 1), Fraction(2, 1), Fraction(1, 1)]
-    >>> find_suspension_releases(
+    >>> find_suspension_release_times(
     ...     0.0, 12.0, Meter("3/4"), max_weight_diff=1)
     [Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)]
+
+    >>> find_suspension_release_times(
+    ...     16.0, 32.0, Meter("4/4"), max_weight_diff=2)
+    [Fraction(20, 1), Fraction(18, 1), Fraction(17, 1)]
+
     """
     out = []
     if max_suspension_dur == "bar":
@@ -169,14 +173,11 @@ def find_suspension_releases(
         except MeterError:
             break
         # print(res_onset, res_weight)
-        if (
-            max_weight_diff is not None
-            and diss_weight - res_weight > max_weight_diff
-        ):
+        if max_weight_diff is not None and diss_weight - res_weight > max_weight_diff:
             break
         if (
             diss_weight >= res_weight
-            and res_onset - diss_onset <= max_suspension_dur
+            and res_onset - diss_onset <= max_suspension_dur  # type:ignore
         ):
             out.append(res_onset)
         if res_weight == meter.min_weight:

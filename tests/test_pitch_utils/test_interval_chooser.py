@@ -20,7 +20,7 @@ def test_interval_chooser():
                 lambda_=lambda_, unison_weighted_as=unison_weighted_as
             )
             ic = mod.IntervalChooser(icsettings)
-            result = ic(intervals, n * 10)
+            result = ic.choose_intervals(intervals, n * 10)
             print_histogram(
                 result,
                 bins=intervals + [max(intervals) + 1],

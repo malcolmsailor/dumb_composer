@@ -37,6 +37,8 @@ class StructuralPartitionerSettings:
     # the more the probability mass is concentrated at the higher metric
     # weights. (The temperature should always be > 0.)
     # TODO changing this doesn't seem to be having an effect
+    # TODO: (Malcolm) I think that having higher temperature concentrate the probability
+    # density is the opposite of the usual convention
     candidates_softmax_temperature: float = 2.0
     arc_shape: Shape = Shape.QUADRATIC
 
@@ -64,13 +66,25 @@ def flatten_list(l: t.List[t.Any]):
 
 
 class StructuralPartitioner:
-    arcs = MappingProxyType(
-        {Shape.LINEAR: "_linear", Shape.QUADRATIC: "_quadratic"}
-    )
+    """
+    Partitions long chords so that they will receive multiple "structural melody" notes.
 
-    def __init__(
-        self, settings: t.Optional[StructuralPartitionerSettings] = None
-    ):
+    >>> rntxt = '''m1 C: I
+    ... m5 V6
+    ... m9 I
+    ... '''
+    >>> score = Score(chord_data=rntxt)
+    >>> structural_partitioner = StructuralPartitioner() # default settings
+    >>> structural_partitioner(score)
+
+    The output is random.
+    >>> [chord.token for chord in score.chords] # doctest: +SKIP
+    ['C:I', 'C:I', 'C:I', 'C:I', 'C:I', 'C:I', 'V6', 'V6', 'V6', 'V6', 'V6', 'I']
+    """
+
+    arcs = MappingProxyType({Shape.LINEAR: "_linear", Shape.QUADRATIC: "_quadratic"})
+
+    def __init__(self, settings: t.Optional[StructuralPartitionerSettings] = None):
         if settings is None:
             settings = StructuralPartitionerSettings()
         self.settings = settings
@@ -95,7 +109,7 @@ class StructuralPartitioner:
         # guaranteed to be split into two one-bar chords, but these
         # one-bar chords will *not* be split further. Whereas each original
         # one-bar chord has a ~50% chance of being split. That seems wrong.
-        chord_dur = chord_release - chord_onset
+        chord_dur = chord_release - chord_onset  # type:ignore
         split = random.random() < self._arc(chord_dur)
         if not split:
             return (chord_onset, chord_release)
@@ -119,8 +133,7 @@ class StructuralPartitioner:
             #   never_split_dur_in_beats
             # TODO debug the weights here
             candidates = self._ts.weights_between(
-                math.ceil(self.settings.never_split_dur_in_beats)
-                * self._ts.beat_dur,
+                math.ceil(self.settings.never_split_dur_in_beats) * self._ts.beat_dur,
                 chord_onset,
                 chord_release,
                 include_start=False,

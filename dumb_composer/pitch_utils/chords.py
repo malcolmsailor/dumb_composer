@@ -1,27 +1,31 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import copy
-from dataclasses import dataclass, field
-from functools import cached_property
-from numbers import Number
 import os
 import re
+import typing as t
+from copy import deepcopy
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from functools import cached_property
+from numbers import Number
 from types import MappingProxyType
+
 import music21
 import pandas as pd
-
-import typing as t
+from cache_lib import cacher
 
 from dumb_composer.constants import TIME_TYPE, speller_pcs, unspeller_pcs
-from cache_lib import cacher
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.music21_handler import parse_rntxt
 from dumb_composer.time import Meter
-from enum import Enum, auto
 
 
 class Allow(Enum):
+    # For omissions,
+    #   NO means pitch cannot be omitted
+    #   YES means pitch can be omitted
+    #   ONLY means pitch *must* be omitted
     NO = auto()
     YES = auto()
     ONLY = auto()
@@ -42,6 +46,7 @@ class Inflection(Enum):
 
 TENDENCIES = MappingProxyType(
     {
+        # V: 3rd: up; 5th: down
         "V": {1: Tendency.UP, 3: Tendency.DOWN},
         "viio": {0: Tendency.UP, 2: Tendency.DOWN, 3: Tendency.DOWN},
         "Ger": {0: Tendency.UP, 1: Tendency.DOWN},
@@ -99,9 +104,7 @@ class Chord:
         pc_i = self._lookup_pcs[pitch % 12]
         return self.tendencies.get(pc_i, Tendency.NONE)
 
-    def pc_must_be_omitted(
-        self, pc: int, existing_pitches: t.Sequence[int]
-    ) -> bool:
+    def pc_must_be_omitted(self, pc: int, existing_pitches: t.Sequence[int]) -> bool:
         """
         Returns true if the pc is a tendency tone that is already present
         among the existing pitches.
@@ -125,10 +128,22 @@ class Chord:
 
     def get_omissions(
         self,
-        existing_pitches: t.Tuple[int],
-        suspensions: t.Tuple[int],
+        existing_pitches: t.Tuple[int, ...],
+        suspensions: t.Tuple[int, ...],
         iq: IntervalQuerier,
     ) -> t.List[Allow]:
+        """
+        2023-07-07 I don't understand the logic of this function. Why *can't* the bass
+        be omitted?
+
+        >>> rntxt = '''Time Signature: 4/4
+        ... m1 C: V7
+        ... m2 I'''
+        >>> (dom7, tonic), _ = get_chords_from_rntxt(rntxt)
+        >>> iq = IntervalQuerier()
+        >>> dom7.get_omissions((67, 71, 74, 77), (), iq)
+        [<Allow.NO: 1>, <Allow.ONLY: 3>, <Allow.YES: 2>, <Allow.ONLY: 3>]
+        """
         out = []
         semitone_resolutions = {(s - 1) % 12 for s in suspensions}
         wholetone_resolutions = {(s - 2) % 12 for s in suspensions}
@@ -486,7 +501,7 @@ def get_chords_from_rntxt(
     split_chords_at_metric_strong_points: bool = True,
     no_added_tones: bool = True,
 ) -> t.Union[
-    t.Tuple[t.List[Chord], Meter, music21.stream.Score],
+    t.Tuple[t.List[Chord], Meter, music21.stream.Score],  # type:ignore
     t.Tuple[t.List[Chord], Meter],
 ]:
     """Converts roman numerals to pcs.
@@ -497,31 +512,28 @@ def get_chords_from_rntxt(
     if no_added_tones:
         rn_data = strip_added_tones(rn_data)
     score = parse_rntxt(rn_data)
-    m21_ts = score[music21.meter.TimeSignature].first()
-    ts = f"{m21_ts.numerator}/{m21_ts.denominator}"
+    m21_ts = score[music21.meter.TimeSignature].first()  # type:ignore
+    ts = f"{m21_ts.numerator}/{m21_ts.denominator}"  # type:ignore
     ts = Meter(ts)
     prev_scale = duration = start = pickup_offset = key = None
     prev_chord = None
     out_list = []
     for rn in score.flatten()[music21.roman.RomanNumeral]:
         if pickup_offset is None:
-            pickup_offset = TIME_TYPE(
-                ((rn.beat) - 1) * rn.beatDuration.quarterLength
-            )
+            pickup_offset = TIME_TYPE(((rn.beat) - 1) * rn.beatDuration.quarterLength)
         chord = _get_chord_pcs(rn)
         scale = fit_scale_to_rn(rn)
-        if scale != prev_scale or chord != prev_chord.pcs:
+        if scale != prev_scale or chord != prev_chord.pcs:  # type:ignore
             if prev_chord is not None:
                 out_list.append(prev_chord)
             start = TIME_TYPE(rn.offset) + pickup_offset
             duration = TIME_TYPE(rn.duration.quarterLength)
             intervals_above_bass = tuple(
-                (scale.index(pc) - scale.index(chord[0])) % len(scale)
-                for pc in chord
+                (scale.index(pc) - scale.index(chord[0])) % len(scale) for pc in chord
             )
             tendencies = apply_tendencies(rn)
-            if rn.key.tonicPitchNameWithCase != key:
-                key = rn.key.tonicPitchNameWithCase
+            if rn.key.tonicPitchNameWithCase != key:  # type:ignore
+                key = rn.key.tonicPitchNameWithCase  # type:ignore
                 pre_token = key + ":"
             else:
                 pre_token = ""
@@ -537,7 +549,7 @@ def get_chords_from_rntxt(
             )
             prev_scale = scale
         else:
-            prev_chord.release += TIME_TYPE(rn.duration.quarterLength)
+            prev_chord.release += TIME_TYPE(rn.duration.quarterLength)  # type:ignore
 
     out_list.append(prev_chord)
 
@@ -547,15 +559,11 @@ def get_chords_from_rntxt(
         )
         out_list = []
         for chord in chord_list:
-            out_list.extend(
-                ts.split_odd_duration(chord, min_split_dur=ts.beat_dur)
-            )
+            out_list.extend(ts.split_odd_duration(chord, min_split_dur=ts.beat_dur))
     get_harmony_onsets_and_releases(out_list)
     return out_list, ts
 
 
 # doctests in cached_property methods are not discovered and need to be
 #   added explicitly to __test__; see https://stackoverflow.com/a/72500890/10155119
-__test__ = {
-    "Chord.augmented_second_adjustments": Chord.augmented_second_adjustments
-}
+__test__ = {"Chord.augmented_second_adjustments": Chord.augmented_second_adjustments}

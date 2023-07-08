@@ -362,10 +362,23 @@ class SimpleSpacerSettings:
         if self.accomp_range is None:
             self.accomp_range = DEFAULT_ACCOMP_RANGE
         if hasattr(super(), "__post_init__"):
-            super().__post_init__()
+            super().__post_init__()  # type:ignore
 
 
 class SimpleSpacer:
+    """
+    >>> simple_spacer = SimpleSpacer()  # default settings
+    >>> pcs = (0, 4, 7)
+    >>> omissions = (Allow.NO,) * 3
+    >>> spacings = simple_spacer(pcs, omissions)  # a generator
+
+    The order of spacings is random
+    >>> next(spacings)  # doctest: +SKIP
+    [36, 55, 64]
+    >>> next(spacings)  # doctest: +SKIP
+    [48, 52, 67]
+    """
+
     def __init__(self, settings: t.Optional[SimpleSpacerSettings] = None):
         if settings is None:
             settings = SimpleSpacerSettings()
@@ -374,10 +387,34 @@ class SimpleSpacer:
 
     @staticmethod
     def _apply_omissions(
-        pcs: t.Iterable[int],
-        omissions: t.Iterable[Allow],
+        pcs: t.Sequence[int],
+        omissions: t.Sequence[Allow],
         include_bass: bool = True,
-    ):
+    ) -> t.Tuple[t.List[int], t.List[int]]:
+        """
+        `omissions` should be the same length as `pcs`
+
+        The return value consists of a list of pcs together with a list of indices
+        indicating which of those pcs can be omitted.
+
+        >>> allow_all = (Allow.YES,) * 3
+        >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_all)
+        ([0, 4, 7], [1, 2])
+        >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_all, include_bass=False)
+        ([0, 4, 7], [0, 1, 2])
+
+        # TODO this seems to be wrong. Shouldn't Allow.NO mean the pitch is *not* a
+        # possible omission?
+
+        >>> allow_none = (Allow.NO,) * 3
+        >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_none, include_bass=False)
+        ([0, 4, 7], [0, 1, 2])
+
+        >>> SimpleSpacer._apply_omissions((0, 4, 7), (Allow.ONLY,) * 3)
+        ([0], [])
+
+        """
+        assert len(pcs) == len(omissions)
         retained_pcs, possible_omissions = [], []
         i = 0
         for j, (pc, omit) in enumerate(zip(pcs, omissions)):
@@ -391,13 +428,13 @@ class SimpleSpacer:
 
     def _sub(
         self,
-        pcs: t.Iterable[int],
+        pcs: t.Sequence[int],
         possible_omissions: t.Sequence[int],
-        min_accomp_pitch: t.Optional[int] = None,
-        max_accomp_pitch: t.Optional[int] = None,
-        include_bass: bool = True,
-        min_bass_pitch: t.Optional[int] = None,
-        max_bass_pitch: t.Optional[int] = None,
+        min_accomp_pitch: int,
+        max_accomp_pitch: int,
+        include_bass: bool,
+        min_bass_pitch: t.Optional[int],
+        max_bass_pitch: t.Optional[int],
     ):
         if self._prev_pitches is not None:
             try:
@@ -414,14 +451,11 @@ class SimpleSpacer:
                 pass
             else:
                 self._prev_pitches = pitches
-                logging.debug(
-                    f"{self.__class__.__name__} yielding spacing {pitches}"
-                )
+                logging.debug(f"{self.__class__.__name__} yielding spacing {pitches}")
                 yield pitches
         if include_bass:
-            bass_options = get_all_in_range(
-                pcs[0], min_bass_pitch, max_bass_pitch
-            )
+            assert min_bass_pitch is not None and max_bass_pitch is not None
+            bass_options = get_all_in_range(pcs[0], min_bass_pitch, max_bass_pitch)
             accomp_options = [
                 get_all_in_range(pc, min_accomp_pitch, max_accomp_pitch)
                 for pc in pcs[1:]
@@ -431,8 +465,7 @@ class SimpleSpacer:
             spacings = list(it.product(bass_options, *accomp_options))
         else:
             accomp_options = [
-                get_all_in_range(pc, min_accomp_pitch, max_accomp_pitch)
-                for pc in pcs
+                get_all_in_range(pc, min_accomp_pitch, max_accomp_pitch) for pc in pcs
             ]
             spacings = list(it.product(*accomp_options))
         random.shuffle(spacings)
@@ -440,15 +473,11 @@ class SimpleSpacer:
             # put pitches in ascending order
             spacing = sorted(spacing)
             self._prev_pitches = spacing
-            logging.debug(
-                f"{self.__class__.__name__} yielding spacing {spacing}"
-            )
+            logging.debug(f"{self.__class__.__name__} yielding spacing {spacing}")
             yield spacing
         for i in range(len(possible_omissions)):
             for indices in it.combinations(possible_omissions, i + 1):
-                logging.debug(
-                    f"{self.__class__.__name__} omitting indices {indices}"
-                )
+                logging.debug(f"{self.__class__.__name__} omitting indices {indices}")
                 try:
                     for spacing in self._sub(
                         [pc for i, pc in enumerate(pcs) if i not in indices],
@@ -464,29 +493,27 @@ class SimpleSpacer:
                     pass
         if include_bass:
             raise NoSpacings(
-                f"no spacings for pcs {pcs} with bass between "
+                f"no more spacings for pcs {pcs} with bass between "
                 f"{min_bass_pitch} and {max_bass_pitch} and other parts "
                 f"between {min_accomp_pitch} and {max_accomp_pitch}"
             )
         else:
             raise NoSpacings(
-                f"no spacings for pcs {pcs} between "
+                f"no more spacings for pcs {pcs} between "
                 f"{min_accomp_pitch} and {max_accomp_pitch}"
             )
 
     def __call__(
         self,
-        pcs: t.Iterable[int],
-        omissions: t.Iterable[Allow],
+        pcs: t.Sequence[int],
+        omissions: t.Sequence[Allow],
         min_accomp_pitch: t.Optional[int] = None,
         max_accomp_pitch: t.Optional[int] = None,
         include_bass: bool = True,
         min_bass_pitch: t.Optional[int] = None,
         max_bass_pitch: t.Optional[int] = None,
-    ):
-        pcs, possible_omissions = self._apply_omissions(
-            pcs, omissions, include_bass
-        )
+    ) -> t.Iterator[t.List[int]]:
+        pcs, possible_omissions = self._apply_omissions(pcs, omissions, include_bass)
         min_accomp_pitch = (
             self.settings.accomp_range[0]
             if min_accomp_pitch is None
@@ -508,7 +535,7 @@ class SimpleSpacer:
                 if max_bass_pitch is None
                 else max_bass_pitch
             )
-        for item in self._sub(
+        yield from self._sub(
             pcs,
             possible_omissions,
             min_accomp_pitch,
@@ -516,5 +543,4 @@ class SimpleSpacer:
             include_bass,
             min_bass_pitch,
             max_bass_pitch,
-        ):
-            yield item
+        )

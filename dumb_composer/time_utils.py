@@ -17,15 +17,15 @@ def get_onsets_within_duration(
     [1.75, 2.0, 2.25, 2.5, 2.75]
     """
     if include_start:
-        initial_i = math.ceil(start / grid)
+        initial_i = math.ceil(start / grid)  # type:ignore
     else:
-        initial_i = math.floor(start / grid) + 1
-    final_i = math.ceil(stop / grid)
+        initial_i = math.floor(start / grid) + 1  # type:ignore
+    final_i = math.ceil(stop / grid)  # type:ignore
     if include_stop:
         final_i += 1
     if final_i <= initial_i:
         return []
-    return [i * grid for i in range(initial_i, final_i)]
+    return [i * grid for i in range(initial_i, final_i)]  # type:ignore
 
 
 def get_barline_times_within_duration(
@@ -53,9 +53,7 @@ def get_barline_times_within_duration(
     >>> get_barline_times_within_duration(0.0, 15.9, 4.0)
     [0.0, 4.0, 8.0, 12.0]
     """
-    return get_onsets_within_duration(
-        start, stop, ts_dur, include_start, include_stop
-    )
+    return get_onsets_within_duration(start, stop, ts_dur, include_start, include_stop)
 
 
 def get_onset_closest_to_middle_of_duration(
@@ -69,7 +67,7 @@ def get_onset_closest_to_middle_of_duration(
     >>> get_onset_closest_to_middle_of_duration([3.75, 4.0, 4.01], 4.0, 4.0151)
     4.01
     """
-    midpoint = (start + stop) / 2
+    midpoint = (start + stop) / 2  # type:ignore
     manhattan_distance = [abs(onset - midpoint) for onset in onsets]
     return onsets[np.argmin(manhattan_distance)]
 
@@ -86,7 +84,7 @@ def get_max_ioi(onsets: t.Sequence[Number]) -> Number:
     """
     if len(onsets) < 2:
         raise ValueError("There must be at least two onsets")
-    return max(y - x for x, y in zip(onsets[:-1], onsets[1:]))
+    return max(y - x for x, y in zip(onsets[:-1], onsets[1:]))  # type:ignore
 
 
 def get_min_ioi(onsets: t.Sequence[Number]) -> Number:
@@ -101,4 +99,4 @@ def get_min_ioi(onsets: t.Sequence[Number]) -> Number:
     """
     if len(onsets) < 2:
         raise ValueError("There must be at least two onsets")
-    return min(y - x for x, y in zip(onsets[:-1], onsets[1:]))
+    return min(y - x for x, y in zip(onsets[:-1], onsets[1:]))  # type:ignore

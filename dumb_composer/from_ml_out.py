@@ -1,9 +1,11 @@
 from typing import Sequence
 
 import numpy as np
+
 from dumb_composer.dumb_accompanist import DumbAccompanist
 
 # from rn_sequences import decode_repr2, repr2_decoded_to_pcs
+
 
 # TEMP remove TODO
 decode_repr2 = repr2_decoded_to_pcs = lambda x: x

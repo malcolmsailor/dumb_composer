@@ -33,7 +33,7 @@ class SingletonRhythm:
 
 @dataclass
 class PrefabRhythms:
-    onsets: t.Sequence[Number]
+    onsets: t.List[Number]
     metric_strength_str: str
     total_dur: Number
     # if releases is omitted it is generated automagically
@@ -60,8 +60,8 @@ class PrefabRhythms:
     # So, e.g., (0.0, 1.0, 3.0 )could also become (0.0, 0.5, 1.5), or
     # (0.0, 2.0, 6.0). We can set limits on the scaling according to the nature
     # of the rhythm.
-    min_scaled_ioi: Number = 0.25
-    max_scaled_ioi: Number = 4.0
+    min_scaled_ioi: Number = 0.25  # type:ignore
+    max_scaled_ioi: Number = 4.0  # type:ignore
 
     def __post_init__(self):
         if self.allow_after_tie is None:
@@ -82,10 +82,10 @@ class PrefabRhythms:
         if self.releases is None:
             self.releases = self.onsets[1:] + [self.total_dur]
         if self.allow_next_to_start_with_rest is None:
-            if self.releases[-1] < self.total_dur:
+            if self.releases[-1] < self.total_dur:  # type:ignore
                 self.allow_next_to_start_with_rest = Allow.YES
             else:
-                last_dur = self.total_dur - self.onsets[-1]
+                last_dur = self.total_dur - self.onsets[-1]  # type:ignore
                 if (
                     last_dur < MIN_DEFAULT_RHYTHM_BEFORE_REST
                     or last_dur / self.total_dur <= 1 / 4
@@ -110,8 +110,7 @@ class PrefabRhythms:
     ):
         if not (
             self.total_dur == total_dur
-            and self.endpoint_metric_strength_str
-            == endpoint_metric_strength_str
+            and self.endpoint_metric_strength_str == endpoint_metric_strength_str
         ):
             return False
         if start_with_rest is Allow.NO and self.onsets[0] != 0:
@@ -136,10 +135,10 @@ class PrefabRhythms:
         min_scaled_ioi and max_scaled_ioi are not changed.
         """
         return self.__class__(
-            onsets=[onset * factor for onset in self.onsets],
+            onsets=[onset * factor for onset in self.onsets],  # type:ignore
             metric_strength_str=self.metric_strength_str,
-            total_dur=self.total_dur * factor,
-            releases=[release * factor for release in self.releases],
+            total_dur=self.total_dur * factor,  # type:ignore
+            releases=[release * factor for release in self.releases],  # type:ignore
             endpoint_metric_strength_str=self.endpoint_metric_strength_str,
         )
 
@@ -192,7 +191,7 @@ PR4 = partial(PR, total_dur=4)
 PR3 = partial(PR, total_dur=3)
 PR2 = partial(PR, total_dur=2)
 
-PREFABS = (
+PREFABS = [
     PR4([0.0, 1.5, 2.0, 2.5, 3.0], "swsws", allow_preparation=Allow.YES),
     PR4([0.0, 1.0, 2.0, 3.0], "swsw"),
     PR4([0.0, 1.5, 2.0, 3.0], "swsw"),
@@ -205,7 +204,7 @@ PREFABS = (
     PR2([0.0, 1.0, 1.5], "s__"),
     PR2([0.0, 1.0], "__"),
     PR2([0.0], "_"),
-)
+]
 
 
 def scale_prefabs(prefabs: t.Sequence[PrefabRhythms]) -> t.List[PrefabRhythms]:
@@ -213,14 +212,14 @@ def scale_prefabs(prefabs: t.Sequence[PrefabRhythms]) -> t.List[PrefabRhythms]:
     for prefab_rhythm in prefabs:
         out.append(prefab_rhythm)
         lower_bound = math.floor(
-            math.log2(prefab_rhythm.min_ioi)
-            - math.log2(prefab_rhythm.min_scaled_ioi)
+            math.log2(prefab_rhythm.min_ioi)  # type:ignore
+            - math.log2(prefab_rhythm.min_scaled_ioi)  # type:ignore
         )
         for i in range(1, lower_bound + 1):
             out.append(prefab_rhythm.scale(2 ** -(i)))
         upper_bound = math.floor(
-            math.log2(prefab_rhythm.max_scaled_ioi)
-            - math.log2(prefab_rhythm.max_ioi)
+            math.log2(prefab_rhythm.max_scaled_ioi)  # type:ignore
+            - math.log2(prefab_rhythm.max_ioi)  # type:ignore
         )
         for i in range(1, upper_bound + 1):
             out.append(prefab_rhythm.scale(2**i))
@@ -231,6 +230,22 @@ PREFABS = scale_prefabs(PREFABS)
 
 
 class PrefabRhythmDirectory:
+    """A directory of prefab rhythms.
+
+    >>> prefab_rhythm_dir = PrefabRhythmDirectory()
+    >>> eight_beat_rhythms = prefab_rhythm_dir(8.0)
+    >>> len(eight_beat_rhythms)  # doctest: +SKIP
+    7
+    >>> eight_beat_rhythms[0]  # doctest: +SKIP
+    PrefabRhythms(
+        onsets=[0.0, 3.0, 4.0, 5.0, 6.0],
+        metric_strength_str='swsws', total_dur=8, releases=[3.0, 4.0, 5.0, 6.0, 8],
+        endpoint_metric_strength_str='ss', allow_suspension=<Allow.YES: 2>,
+        allow_preparation=<Allow.NO: 1>, allow_resolution=<Allow.YES: 2>,
+        allow_after_tie=<Allow.YES: 2>, allow_next_to_start_with_rest=<Allow.NO: 1>,
+        min_scaled_ioi=0.25, max_scaled_ioi=4.0)
+    """
+
     def __init__(self, allow_singleton_rhythm: bool = True):
         self._memo = {}
         self._singleton = SingletonRhythm() if allow_singleton_rhythm else None
@@ -244,7 +259,7 @@ class PrefabRhythmDirectory:
         is_resolution: bool = False,
         is_after_tie: bool = False,
         start_with_rest: Allow = Allow.YES,
-    ) -> t.List[PrefabRhythms]:
+    ) -> t.Union[t.List[PrefabRhythms], t.List[SingletonRhythm]]:
         tup = (
             total_dur,
             endpoint_metric_strength_str,
@@ -269,7 +284,7 @@ class PrefabRhythmDirectory:
                         \tendpoint_metric_strength_str: {endpoint_metric_strength_str}
                         \tis_suspension: {is_suspension}
                         \tis_preparation: {is_preparation}
-                        \is_resolution: {is_resolution}
+                        \tis_resolution: {is_resolution}
                         \tis_after_tie: {is_after_tie}
                         \tstart_with_rest: {start_with_rest}"""
                     )

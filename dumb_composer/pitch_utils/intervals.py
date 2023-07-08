@@ -1,6 +1,7 @@
-import typing as t
 import math
+import typing as t
 import warnings
+
 import numpy as np
 
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
@@ -11,9 +12,7 @@ class IntervalQuerier:
         self._pitches_contain_ic_memo = {}
         self._pc_can_be_omitted_memo = {}
 
-    def pitches_contain_ic(
-        self, pitches: t.FrozenSet[int], interval: int
-    ) -> bool:
+    def pitches_contain_ic(self, pitches: t.FrozenSet[int], interval: int) -> bool:
         """
         >>> iq = IntervalQuerier()
         >>> iq.pitches_contain_ic([60, 64, 67], 4)
@@ -44,14 +43,12 @@ class IntervalQuerier:
         self._pitches_contain_ic_memo[pitches, interval] = False
         return False
 
-    def pc_can_be_omitted(
-        self, pc: int, existing_pitches: t.Tuple[int]
-    ) -> bool:
+    def pc_can_be_omitted(self, pc: int, existing_pitches: t.Tuple[int]) -> bool:
         """
         Returns true if
         1. the pc is not in the bass (i.e., the first item of existing_pitches)
         2. there is already an imperfect consonance or dissonance among
-            existing pitches or if this pc would not create an imperfect
+            existing pitches OR if this pc would not create an imperfect
             consonance or a dissonance if added to the existing pitches.
 
         >>> iq = IntervalQuerier()
@@ -62,6 +59,9 @@ class IntervalQuerier:
         True
 
         >>> iq.pc_can_be_omitted(4, (60, 67))
+        False
+
+        >>> iq.pc_can_be_omitted(10, (60, 67))
         False
         """
 
@@ -153,9 +153,7 @@ def interval_finder(
     intervals = [eligible_p - starting_pitch for eligible_p in eligible_pitches]
     if forbidden_intervals:
         return [
-            interval
-            for interval in intervals
-            if not interval in forbidden_intervals
+            interval for interval in intervals if not interval in forbidden_intervals
         ]
     return intervals
 

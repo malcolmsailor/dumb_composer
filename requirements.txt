@@ -5,7 +5,9 @@ scipy
 -e ../voice_leader
 -e ../midi_to_notes
 -e ../spell
--e ../../data_science/shellplot
--e ../../data_science/time_shifter
--e ../../data_science/rn_sequences
--e ../../data_science/addresser
+-e ../../data_science/cache_lib/
+# There seem to be a bunch of things in the requirements that aren't used... why?
+# -e ../../data_science/shellplot
+# -e ../../data_science/time_shifter
+# -e ../../data_science/rn_sequences
+# -e ../../data_science/addresser

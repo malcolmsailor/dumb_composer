@@ -1,28 +1,37 @@
+from __future__ import annotations
+
+import typing as t
 from bisect import bisect
 from functools import cached_property
-import typing as t
 
 
-def strictly_increasing(l: t.Iterable):
+def strictly_increasing(l: t.Sequence):
     return all(x < y for x, y in zip(l, l[1:]))
 
 
 class ScaleDict:
+    """This class exists simply to cache scales.
+
+    When a scale is retrieved, if it does not exist, it is created.
+
+    We can index the contents with a tuple of pcs, in which case the other arguments to
+    `Scale` are assumed to have their default values:
+
+    >>> scale_dict = ScaleDict()
+    >>> scale_dict[(0, 2, 4, 5, 7, 9, 11)]
+    Scale(pcs=(0, 2, 4, 5, 7, 9, 11), zero_pitch=0, tet=12)
+
+    Or we can index the contents with a tuple of arguments to `Scale`:
+
+    >>> scale_dict[(0, 2, 4, 5, 7, 9, 10), 3, 24]
+    Scale(pcs=(0, 2, 4, 5, 7, 9, 10), zero_pitch=3, tet=24)
+    """
+
     def __init__(self):
         self._scales = {}
 
     def __getitem__(self, args: t.Tuple):
-        """Can be indexed with a tuple of pcs only.
-
-        >>> scale_dict = ScaleDict()
-        >>> scale_dict[(0, 2, 4, 5, 7, 9, 11)].pcs
-        (0, 2, 4, 5, 7, 9, 11)
-
-        Can also be indexed with more args to scale (as a tuple).
-
-        >>> scale_dict[(0, 2, 4, 5, 7, 9, 10), 3].pcs
-        (0, 2, 4, 5, 7, 9, 10)
-        """
+        """ """
         if not isinstance(args, tuple):
             raise ValueError
         if isinstance(args[0], int):
@@ -31,21 +40,15 @@ class ScaleDict:
         try:
             return self._scales[args]
         except KeyError:
-            new_scale = Scale(*args)
+            new_scale = Scale(*args)  # type:ignore
             self._scales[args] = new_scale
             return new_scale
 
 
 class Scale:
-    """Dummy class so that when I type hint Scale in the methods for Scale
-    below it will be defined. TODO when I get back to the internet see how to
-    type hint a method with the class itself."""
-
-
-class Scale:
     def __init__(
         self,
-        pcs: t.Iterable[int],
+        pcs: t.Sequence[int],
         zero_pitch: int = 0,
         tet: int = 12,
     ):
@@ -63,17 +66,20 @@ class Scale:
             pc1 = pcs[(i - 1) % len(pcs)]
             if pc2 < pc1:
                 break
-        # print(pcs, i, pcs[i:] + pcs[:i])
-        pcs = pcs[i:] + pcs[:i]
+
+        pcs = pcs[i:] + pcs[:i]  # type:ignore
         assert strictly_increasing(pcs)
         assert min(pcs) >= 0 and max(pcs) < tet
         self._pcs = pcs
         self._pcs_set = set(pcs)
-        self._tonic_idx = (-i) % len(pcs)
+        self._tonic_idx = (-i) % len(pcs)  # type:ignore
         self._len = len(pcs)
         self._zero_pitch = zero_pitch
         self._tet = tet
         self._lookup_pc = {pc: i for i, pc in enumerate(self._pcs)}
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(pcs={self._pcs}, zero_pitch={self._zero_pitch}, tet={self._tet})"
 
     @property
     def tonic_pc(self):  # pylint: disable=missing-docstring
@@ -87,7 +93,7 @@ class Scale:
     def __len__(self):
         return self._len
 
-    def __contains__(self, pitch):
+    def __contains__(self, pitch: int):
         return pitch % self._tet in self._pcs
 
     def __getitem__(self, key: int) -> int:
@@ -113,11 +119,15 @@ class Scale:
 
         If alteration is "+", the pitch one semitone below the next higher
         scale pitch is returned.
-        >>> g_major = Scale([7,9,11,0,2,4,6])
-        >>> g_major.get_auxiliary(35, "+") # raised ^1 = G#
-        68
+
+        E.g., in D harmonic minor
+        - D will be raised to D#
+        - Bb will be raised to B#
 
         >>> d_minor = Scale([2,4,5,7,9,10,1]) # D harmonic minor
+        >>> d_minor.get_auxiliary(35, "+") # raised ^1 = D#
+        63
+
         >>> d_minor.get_auxiliary(33, "+") # raised ^6 = B#
         60
 
@@ -127,6 +137,11 @@ class Scale:
         If `lower_degrees` is "natural", then if there is a semitone below
         the scale degree, it is left unaltered. Otherwise, it is lowered by
         a semitone.
+
+        E.g., in D harmonic minor
+        - E will be lowered to Eb
+        - D will be left unaltered
+        - C# will be lowered to C (not Cb)
 
         >>> d_minor.get_auxiliary(36, "-") # ^2 has whole-tone below, lowered to Eb
         63
@@ -138,6 +153,10 @@ class Scale:
         Otherwise if `lower_degrees` is "chromatic", then the pitch one semitone
         above the next lower scale pitch is returned. This is analogous to the
         behavior of "+", but is less musically common.
+
+        E.g., in D harmonic minor
+        - C# will be lowered to Cb
+
         >>> d_minor.get_auxiliary(34, "-",
         ...     lowered_degrees="chromatic") # ^7 has augmented 2nd below, lowered to Cb
         59
@@ -178,7 +197,7 @@ class Scale:
         return octave * len(self) + idx
 
     def nearest_index(self, pitch, scale2: t.Optional[Scale] = None):
-        """Use of this function is to find best approximation to generic
+        """The use of this function is to find best approximation to generic
         interval within the scale to a pitch which may or may not be in the
         scale (see get_interval below).
 
@@ -202,7 +221,7 @@ class Scale:
         24
 
         However we mostly use heptatonic scales, where there is never an
-        interval wider than a semitone between pitches, so for any pitch not
+        interval wider than a whole tone between pitches, so for any pitch not
         in the scale, there will be two pitches equidistant from it. In those
         cases, if scale2 is not provided, by default we return the lower of the
         possible indices (which corresponds to "sharpening" the lower pitch).
@@ -261,9 +280,7 @@ class Scale:
             i = upper_i - 1
         return octave * len(self) + i
 
-    def get_interval(
-        self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None
-    ):
+    def get_interval(self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None):
         """Gets generic interval between two pitches.
 
         >>> s = Scale([0,2,4,5,7,9,11]) # C major
@@ -300,9 +317,7 @@ class Scale:
         >>> s.get_interval(61, 68, scale2=s2) # a perfect fifth
         4
         """
-        return self.nearest_index(pitch2, scale2) - self.nearest_index(
-            pitch1, scale2
-        )
+        return self.nearest_index(pitch2, scale2) - self.nearest_index(pitch1, scale2)
 
     def get_interval_class(
         self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None

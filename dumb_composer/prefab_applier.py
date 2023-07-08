@@ -43,7 +43,7 @@ class PrefabApplierSettings:
     #   remaining probability mass is distributed to the other prefabs.
     #   The items in prefab_inertia should be in (0.0, 1.0) and should sum to
     #   at most 1.
-    prefab_inertia: t.Optional[t.Tuple[float]] = (0.5, 0.2)
+    prefab_inertia: t.Optional[t.Tuple[float, ...]] = (0.5, 0.2)
     forbidden_parallels: t.Sequence[int] = (7, 0)
 
 
@@ -56,11 +56,11 @@ class PrefabApplier:
             settings = PrefabApplierSettings()
         self.settings = settings
         self._prefab_rhythm_stacks: t.DefaultDict[
-            t.List[PrefabRhythms]
+            Number, t.List[PrefabRhythms]
         ] = defaultdict(list)
-        self._prefab_pitch_stacks: t.DefaultDict[
-            t.List[PrefabPitches]
-        ] = defaultdict(list)
+        self._prefab_pitch_stacks: t.DefaultDict[t.List[PrefabPitches]] = defaultdict(
+            list
+        )
 
     def _append_from_prefabs(
         self,
@@ -79,15 +79,13 @@ class PrefabApplier:
         #   fail.
         orig_scale_degree = scale.index(initial_pitch)
         if isinstance(prefab_rhythms, SingletonRhythm):
-            releases = [current_chord.release - current_chord.onset]
+            releases = [current_chord.release - current_chord.onset]  # type:ignore
         else:
             releases = prefab_rhythms.releases
         offset = current_chord.onset
 
         for i, (rel_scale_degree, onset, release) in enumerate(
-            zip(
-                prefab_pitches.relative_degrees, prefab_rhythms.onsets, releases
-            )
+            zip(prefab_pitches.relative_degrees, prefab_rhythms.onsets, releases)
         ):
             if i in prefab_pitches.alterations:
                 new_pitch = scale.get_auxiliary(
@@ -100,15 +98,12 @@ class PrefabApplier:
                 i > 0
                 and abs(
                     (
-                        current_mod_degree := (
-                            orig_scale_degree + rel_scale_degree
-                        )
+                        current_mod_degree := (orig_scale_degree + rel_scale_degree)
                         % len(scale)
                     )
                     - (
                         prev_mod_degree := (
-                            orig_scale_degree
-                            + prefab_pitches.relative_degrees[i - 1]
+                            orig_scale_degree + prefab_pitches.relative_degrees[i - 1]
                         )
                         % len(scale)
                     )
@@ -148,9 +143,7 @@ class PrefabApplier:
                             notes[-1].pitch += 1
                         else:
                             notes[-1].pitch -= 1
-            notes.append(
-                Note(new_pitch, onset + offset, release + offset, track=track)
-            )
+            notes.append(Note(new_pitch, onset + offset, release + offset, track=track))
         if prefab_pitches.tie_to_next:
             notes[-1].tie_to_next = True
         # TODO I need to finish implementing augmented 2nds here
@@ -175,7 +168,17 @@ class PrefabApplier:
         prefab_type: t.Type,
     ) -> t.List[float]:
         """Weights will not sum to 1 in those cases where all prefab_options
-        are in the first n items of the stack."""
+        are in the first n items of the stack.
+
+        >>> prefab_applier = PrefabApplier()
+        >>> segment_dur = 3.0
+        >>> rhythm_options = prefab_applier.prefab_rhythm_dir(segment_dur)
+        >>> prefab_applier._get_prefab_weights(  # doctest: +SKIP
+        ...     prefab_options=rhythm_options,
+        ...     prefab_stack_key=segment_dur,
+        ...     prefab_type=PrefabRhythms)
+        [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+        """
         if prefab_type is PrefabRhythms:
             stacks = self._prefab_rhythm_stacks
         else:
@@ -184,12 +187,12 @@ class PrefabApplier:
         prefab_inertia = self.settings.prefab_inertia
         temp = {}
         remaining_mass = 1.0
-        for prefab, prob in zip(reversed(stack), prefab_inertia):
+        for prefab, prob in zip(reversed(stack), prefab_inertia):  # type:ignore
             if prefab in prefab_options:
                 temp[prefab] = prob
                 remaining_mass -= prob
         if len(prefab_options) == len(temp):
-            return [temp.get(prefab) for prefab in prefab_options]
+            return [temp.get(prefab) for prefab in prefab_options]  # type:ignore
         epsilon = remaining_mass / (len(prefab_options) - len(temp))
         return [temp.get(prefab, epsilon) for prefab in prefab_options]
 
@@ -199,8 +202,7 @@ class PrefabApplier:
         next_scale = score.scales[current_i + 1]
         current_chord = score.chords[current_i]
         decorated_voice = self.get_decorated_voice(score)
-        # current_mel_pitch = score.structural_melody[current_i]
-        # next_mel_pitch = score.structural_melody[current_i + 1]
+
         current_mel_pitch = decorated_voice[current_i]
         next_mel_pitch = decorated_voice[current_i + 1]
         is_suspension = current_i in score.suspension_indices
@@ -215,9 +217,9 @@ class PrefabApplier:
         # TODO I use segment_dur as key to the prefab_stacks. But I think
         #   maybe I should use a string that combines the segment_dur with
         #   the metric weight of the start and end point.
-        segment_dur = current_chord.release - current_chord.onset
+        segment_dur = current_chord.release - current_chord.onset  # type:ignore
         rhythm_options = self.prefab_rhythm_dir(
-            segment_dur,
+            segment_dur,  # type:ignore
             # TODO metric strength
             is_suspension=is_suspension,
             is_preparation=is_preparation,
@@ -226,11 +228,9 @@ class PrefabApplier:
             start_with_rest=start_with_rest,
         )
         rhythm_weights = self._get_prefab_weights(
-            rhythm_options, segment_dur, PrefabRhythms
+            rhythm_options, segment_dur, PrefabRhythms  # type:ignore
         )
-        for rhythm in weighted_sample_wo_replacement(
-            rhythm_options, rhythm_weights
-        ):
+        for rhythm in weighted_sample_wo_replacement(rhythm_options, rhythm_weights):
             self._prefab_rhythm_stacks[segment_dur].append(rhythm)
             score.allow_prefab_start_with_rest[
                 current_i + 1
@@ -238,9 +238,7 @@ class PrefabApplier:
             generic_melody_pitch_interval = current_scale.get_interval(
                 current_mel_pitch, next_mel_pitch, scale2=next_scale
             )
-            interval_is_diatonic = current_scale.pitch_is_diatonic(
-                next_mel_pitch
-            )
+            interval_is_diatonic = current_scale.pitch_is_diatonic(next_mel_pitch)
             relative_chord_factors = get_relative_chord_factors(
                 0
                 if self.settings.prefab_voice == "bass"
@@ -265,9 +263,7 @@ class PrefabApplier:
                 segment_dur,
                 PrefabPitches,
             )
-            for pitches in weighted_sample_wo_replacement(
-                pitch_options, pitch_weights
-            ):
+            for pitches in weighted_sample_wo_replacement(pitch_options, pitch_weights):
                 self._prefab_pitch_stacks[segment_dur].append(pitches)
                 if pitches.tie_to_next:
                     assert current_i not in score.tied_prefab_indices
@@ -296,7 +292,7 @@ class PrefabApplier:
 
     def _has_forbidden_parallels(
         self, current_i: int, score: Score, realized_notes: t.List[Note]
-    ):
+    ) -> bool:
         decorated_voice = self.get_decorated_voice(score)
         this_next_pitch = decorated_voice[current_i + 1]
         nondecorated_voice = self.get_nondecorated_structural_voice(score)
@@ -317,8 +313,8 @@ class PrefabApplier:
         current_chord = score.chords[current_i]
         out = Note(
             self.get_decorated_voice(score)[current_i],
-            current_chord.onset,
-            current_chord.release,
+            current_chord.onset,  # type:ignore
+            current_chord.release,  # type:ignore
         )
         logging.debug(f"{self.__class__.__name__} yielding note {str(out)}")
         yield [out]
