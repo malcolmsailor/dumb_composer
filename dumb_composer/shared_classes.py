@@ -16,8 +16,12 @@ from .pitch_utils.scale import Scale, ScaleDict
 
 from .pitch_utils.put_in_range import put_in_range
 
-from .pitch_utils.chords import get_chords_from_rntxt, Allow, is_same_harmony
-from dumb_composer.pitch_utils.chords import Chord
+from dumb_composer.pitch_utils.chords import (
+    get_chords_from_rntxt,
+    Allow,
+    is_same_harmony,
+    Chord,
+)
 
 
 class Annotation(pd.Series):
@@ -338,7 +342,7 @@ class Score:
     @property
     def structural_bass_as_df(self) -> pd.DataFrame:
         return pd.DataFrame(
-            Note(
+            Note(  # type:ignore
                 bass_pitch,
                 self.chords[i].onset,
                 self.chords[i].release,
@@ -384,7 +388,7 @@ class Score:
         idx: int,
         attr_names: t.Sequence[str] = ("structural_bass", "structural_melody"),
     ):
-        return tuple(
+        return tuple(  # type:ignore
             getattr(self, attr_name)[idx]
             for attr_name in attr_names
             if len(getattr(self, attr_name)) > idx

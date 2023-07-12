@@ -3,6 +3,8 @@ import math
 import typing as t
 from dumb_composer.utils.nested import nested
 
+# TODO: (Malcolm) maybe consolidate these functions between libraries
+
 
 @nested()
 def put_in_range(p, low=None, high=None, tet=12, fail_silently: bool = False):

@@ -2,15 +2,37 @@ import random
 import os
 
 import pytest
+from dumb_composer.shared_classes import Score
 
 import dumb_composer.two_part_contrapuntist as mod
+from dumb_composer.utils.recursion import DeadEnd
 from midi_to_notes import df_to_midi
 
 from tests.test_helpers import TEST_OUT_DIR
 
 
-def test_two_part_contrapuntist():
+@pytest.mark.parametrize(
+    "rntxt, structural_melody_pitches",
+    (
+        ("m1 d: i b3 viio7", [62, 65, 69]),
+        ("m1 F: V7 b3 viio7/vi", [60, 64, 67, 70]),
+        ("m1 F: V7 b3 #viio7/vi", [60, 64, 67, 70]),
+    ),
+)
+def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches):
+    tpc = mod.TwoPartContrapuntist()
+    score = Score(chord_data=rntxt)
+    for melody_pitch in structural_melody_pitches:
+        score.structural_melody.clear()
+        score.structural_melody.append(melody_pitch)
+        try:
+            for pitch in tpc._step(score):
+                assert pitch % 12 != score.structural_bass[-1] % 12
+        except DeadEnd:
+            pass
 
+
+def test_two_part_contrapuntist():
     rn_format = """Time signature: {}
     m1 Bb: I
     m2 F: ii

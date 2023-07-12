@@ -106,7 +106,7 @@ class DumbAccompanist:
         below = self._get_below(score)
         above = self._get_above(score)
         omissions = chord.get_omissions(
-            existing_pitches=score.get_existing_pitches(i),
+            existing_pitches_or_pcs=score.get_existing_pitches(i),
             # the last step should never have a suspension
             suspensions=(),
             iq=self._iq,
@@ -145,16 +145,25 @@ class DumbAccompanist:
         omissions = chord.get_omissions(
             # LONGTERM is there anything besides structural_bass and
             #   structural_melody to be included in omissions?
-            existing_pitches=score.get_existing_pitches(i),
+            existing_pitches_or_pcs=score.get_existing_pitches(i),
             suspensions=suspensions,
             iq=self._iq,
         )
+        pattern = self._pm.get_pattern(
+            chord.pcs,
+            chord.onset,
+            chord.harmony_onset,
+            chord.harmony_release,
+            pattern=self.settings.pattern,
+        )
+        spacing_constraints = self._pm.get_spacing_constraints(pattern)
         for pitches in self._cs(
             chord.pcs,
             omissions=omissions,
             min_accomp_pitch=above + 1,
             max_accomp_pitch=below - 1,
             include_bass=self.settings.include_bass,
+            spacing_constraints=spacing_constraints,
         ):
             accompaniment_pattern = self._pm(
                 pitches,
@@ -162,7 +171,7 @@ class DumbAccompanist:
                 release=chord.release,
                 harmony_onset=chord.harmony_onset,
                 harmony_release=chord.harmony_release,
-                pattern=self.settings.pattern,
+                pattern=pattern,
                 track=score.accompaniments_track,
                 chord_change=chord_change,
             )

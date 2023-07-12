@@ -13,9 +13,11 @@ from dumb_composer.constants import (
     DEFAULT_TENOR_ACCOMP_RANGE,
     DEFAULT_TENOR_MEL_RANGE,
 )
-from dumb_composer.pitch_utils.chords import Chord
+from dumb_composer.pitch_utils.chords import Chord, voice_lead_chords
+from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.ranges import Ranger
 from dumb_composer.pitch_utils.scale import ScaleDict
+from dumb_composer.pitch_utils.types import Pitch
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
 from dumb_composer.two_part_contrapuntist import (
@@ -23,7 +25,7 @@ from dumb_composer.two_part_contrapuntist import (
     TwoPartContrapuntistSettings,
 )
 
-from .chord_spacer import NoSpacings
+from .chord_spacer import NoSpacings, SimpleSpacer, SimpleSpacerSettings
 from .dumb_accompanist import AccompAnnots, DumbAccompanist, DumbAccompanistSettings
 from .shared_classes import Note, Score
 from .structural_partitioner import StructuralPartitioner, StructuralPartitionerSettings
@@ -117,11 +119,7 @@ class PrefabComposer:
             mel_range = self._mel_range
         return bass_range, mel_range  # type:ignore
 
-    def _recurse(
-        self,
-        i: int,
-        score: Score,
-    ):
+    def _check_n_recurse_calls(self):
         if (
             self.settings.max_recurse_calls is not None
             and self._n_recurse_calls > self.settings.max_recurse_calls
@@ -134,26 +132,33 @@ class PrefabComposer:
                 f"Max recursion calls {self.settings.max_recurse_calls} reached"
             )
 
+    def _final_step(self, i: int, score: Score):
+        logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
+        try:
+            for prefab in self.prefab_applier._final_step(score):
+                with append_attempt(score.prefabs, prefab):
+                    for pattern in self.dumb_accompanist._final_step(score):
+                        with append_attempt(score.accompaniments, pattern):
+                            return
+        except MissingPrefabError as exc:
+            self.missing_prefabs[str(exc)] += 1
+        raise DeadEnd
+
+    def _recurse(self, i: int, score: Score):
+        self._check_n_recurse_calls()
+
         self._spinner()
 
         self._n_recurse_calls += 1
 
-        if i:
-            assert i - 1 == len(score.accompaniments) == len(score.prefabs)
+        assert (i == 0) or (i - 1 == len(score.accompaniments) == len(score.prefabs))
         assert i == len(score.structural_melody)
 
         # final step
         if i == len(score.chords):
-            logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
-            try:
-                for prefab in self.prefab_applier._final_step(score):
-                    with append_attempt(score.prefabs, prefab):
-                        for pattern in self.dumb_accompanist._final_step(score):
-                            with append_attempt(score.accompaniments, pattern):
-                                return
-            except MissingPrefabError as exc:
-                self.missing_prefabs[str(exc)] += 1
-            raise DeadEnd
+            self._final_step(i, score)
+            return
+
         logging.debug(
             f"{self.__class__.__name__}._recurse: {i} {score.chords[i].token} "
             f"onset={score.chords[i].onset} "
@@ -184,8 +189,9 @@ class PrefabComposer:
                                         return self._recurse(i + 1, score)
             except MissingPrefabError as exc:
                 self.missing_prefabs[str(exc)] += 1
-        raise DeadEnd
+        raise DeadEnd()
 
+    # TODO: (Malcolm) make this a function, write doctests
     def _apply_top_down_ties(self, score: Score):
         """
         Applies ties in a "top-down" manner.
@@ -310,3 +316,116 @@ class PrefabComposer:
             out.append(f"{count} failures:")
             out.append(key)
         return "\n".join(out)
+
+
+@dataclass
+class FourPartComposerSettings(
+    TwoPartContrapuntistSettings,
+    StructuralPartitionerSettings,
+    SimpleSpacerSettings,
+):
+    max_recurse_calls: t.Optional[int] = None
+
+
+class FourPartComposer:
+    # TODO: (Malcolm) create a common base class for this and `PrefabComposer`
+    def __init__(self, settings: FourPartComposerSettings = FourPartComposerSettings()):
+        self.structural_partitioner = StructuralPartitioner(settings)
+        self.two_part_contrapuntist = TwoPartContrapuntist(settings)
+        self.simple_spacer = SimpleSpacer(settings)
+        self.settings = settings
+        logging.debug(
+            textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
+        )
+        self._scales = ScaleDict()
+        self._bass_range = settings.bass_range
+        self._mel_range = settings.mel_range
+        self._n_recurse_calls = 0
+        self._spinner = Spinner()
+        self._iq = IntervalQuerier()
+
+    def _get_ranges(
+        self,
+        bass_range: t.Optional[t.Tuple[int, int]],
+        mel_range: t.Optional[t.Tuple[int, int]],
+    ) -> t.Tuple[t.Tuple[int, int], t.Tuple[int, int]]:
+        # TODO I think I can remove this function
+        if bass_range is None:
+            bass_range = self._bass_range
+        if mel_range is None:
+            mel_range = self._mel_range
+        return bass_range, mel_range  # type:ignore
+
+    def _check_n_recurse_calls(self):
+        if (
+            self.settings.max_recurse_calls is not None
+            and self._n_recurse_calls > self.settings.max_recurse_calls
+        ):
+            logging.info(
+                f"Max recursion calls {self.settings.max_recurse_calls} reached"
+            )
+            raise RecursionFailed(
+                f"Max recursion calls {self.settings.max_recurse_calls} reached"
+            )
+
+    def _final_step(self, i: int, score: Score):
+        logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
+        # TODO: (Malcolm)
+        pass
+
+    def _voice_lead_chords(self, i: int, score: Score):
+        chord1 = score.chords[i]
+        if i == 0:
+            omissions = chord1.get_omissions(score.get_existing_pitches(0), iq=self._iq)
+            # TODO: (Malcolm) range constraints, spacing constraints
+            yield from self.simple_spacer(chord1.pcs, omissions=omissions)
+            return
+
+        # TODO: (Malcolm) this is going to give an index error
+        chord2 = score.chords[i + 1]
+        voice_lead_chords(
+            chord1,
+            chord2,
+            chord1_pitches=TODO,
+            chord1_suspensions=TODO,
+            chord2_melody_pitch=TODO,
+        )
+
+    def _recurse(self, i: int, score: Score):
+        self._check_n_recurse_calls()
+
+        self._spinner()
+        self._n_recurse_calls += 1
+
+        assert i == len(score.structural_melody)
+
+        if i == len(score.chords):
+            logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
+
+        for mel_pitch in self.two_part_contrapuntist._step(score):
+            with append_attempt(score.structural_melody, mel_pitch):
+                # TODO: (Malcolm)
+                breakpoint()
+                pass
+
+        raise DeadEnd()
+
+    def __call__(
+        self,
+        chord_data: t.Union[str, t.List[Chord]],
+        bass_range: t.Optional[t.Tuple[Pitch, Pitch]] = None,
+        mel_range: t.Optional[t.Tuple[Pitch, Pitch]] = None,
+        transpose: int = 0,
+    ):
+        self._n_recurse_calls = 0
+        bass_range, mel_range = self._get_ranges(bass_range, mel_range)
+        print("Reading score... ", end="", flush=True)
+        score = Score(chord_data, bass_range, mel_range, transpose=transpose)
+        print("done.")
+        self.structural_partitioner(score)
+
+        try:
+            self._recurse(0, score)
+        except DeadEnd:
+            raise RecursionFailed("Reached a terminal dead end")
+        # TODO: (Malcolm) return value

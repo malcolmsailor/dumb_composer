@@ -1,10 +1,49 @@
-import math
 import typing as t
-import warnings
 
 import numpy as np
 
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
+from dumb_composer.pitch_utils.types import (
+    ChromaticInterval,
+    Pitch,
+    PitchClass,
+)
+
+
+def reduce_compound_chromatic_interval(
+    interval: ChromaticInterval, tet: int = 12
+) -> ChromaticInterval:
+    """
+    Result is similar to `interval % tet` except:
+    1. negative intervals have negative sign
+    2. we treat octaves specially: only unisons return 0; all other octaves and their
+        compounds return +/- 12
+
+    >>> reduce_compound_chromatic_interval(7)
+    7
+    >>> reduce_compound_chromatic_interval(-7)
+    -7
+    >>> reduce_compound_chromatic_interval(12)
+    12
+    >>> reduce_compound_chromatic_interval(-12)
+    -12
+    >>> reduce_compound_chromatic_interval(0)
+    0
+    >>> reduce_compound_chromatic_interval(24)
+    12
+    >>> reduce_compound_chromatic_interval(-24)
+    -12
+    """
+    reduced = interval % tet
+    if interval < 0:
+        return reduced - tet
+
+    if reduced > 0:
+        return reduced
+
+    if interval != 0:
+        return tet
+    return 0
 
 
 class IntervalQuerier:
@@ -12,7 +51,7 @@ class IntervalQuerier:
         self._pitches_contain_ic_memo = {}
         self._pc_can_be_omitted_memo = {}
 
-    def pitches_contain_ic(self, pitches: t.FrozenSet[int], interval: int) -> bool:
+    def pitches_contain_ic(self, pitches: t.Iterable[Pitch], interval: int) -> bool:
         """
         >>> iq = IntervalQuerier()
         >>> iq.pitches_contain_ic([60, 64, 67], 4)
@@ -43,13 +82,19 @@ class IntervalQuerier:
         self._pitches_contain_ic_memo[pitches, interval] = False
         return False
 
-    def pc_can_be_omitted(self, pc: int, existing_pitches: t.Tuple[int]) -> bool:
+    def pc_can_be_omitted(
+        self, pc: PitchClass, existing_pitches: t.Iterable[Pitch]
+    ) -> bool:
         """
-        Returns true if
-        1. the pc is not in the bass (i.e., the first item of existing_pitches)
-        2. there is already an imperfect consonance or dissonance among
-            existing pitches OR if this pc would not create an imperfect
-            consonance or a dissonance if added to the existing pitches.
+
+        Returns true if there is already an imperfect consonance or dissonance among
+        existing pitches OR if this pc would not create an imperfect consonance or a
+        dissonance if added to the existing pitches.
+
+        Note:
+        A former version of this function always returned False when the pc was
+        the "bass" (the first item of existing_pitches). I have no idea why though,
+        I think this was closer to the opposite of what I meant to do.
 
         >>> iq = IntervalQuerier()
         >>> iq.pc_can_be_omitted(7, (60, 64))
@@ -58,18 +103,31 @@ class IntervalQuerier:
         >>> iq.pc_can_be_omitted(7, (60, 67))
         True
 
+        >>> iq.pc_can_be_omitted(0, (60, 67))
+        True
+
         >>> iq.pc_can_be_omitted(4, (60, 67))
         False
 
         >>> iq.pc_can_be_omitted(10, (60, 67))
         False
+
+        If there are no existing pitches, returns False (I'm not totally sure this is
+        the desired behavior though):
+        >>> iq.pc_can_be_omitted(7, ())
+        False
         """
+        if not existing_pitches:
+            return False
+
+        existing_pitches = tuple(existing_pitches)
 
         if (pc, existing_pitches) in self._pc_can_be_omitted_memo:
             return self._pc_can_be_omitted_memo[pc, existing_pitches]
-        if pc == existing_pitches[0] % 12:
-            self._pc_can_be_omitted_memo[pc, existing_pitches] = False
-            return False
+        # TODO: (Malcolm) remove
+        # if pc == existing_pitches[0] % 12:
+        #     self._pc_can_be_omitted_memo[pc, existing_pitches] = False
+        #     return False
         for ic in (1, 2, 3, 4, 6):
             if self.pitches_contain_ic(existing_pitches, ic):
                 self._pc_can_be_omitted_memo[pc, existing_pitches] = True

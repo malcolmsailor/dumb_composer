@@ -1,10 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import itertools as it
 import logging
 import random
 import typing as t
 
-from voice_leader import (
+# TODO: (Malcolm) figure out why pylance doesn't recognize these imports
+from voice_leader import (  # type:ignore
     voice_lead_pitches,
     NoMoreVoiceLeadingsError,
     CardinalityDiffersTooMuch,
@@ -26,6 +27,7 @@ from dumb_composer.pitch_utils.put_in_range import (
     get_all_in_range,
     put_in_range,
 )
+from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spacing
 from .utils.recursion import UndoRecursiveStep
 
 
@@ -100,7 +102,7 @@ def spacing_method(f):
 #             pitches = voice_lead_pitches(
 #                 self._prev_pitches,
 #                 pcs,
-#                 preserve_root=True,
+#                 preserve_bass=True,
 #                 min_pitch=l_bound,
 #                 max_pitch=u_bound,
 #             )
@@ -259,7 +261,7 @@ def spacing_method(f):
 #                 pitches = voice_lead_pitches(
 #                     self._prev_pitches,
 #                     pcs,
-#                     preserve_root=True,
+#                     preserve_bass=True,
 #                     min_pitch=l_bound,
 #                     max_pitch=u_bound,
 #                 )
@@ -353,7 +355,7 @@ def spacing_method(f):
 @dataclass
 class SimpleSpacerSettings:
     bass_range: t.Tuple[int, int] = (33, 53)
-    accomp_range: t.Tuple[int, int] = None
+    accomp_range: t.Tuple[int, int] = None  # type:ignore
 
     def __post_init__(self):
         logging.debug(f"running SimpleSpacerSettings __post_init__()")
@@ -395,7 +397,12 @@ class SimpleSpacer:
         `omissions` should be the same length as `pcs`
 
         The return value consists of a list of pcs together with a list of indices
-        indicating which of those pcs can be omitted.
+
+        Args:
+            pcs: chord members
+            omissions: Allow enums of same length as pcs indicating whether item
+                should be omitted
+            include_bass: whether bass should be included irrespective of omissions
 
         >>> allow_all = (Allow.YES,) * 3
         >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_all)
@@ -403,15 +410,18 @@ class SimpleSpacer:
         >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_all, include_bass=False)
         ([0, 4, 7], [0, 1, 2])
 
-        # TODO this seems to be wrong. Shouldn't Allow.NO mean the pitch is *not* a
-        # possible omission?
-
         >>> allow_none = (Allow.NO,) * 3
+        >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_none, include_bass=True)
+        ([0, 4, 7], [])
         >>> SimpleSpacer._apply_omissions((0, 4, 7), allow_none, include_bass=False)
-        ([0, 4, 7], [0, 1, 2])
+        ([0, 4, 7], [])
 
+        Pcs corresponding to Allow.ONLY are omitted from the return value since
+        they can never be used anyway.
         >>> SimpleSpacer._apply_omissions((0, 4, 7), (Allow.ONLY,) * 3)
         ([0], [])
+        >>> SimpleSpacer._apply_omissions((0, 4, 7), (Allow.ONLY,) * 3, include_bass=False)
+        ([], [])
 
         """
         assert len(pcs) == len(omissions)
@@ -421,7 +431,7 @@ class SimpleSpacer:
             if omit is Allow.ONLY and ((not include_bass) or j != 0):
                 continue
             retained_pcs.append(pc)
-            if (not include_bass) or j != 0:
+            if (not include_bass or j != 0) and (omit is not Allow.NO):
                 possible_omissions.append(i)
             i += 1
         return retained_pcs, possible_omissions
@@ -435,13 +445,14 @@ class SimpleSpacer:
         include_bass: bool,
         min_bass_pitch: t.Optional[int],
         max_bass_pitch: t.Optional[int],
+        spacing_constraints: t.Optional[SpacingConstraints] = None,
     ):
         if self._prev_pitches is not None:
             try:
                 pitches = voice_lead_pitches(
                     self._prev_pitches,
                     pcs,
-                    preserve_root=include_bass,
+                    preserve_bass=include_bass,
                     min_pitch=min_accomp_pitch,
                     max_pitch=max_accomp_pitch,
                     min_bass_pitch=min_bass_pitch,
@@ -462,6 +473,7 @@ class SimpleSpacer:
             ]
             # It would be nice to shuffle the Cartesian product without
             #   having to calculate the whole thing/place it in memory.
+            # TODO: (Malcolm) why do we use product and not combinations here?
             spacings = list(it.product(bass_options, *accomp_options))
         else:
             accomp_options = [
@@ -472,6 +484,12 @@ class SimpleSpacer:
         for spacing in spacings:
             # put pitches in ascending order
             spacing = sorted(spacing)
+            # we skip spacings that do not validate. It would be more efficient not to
+            # generate them in the first place though.
+            if (spacing_constraints is not None) and (
+                not validate_spacing(spacing, **asdict(spacing_constraints))
+            ):
+                continue
             self._prev_pitches = spacing
             logging.debug(f"{self.__class__.__name__} yielding spacing {spacing}")
             yield spacing
@@ -479,7 +497,7 @@ class SimpleSpacer:
             for indices in it.combinations(possible_omissions, i + 1):
                 logging.debug(f"{self.__class__.__name__} omitting indices {indices}")
                 try:
-                    for spacing in self._sub(
+                    yield from self._sub(
                         [pc for i, pc in enumerate(pcs) if i not in indices],
                         (),
                         min_accomp_pitch,
@@ -487,8 +505,7 @@ class SimpleSpacer:
                         include_bass,
                         min_bass_pitch,
                         max_bass_pitch,
-                    ):
-                        yield spacing
+                    )
                 except NoSpacings:
                     pass
         if include_bass:
@@ -512,6 +529,7 @@ class SimpleSpacer:
         include_bass: bool = True,
         min_bass_pitch: t.Optional[int] = None,
         max_bass_pitch: t.Optional[int] = None,
+        spacing_constraints: t.Optional[SpacingConstraints] = None,
     ) -> t.Iterator[t.List[int]]:
         pcs, possible_omissions = self._apply_omissions(pcs, omissions, include_bass)
         min_accomp_pitch = (
@@ -543,4 +561,5 @@ class SimpleSpacer:
             include_bass,
             min_bass_pitch,
             max_bass_pitch,
+            spacing_constraints,
         )

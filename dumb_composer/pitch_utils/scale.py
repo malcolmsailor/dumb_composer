@@ -280,7 +280,13 @@ class Scale:
             i = upper_i - 1
         return octave * len(self) + i
 
-    def get_interval(self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None):
+    def get_interval(
+        self,
+        pitch1: int,
+        pitch2: int,
+        scale2: t.Optional[Scale] = None,
+        reduce_compounds: bool = False,
+    ):
         """Gets generic interval between two pitches.
 
         >>> s = Scale([0,2,4,5,7,9,11]) # C major
@@ -288,6 +294,8 @@ class Scale:
         3
         >>> s.get_interval(60, 86)
         15
+        >>> s.get_interval(60, 86, reduce_compounds=True)
+        1
         >>> s.get_interval(64, 50)
         -8
 
@@ -317,7 +325,10 @@ class Scale:
         >>> s.get_interval(61, 68, scale2=s2) # a perfect fifth
         4
         """
-        return self.nearest_index(pitch2, scale2) - self.nearest_index(pitch1, scale2)
+        out = self.nearest_index(pitch2, scale2) - self.nearest_index(pitch1, scale2)
+        if reduce_compounds:
+            out = out % len(self)
+        return out
 
     def get_interval_class(
         self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None
