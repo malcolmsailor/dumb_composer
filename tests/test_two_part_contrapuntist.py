@@ -2,7 +2,7 @@ import random
 import os
 
 import pytest
-from dumb_composer.shared_classes import Score
+from dumb_composer.shared_classes import PrefabScore
 
 import dumb_composer.two_part_contrapuntist as mod
 from dumb_composer.utils.recursion import DeadEnd
@@ -21,7 +21,7 @@ from tests.test_helpers import TEST_OUT_DIR
 )
 def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches):
     tpc = mod.TwoPartContrapuntist()
-    score = Score(chord_data=rntxt)
+    score = PrefabScore(chord_data=rntxt)
     for melody_pitch in structural_melody_pitches:
         score.structural_melody.clear()
         score.structural_melody.append(melody_pitch)

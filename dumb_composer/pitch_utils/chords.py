@@ -1,50 +1,52 @@
 from __future__ import annotations
-from collections import Counter, defaultdict
+
 import copy
 import os
 import re
 import typing as t
+from collections import Counter, defaultdict
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
 from functools import cached_property
 from numbers import Number
 from types import MappingProxyType
-import music21
-import pandas as pd
 
-# TODO: (Malcolm) figure out why pylance doesn't recognize these imports
-from cache_lib import cacher  # type:ignore
-from dumb_composer.pitch_utils.aliases import Fifth, Root, Seventh, Third
-from dumb_composer.pitch_utils.spacings import (
-    SpacingConstraints,
-    validate_spacing,
-)
-from dumb_composer.pitch_utils.pcs import get_pc_complement, pitch_class_among_pitches
-from voice_leader import voice_lead_pitches_multiple_options_iter  # type:ignore
+import music21
+from cache_lib import cacher
+from voice_leader import voice_lead_pitches_multiple_options_iter
 
 from dumb_composer.constants import TIME_TYPE, speller_pcs, unspeller_pcs
+from dumb_composer.pitch_utils.aliases import Fifth, Root, Seventh, Third
+from dumb_composer.pitch_utils.consonances import pcs_consonant
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
-from dumb_composer.pitch_utils.consonances import pcs_consonant, pitches_consonant
 from dumb_composer.pitch_utils.music21_handler import parse_rntxt
 from dumb_composer.pitch_utils.parts import (
     outer_voices_have_forbidden_antiparallels,
     succession_has_forbidden_parallels,
 )
-from dumb_composer.time import Meter
-from dumb_composer.suspensions import Suspension
+from dumb_composer.pitch_utils.pcs import get_pc_complement, pitch_class_among_pitches
+from dumb_composer.pitch_utils.spacings import (
+    RangeConstraints,
+    SpacingConstraints,
+    validate_spacing,
+    yield_spacings,
+)
 from dumb_composer.pitch_utils.types import (
+    BassFactor,
+    ChordFactor,
+    ChromaticInterval,
     Pitch,
     PitchClass,
     PitchOrPitchClass,
-    ChordFactor,
-    TimeStamp,
-    ChromaticInterval,
-    ScaleDegree,
-    VoiceCount,
-    BassFactor,
     RNToken,
+    ScaleDegree,
+    TimeStamp,
+    VoiceCount,
 )
+from dumb_composer.suspensions import Suspension
+from dumb_composer.time import Meter
+from dumb_composer.utils.iterables import yield_from_sequence_of_iters
 
 
 class Allow(Enum):
@@ -95,6 +97,8 @@ TENDENCIES = MappingProxyType(
         # To get the correct tendencies for the cadential 64 chord we need
         #   to index into it as I. Sorry Schenkerians!
         "Cad": {Root: Tendency.DOWN, Third: Tendency.DOWN},
+        # TODO: (Malcolm 2023-07-12) test N
+        "N": {Root: Tendency.DOWN},
     }
 )
 
@@ -135,10 +139,7 @@ class Chord:
     harmony_onset: t.Optional[TimeStamp] = field(default=None, compare=False)
     harmony_release: t.Optional[TimeStamp] = field(default=None, compare=False)
 
-    foot: t.Optional[PitchClass] = field(default=None, init=False)
-
     def __post_init__(self):
-        self.foot = self.pcs[0]
         self._lookup_pcs = {pc: i for (i, pc) in enumerate(self.pcs)}
         self._pc_voicing_cache = {}
         self._max_doublings = defaultdict(default2)
@@ -146,7 +147,20 @@ class Chord:
             # By default we permit tripling the root of consonant triads
             self._max_doublings[self.chord_factor_to_bass_factor[0]] = 3
 
+    @property
+    def foot(self):
+        return self.pcs[0]
+
     def copy(self):
+        """
+        >>> rntxt = "m1 C: I"
+        >>> (I,), _ = get_chords_from_rntxt(rntxt)
+        >>> I.copy()  # doctest: +NORMALIZE_WHITESPACE
+        Chord(pcs=(0, 4, 7), scale_pcs=(0, 2, 4, 5, 7, 9, 11), onset=Fraction(0, 1),
+              release=Fraction(4, 1), inversion=0, token='C:I',
+              intervals_above_bass=(0, 2, 4), tendencies={},
+              harmony_onset=Fraction(0, 1), harmony_release=Fraction(4, 1))
+        """
         return deepcopy(self)
 
     @cached_property
@@ -157,7 +171,7 @@ class Chord:
         >>> I._voicing_prerequisites
         {}
         >>> V43._voicing_prerequisites  # pitch-class 5 (F) must be present for
-        ...                             # bass-factor 2 (G) to be added
+        ... # bass-factor 2 (G) to be added
         mappingproxy({2: (5,)})
         """
         chord_factor_prerequisites = VOICING_PREREQUISITES.get(self.token, None)
@@ -245,7 +259,9 @@ class Chord:
         """
         >>> rntxt = '''m1 C: I b2 IV64 b3 vi65 b4 viio7
         ... m2 I+ b2 Cad64 b3 V54 b4 V'''
-        >>> (I, IV64, vi65, viio7, Iaug, Cad64, V54, V), _ = get_chords_from_rntxt(rntxt)
+        >>> (I, IV64, vi65, viio7, Iaug, Cad64, V54, V), _ = get_chords_from_rntxt(
+        ...     rntxt
+        ... )
         >>> I.is_consonant
         True
         >>> IV64.is_consonant
@@ -263,6 +279,41 @@ class Chord:
         """
         return pcs_consonant(self.pcs, self.scale_pcs)
 
+    def get_pcs_that_can_be_added_to_existing_voicing(
+        self,
+        existing_voices_not_including_bass: t.Iterable[PitchOrPitchClass] = (),
+        suspensions: t.Iterable[PitchOrPitchClass] = (),
+    ) -> t.Tuple[PitchClass]:
+        """
+        `suspensions` need to be also present in `existing_voices_not_including_bass`.
+        >>> rntxt = "m1 C: V7 b2 V65 b3 V42"
+        >>> (V7, V65, V42), _ = get_chords_from_rntxt(rntxt)
+
+        >>> V7.get_pcs_that_can_be_added_to_existing_voicing()
+        (7, 11, 2, 5)
+
+        >>> V7.get_pcs_that_can_be_added_to_existing_voicing((11, 2))
+        (7, 2, 5)
+
+        >>> V65.get_pcs_that_can_be_added_to_existing_voicing()
+        (2, 5, 7)
+
+        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((11,))
+        (7, 2)
+
+        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((0,), suspensions=(0,))
+        (7, 2)
+        """
+        omissions = self.get_omissions(
+            (self.foot,) + tuple(existing_voices_not_including_bass),
+            suspensions=suspensions,
+        )
+        return tuple(
+            pc
+            for pc, omission in zip(self.pcs, omissions)
+            if omission is not Allow.ONLY
+        )
+
     def get_tendency_resolutions(
         self,
         pitch: Pitch,
@@ -272,7 +323,10 @@ class Chord:
     ) -> Resolution | None:
         """
         >>> rntxt = '''m1 C: I7 b3 V65/ii'''
-        >>> (I7, V65_of_ii,), _ = get_chords_from_rntxt(rntxt)
+        >>> (
+        ...     I7,
+        ...     V65_of_ii,
+        ... ), _ = get_chords_from_rntxt(rntxt)
         >>> V65_of_ii.get_tendency_resolutions(69, Tendency.NONE)
 
         >>> V65_of_ii.get_tendency_resolutions(68, Tendency.DOWN)
@@ -323,7 +377,7 @@ class Chord:
 
     def pc_can_be_doubled(self, pitch_or_pc: int) -> bool:
         """
-        >>> rntxt = 'm1 C: V7'
+        >>> rntxt = "m1 C: V7"
         >>> (V7,), _ = get_chords_from_rntxt(rntxt)
         >>> V7.pc_can_be_doubled(2)
         True
@@ -337,7 +391,7 @@ class Chord:
     def check_pitch_doublings(self, pitches: t.Sequence[Pitch]) -> bool:
         """Checks that no tendency tones are doubled.
 
-        >>> rntxt = 'm1 C: I b2 V7 b3 viio7/vi b4 ii64'
+        >>> rntxt = "m1 C: I b2 V7 b3 viio7/vi b4 ii64"
         >>> (I, V7, viio7_of_vi, ii64), _ = get_chords_from_rntxt(rntxt)
         >>> I.check_pitch_doublings([48, 52, 55, 60, 64, 67, 72])
         True
@@ -366,6 +420,8 @@ class Chord:
         self, pc: PitchClass, existing_pitches: t.Iterable[Pitch]
     ) -> bool:
         """
+        # TODO: (Malcolm 2023-07-14) depending on what this function is used for,
+        #   it maybe needs to account for suspensions too.
         Returns true if the pc is a tendency tone that is already present
         among the existing pitches.
 
@@ -373,12 +429,13 @@ class Chord:
         ... m1 C: V7
         ... m2 I'''
         >>> (dom7, tonic), _ = get_chords_from_rntxt(rntxt)
-        >>> dom7.pc_must_be_omitted(11, [62, 71]) # B already present in chord
+        >>> dom7.pc_must_be_omitted(11, [62, 71])  # B already present in chord
         True
-        >>> dom7.pc_must_be_omitted(5, [62, 71]) # F not present in chord
+        >>> dom7.pc_must_be_omitted(5, [62, 71])  # F not present in chord
         False
-        >>> not any(tonic.pc_must_be_omitted(pc, [60, 64, 67])
-        ...         for pc in (0, 4, 7)) # tonic has no tendency tones
+        >>> not any(
+        ...     tonic.pc_must_be_omitted(pc, [60, 64, 67]) for pc in (0, 4, 7)
+        ... )  # tonic has no tendency tones
         True
 
         """
@@ -475,6 +532,46 @@ class Chord:
                 out.append(Allow.NO)
         return out
 
+    def pitch_voicings(
+        self,
+        max_doubling: int | None = None,
+        min_notes: int = 4,
+        max_notes: int = 4,
+        melody_pitch: Pitch | None = None,
+        range_constraints: RangeConstraints = RangeConstraints(),
+        spacing_constraints: SpacingConstraints = SpacingConstraints(),
+        shuffled: bool = True,
+    ) -> t.Iterable[t.Tuple[Pitch]]:
+        """
+        This doesn't allow specifying suspensions, etc., because it's only intended
+        to get an initial chord spacing.
+        >>> rntxt = "m1 C: V7 b2 V65 b3 V43 b4 I"
+        >>> (V7, V65, V43, I), _ = get_chords_from_rntxt(rntxt)
+
+        >>> voicing_iter = I.pitch_voicings()
+        >>> next(voicing_iter), next(voicing_iter), next(voicing_iter)  # doctest: +SKIP
+        ((72, 76, 79, 79), (60, 64, 64, 67), (48, 52, 60, 64))
+
+        """
+        pc_voicings = self.pc_voicings(
+            min_notes,
+            max_notes,
+            max_doubling=max_doubling,
+            included_factors=() if melody_pitch is None else (melody_pitch,),
+        )
+
+        spacing_iters = [
+            yield_spacings(
+                pcs=pc_voicing,
+                range_constraints=range_constraints,
+                spacing_constraints=spacing_constraints,
+                melody_pitch=melody_pitch,
+                shuffled=shuffled,
+            )
+            for pc_voicing in pc_voicings
+        ]
+        yield from yield_from_sequence_of_iters(spacing_iters, shuffle=True)
+
     def all_pc_voicings(
         self,
         max_doubling: int | None = None,
@@ -482,7 +579,7 @@ class Chord:
         included_factors: t.Iterable[PitchOrPitchClass] = (),
         suspensions: t.Iterable[PitchOrPitchClass] = (),
         bass_suspension: PitchOrPitchClass | None = None,
-    ) -> t.Mapping[VoiceCount, t.Set[t.Tuple[PitchClass]]]:
+    ) -> t.Dict[VoiceCount, t.Set[t.Tuple[PitchClass]]]:
         """
         The chords in the output are sorted in ascending pitch-class order, *except* for
         the first pc, which is always the bass. The sorting is done so that equivalent
@@ -490,43 +587,49 @@ class Chord:
 
         >>> rntxt = "m1 C: V7 b2 V65 b3 V43 b4 I"
         >>> (V7, V65, V43, I), _ = get_chords_from_rntxt(rntxt)
-
         >>> I.all_pc_voicings()  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({4: {(0, 0, 4, 4), (0, 0, 4, 7), (0, 0, 0, 4), (0, 4, 4, 7),
-                          (0, 4, 7, 7)},
-                      5: {(0, 0, 4, 4, 7), (0, 0, 0, 4, 7), (0, 0, 0, 4, 4),
-                          (0, 4, 4, 7, 7), (0, 0, 4, 7, 7)},
-                      3: {(0, 0, 4), (0, 4, 4), (0, 4, 7)},
-                      2: {(0, 4)}})
+        {4: {(0, 0, 4, 4), (0, 0, 4, 7), (0, 0, 0, 4), (0, 4, 4, 7),
+             (0, 4, 7, 7)},
+         5: {(0, 0, 4, 4, 7), (0, 0, 0, 4, 7), (0, 0, 0, 4, 4),
+             (0, 4, 4, 7, 7), (0, 0, 4, 7, 7)},
+         3: {(0, 0, 4), (0, 4, 4), (0, 4, 7)},
+         2: {(0, 4)}}
 
 
         Note: the bass is *always* an included factor. If we include a pitch with bass
         pc in `all_pc_voicings` then that pc will be included twice.
         >>> I.all_pc_voicings(max_notes=4, included_factors=(60,), max_doubling=2)
-        mappingproxy({3: {(0, 0, 4)}, 4: {(0, 0, 4, 4), (0, 0, 4, 7)}})
+        {3: {(0, 0, 4)}, 4: {(0, 0, 4, 4), (0, 0, 4, 7)}}
 
-        >>> V7.all_pc_voicings(max_notes=4, max_doubling=2)  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({3: {(7, 5, 11), (7, 5, 7), (7, 7, 11), (7, 2, 5), (7, 2, 11)},
-                      4: {(7, 2, 2, 5), (7, 2, 2, 11), (7, 2, 5, 7), (7, 2, 7, 11),
-                          (7, 5, 7, 11), (7, 2, 5, 11)},
-                      2: {(7, 5), (7, 11)}})
+        >>> V7.all_pc_voicings(
+        ...     max_notes=4, max_doubling=2
+        ... )  # doctest: +NORMALIZE_WHITESPACE
+        {3: {(7, 5, 11), (7, 5, 7), (7, 7, 11), (7, 2, 5), (7, 2, 11)},
+         4: {(7, 2, 2, 5), (7, 2, 2, 11), (7, 2, 5, 7), (7, 2, 7, 11),
+             (7, 5, 7, 11), (7, 2, 5, 11)},
+         2: {(7, 5), (7, 11)}}
 
-        >>> V7.all_pc_voicings(max_notes=4, included_factors=(59,), max_doubling=2)  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({2: {(7, 11)},
-                      3: {(7, 7, 11), (7, 5, 11), (7, 2, 11)},
-                      4: {(7, 5, 7, 11), (7, 2, 2, 11), (7, 2, 7, 11), (7, 2, 5, 11)}})
+        >>> V7.all_pc_voicings(
+        ...     max_notes=4, included_factors=(59,), max_doubling=2
+        ... )  # doctest: +NORMALIZE_WHITESPACE
+        {2: {(7, 11)},
+         3: {(7, 7, 11), (7, 5, 11), (7, 2, 11)},
+         4: {(7, 5, 7, 11), (7, 2, 2, 11), (7, 2, 7, 11), (7, 2, 5, 11)}}
 
-        >>> V7.all_pc_voicings(max_notes=4, suspensions=(60,), max_doubling=2)  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({4: {(7, 0, 5, 7), (7, 0, 2, 5), (7, 0, 2, 7), (7, 0, 2, 2)},
-                      3: {(7, 0, 2), (7, 0, 5)}})
+        >>> V7.all_pc_voicings(
+        ...     max_notes=4, suspensions=(60,), max_doubling=2
+        ... )  # doctest: +NORMALIZE_WHITESPACE
+        {4: {(7, 0, 5, 7), (7, 0, 2, 5), (7, 0, 2, 7), (7, 0, 2, 2)},
+         3: {(7, 0, 2), (7, 0, 5)}}
 
         A non-bass suspension that is not a semi-tone above any chord factor has no
         effect on the inclusion/doubling of the chord factors.
-        >>> I.all_pc_voicings(max_notes=4, suspensions=(71,), max_doubling=2)  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({2: {(0, 11)},
-                      3: {(0, 0, 11), (0, 4, 11), (0, 7, 11)},
-                      4: {(0, 0, 7, 11), (0, 4, 4, 11), (0, 4, 7, 11), (0, 0, 4, 11),
-                          (0, 7, 7, 11)}})
+        >>> I.all_pc_voicings(
+        ...     max_notes=4, suspensions=(71,), max_doubling=2
+        ... )  # doctest: +NORMALIZE_WHITESPACE
+        {2: {(0, 11)},
+         3: {(0, 0, 11), (0, 4, 11), (0, 7, 11)},
+         4: {(0, 0, 7, 11), (0, 4, 4, 11), (0, 4, 7, 11), (0, 0, 4, 11), (0, 7, 7, 11)}}
 
         Note: this means that whole-tones below suspensions can and will be included.
         But in fact we only want to admit whole-tones below suspensions under certain
@@ -535,11 +638,13 @@ class Chord:
         classes only.
 
         Bass suspensions:
-        >>> I.all_pc_voicings(max_notes=4, bass_suspension=50)  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({2: {(2, 4), (2, 0)},
-                      3: {(2, 4, 7), (2, 4, 4), (2, 0, 7), (2, 0, 4), (2, 0, 0)},
-                      4: {(2, 0, 0, 4), (2, 0, 0, 7), (2, 4, 7, 7), (2, 0, 7, 7),
-                          (2, 0, 4, 4), (2, 0, 4, 7), (2, 4, 4, 7)}})
+        >>> I.all_pc_voicings(
+        ...     max_notes=4, bass_suspension=50
+        ... )  # doctest: +NORMALIZE_WHITESPACE
+        {2: {(2, 4), (2, 0)},
+         3: {(2, 4, 7), (2, 4, 4), (2, 0, 7), (2, 0, 4), (2, 0, 0)},
+         4: {(2, 0, 0, 4), (2, 0, 0, 7), (2, 4, 7, 7), (2, 0, 7, 7),
+             (2, 0, 4, 4), (2, 0, 4, 7), (2, 4, 4, 7)}}
 
         --------------------------------------------------------------------------------
         Voicing prerequisites
@@ -550,10 +655,12 @@ class Chord:
         are already present. For example, In V43, we only include the root if
         the seventh is present (note there are no voicings w/ pitch class 7 but
         omitting pitch class 5):
-        >>> V43.all_pc_voicings(max_notes=4, suspensions=[60])  # doctest: +NORMALIZE_WHITESPACE
-        mappingproxy({2: {(2, 0)},
-                      3: {(2, 0, 2), (2, 0, 5)},
-                      4: {(2, 0, 2, 5), (2, 0, 5, 7)}})
+        >>> V43.all_pc_voicings(
+        ...     max_notes=4, suspensions=[60]
+        ... )  # doctest: +NORMALIZE_WHITESPACE
+        {2: {(2, 0)},
+         3: {(2, 0, 2), (2, 0, 5)},
+         4: {(2, 0, 2, 5), (2, 0, 5, 7)}}
 
         """
         args = (
@@ -564,7 +671,7 @@ class Chord:
             bass_suspension,
         )
         if args in self._pc_voicing_cache:
-            return self._pc_voicing_cache[args]
+            return self._pc_voicing_cache[args].copy()
 
         working_area: t.DefaultDict[
             VoiceCount, t.Set[t.Tuple[PitchClass]]
@@ -617,9 +724,15 @@ class Chord:
                     counts[bass_factor_i] -= 1
 
         _recurse(voicing)
-        out = MappingProxyType(dict(working_area))
+
+        # I was casting to MappingProxyType here but that caused Chord.copy() to fail
+        # because MappingProxyType can't be pickled. Instead we always copy the dict
+        # before returning it so that modifications won't modify the cache. Note that
+        # the keys and values are both immutable so we don't need to worry about them
+        # being modified.
+        out = dict(working_area)
         self._pc_voicing_cache[args] = out
-        return out
+        return out.copy()
 
     def pc_voicings(
         self,
@@ -669,20 +782,25 @@ class Chord:
         >>> V7.get_pcs_needed_to_complete_voicing()  # doctest: +NORMALIZE_WHITESPACE
         [[5], [11], [5, 11], [5, 7], [7, 11], [2, 5], [2, 11], [2, 2, 5], [2, 2, 11],
          [2, 5, 7], [2, 7, 11], [5, 7, 11], [2, 5, 11]]
-        >>> I.get_pcs_needed_to_complete_voicing(other_chord_factors=(67,),
-        ...                                      max_doubling=1)
+        >>> I.get_pcs_needed_to_complete_voicing(
+        ...     other_chord_factors=(67,), max_doubling=1
+        ... )
         [[4]]
 
         Suspension:
-        TODO: (Malcolm)
-        # >>> V43.get_pcs_needed_to_complete_voicing(suspensions=[60], min_notes=4, max_notes=4)
+        >>> V43.get_pcs_needed_to_complete_voicing(
+        ...     suspensions=[60], min_notes=4, max_notes=4
+        ... )
+        [[2, 5], [5, 7]]
 
         >>> V7.get_pcs_needed_to_complete_voicing(suspensions=[60])
         [[2], [5], [5, 7], [2, 5], [2, 7], [2, 2]]
 
 
         Bass suspension:
-        >>> V65.get_pcs_needed_to_complete_voicing(bass_suspension=60)  # doctest: +NORMALIZE_WHITESPACE
+        >>> V65.get_pcs_needed_to_complete_voicing(
+        ...     bass_suspension=60
+        ... )  # doctest: +NORMALIZE_WHITESPACE
         [[2], [2, 2], [5, 7], [2, 7], [2, 5], [5, 7, 7], [2, 5, 7], [2, 2, 5],
          [2, 7, 7], [2, 2, 7]]
         """
@@ -738,17 +856,17 @@ class Chord:
         ... m3 i
         ... m4 iv'''
         >>> (dom7, viio7, i, iv), _ = get_chords_from_rntxt(rntxt)
-        >>> dom7.augmented_second_adjustments # ^6 should be raised
+        >>> dom7.augmented_second_adjustments  # ^6 should be raised
         {5: <Inflection.UP: 3>, 6: <Inflection.NONE: 2>}
-        >>> viio7.augmented_second_adjustments # both ^6 and ^7 are chord tones
+        >>> viio7.augmented_second_adjustments  # both ^6 and ^7 are chord tones
         {5: <Inflection.NONE: 2>, 6: <Inflection.NONE: 2>}
-        >>> i.augmented_second_adjustments # no augmented 2nd
+        >>> i.augmented_second_adjustments  # no augmented 2nd
         {}
-        >>> i.scale_pcs = (9, 11, 0, 2, 4, 5, 8) # harmonic-minor scale
-        >>> del i.augmented_second_adjustments # rebuild augmented_second_adjustments
+        >>> i.scale_pcs = (9, 11, 0, 2, 4, 5, 8)  # harmonic-minor scale
+        >>> del i.augmented_second_adjustments  # rebuild augmented_second_adjustments
         >>> i.augmented_second_adjustments
         {5: <Inflection.EITHER: 1>, 6: <Inflection.EITHER: 1>}
-        >>> iv.scale_pcs = (9, 11, 0, 2, 4, 5, 8) # harmonic-minor scale
+        >>> iv.scale_pcs = (9, 11, 0, 2, 4, 5, 8)  # harmonic-minor scale
         >>> iv.augmented_second_adjustments
         {5: <Inflection.NONE: 2>, 6: <Inflection.DOWN: 4>}
         """
@@ -790,13 +908,14 @@ class Chord:
         out = copy.copy(self)
         out.pcs = tuple((pc + interval) % 12 for pc in out.pcs)
         out.scale_pcs = tuple((pc + interval) % 12 for pc in out.scale_pcs)
-        out.foot = (out.foot + interval) % 12  # type:ignore
         if ":" in out.token:
             # we need to transpose the key symbol
             m = re.match(r"(?P<key>[^:]+):(?P<numeral>.*)", out.token)
             assert m is not None
-            key = speller_pcs((unspeller_pcs(m.group("key")) + interval) % 12)
-            out.token = key + ":" + m.group("numeral")
+            key = speller_pcs(
+                (unspeller_pcs(m.group("key")) + interval) % 12  # type:ignore
+            )
+            out.token = key + ":" + m.group("numeral")  # type:ignore
         out._lookup_pcs = {pc: i for (i, pc) in enumerate(out.pcs)}
         return out
 
@@ -823,8 +942,7 @@ def is_same_harmony(
     True
     >>> is_same_harmony(I, V7_of_IV, allow_subsets=True)
     False
-    >>> is_same_harmony(I, V7_of_IV,
-    ...     compare_scales=False, allow_subsets=True)
+    >>> is_same_harmony(I, V7_of_IV, compare_scales=False, allow_subsets=True)
     True
     >>> is_same_harmony(I, F_V, compare_scales=False)
     True
@@ -929,9 +1047,9 @@ def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[BassFactor, Tende
 def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
     """
     >>> RN = music21.roman.RomanNumeral
-    >>> fit_scale_to_rn(RN("viio7", keyOrScale="C")) # Note A-flat
+    >>> fit_scale_to_rn(RN("viio7", keyOrScale="C"))  # Note A-flat
     (0, 2, 4, 5, 7, 8, 11)
-    >>> fit_scale_to_rn(RN("Ger6", keyOrScale="C")) # Note A-flat, E-flat, F-sharp
+    >>> fit_scale_to_rn(RN("Ger6", keyOrScale="C"))  # Note A-flat, E-flat, F-sharp
     (0, 2, 3, 6, 7, 8, 11)
 
 
@@ -942,7 +1060,7 @@ def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
     (7, 9, 11, 0, 2, 4, 6)
     >>> fit_scale_to_rn(RN("viio7/V", keyOrScale="C"))
     (7, 9, 11, 0, 2, 3, 6)
-    >>> fit_scale_to_rn(RN("viio7/bIII", keyOrScale="C")) # Note C-flat
+    >>> fit_scale_to_rn(RN("viio7/bIII", keyOrScale="C"))  # Note C-flat
     (3, 5, 7, 8, 10, 11, 2)
 
     Sometimes flats are indicated for chord factors that are already flatted
@@ -1065,13 +1183,9 @@ def voice_lead_chords(
     max_bass_pitch: t.Optional[int] = None,
     raise_error_on_failure_to_resolve_tendencies: bool = False,
     max_diff_number_of_voices: int = 0,
-    spacing_constraints: SpacingConstraints = SpacingConstraints(
-        max_adjacent_interval=12
-    ),
-) -> t.Iterator[t.Sequence[Pitch]]:
+    spacing_constraints: SpacingConstraints = SpacingConstraints(),
+) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
-
-    It's up to the caller to ensure that chord1_pitches actually belong to chord1.
 
     >>> rntxt = '''m1 C: I b2 I6 b3 V6 b4 ii
     ... m2 V43 b2 V/IV b3 IV b4 V'''
@@ -1091,8 +1205,14 @@ def voice_lead_chords(
 
     If `raise_error_on_failure_to_resolve_tendencies` is True and a tendency tone
     can't be resolved, there is a ValueError
-    >>> next(voice_lead_chords(V6, ii, (59, 62, 67), # doctest: +IGNORE_EXCEPTION_DETAIL
-    ...      raise_error_on_failure_to_resolve_tendencies=True))
+    >>> next(
+    ...     voice_lead_chords(
+    ...         V6,
+    ...         ii,
+    ...         (59, 62, 67),  # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...         raise_error_on_failure_to_resolve_tendencies=True,
+    ...     )
+    ... )
     Traceback (most recent call last):
     ValueError:
 
@@ -1117,29 +1237,33 @@ def voice_lead_chords(
 
     Suspension w/ repetition of same harmony:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)
-    >>> vl_iter = voice_lead_chords(I, I, (48, 55, 65, 72),
-    ...                             chord1_suspensions={65: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I, I, (48, 55, 65, 72), chord1_suspensions={65: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((48, 55, 64, 72), (48, 52, 64, 72), (48, 55, 64, 76))
 
     Suspension w/ change of harmony:
     >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
-    >>> vl_iter = voice_lead_chords(I6, IV, (52, 62, 67, 72),
-    ...                             chord1_suspensions={62: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I6, IV, (52, 62, 67, 72), chord1_suspensions={62: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((53, 60, 69, 72), (53, 60, 69, 69), (53, 60, 65, 69))
 
     Suspension in bass w/ repetition of same harmony:
     >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
-    >>> vl_iter = voice_lead_chords(I, I, (50, 55, 64, 67),
-    ...                             chord1_suspensions={50: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I, I, (50, 55, 64, 67), chord1_suspensions={50: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((48, 55, 64, 67), (48, 55, 64, 64), (48, 52, 64, 67))
 
     Suspension in bass w/ change of harmony:
     >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
-    >>> vl_iter = voice_lead_chords(ii, V43, (52, 53, 62, 69),
-    ...                             chord1_suspensions={52: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     ii, V43, (52, 53, 62, 69), chord1_suspensions={52: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((50, 53, 62, 67), (50, 53, 62, 71), (50, 53, 59, 67))
 
@@ -1152,28 +1276,43 @@ def voice_lead_chords(
     >>> next(vl_iter), next(vl_iter)
     ((47, 55, 62, 62), (47, 55, 55, 62))
 
-    >>> next(vl_iter) # There are no more voice-leadings that work
+    >>> next(vl_iter)  # There are no more voice-leadings that work
     Traceback (most recent call last):
     StopIteration
 
     Melody with suspension in bass
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=0)
-    >>> vl_iter = voice_lead_chords(V6, V6, (48, 50, 55, 62), chord2_melody_pitch=67,
-    ...                             chord1_suspensions={48: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     V6,
+    ...     V6,
+    ...     (48, 50, 55, 62),
+    ...     chord2_melody_pitch=67,
+    ...     chord1_suspensions={48: suspension},
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((47, 50, 55, 67), (47, 50, 62, 67), (47, 62, 62, 67))
 
     Melody with suspension in inner part
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)
-    >>> vl_iter = voice_lead_chords(I, I, (48, 53, 60, 67), chord2_melody_pitch=72,
-    ...                             chord1_suspensions={53: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     I,
+    ...     (48, 53, 60, 67),
+    ...     chord2_melody_pitch=72,
+    ...     chord1_suspensions={53: suspension},
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((48, 52, 60, 72), (48, 52, 64, 72), (52, 60, 60, 72))
 
     Melody with suspension in melody
     >>> suspension = Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)
-    >>> vl_iter = voice_lead_chords(I, V6, (48, 52, 60, 69), chord2_melody_pitch=67,
-    ...                             chord1_suspensions={69: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     V6,
+    ...     (48, 52, 60, 69),
+    ...     chord2_melody_pitch=67,
+    ...     chord1_suspensions={69: suspension},
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((47, 50, 62, 67), (47, 55, 62, 67), (47, 50, 55, 67))
 
@@ -1183,8 +1322,9 @@ def voice_lead_chords(
 
     Suspension in inner voice:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
-    >>> vl_iter = voice_lead_chords(I, V43, (48, 55, 60, 64),
-    ...                             chord2_suspensions={60: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I, V43, (48, 55, 60, 64), chord2_suspensions={60: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((50, 55, 60, 65), (50, 53, 60, 62), (50, 53, 60, 67))
 
@@ -1192,71 +1332,110 @@ def voice_lead_chords(
     # cases
     Unprepared suspension in inner voice:
     >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=6)
-    >>> vl_iter = voice_lead_chords(I, IV, (60, 67, 72, 76),
-    ...                             chord2_suspensions={71: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I, IV, (60, 67, 72, 76), chord2_suspensions={71: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((65, 71, 72, 77), (65, 65, 71, 72), (65, 65, 71, 77))
 
     Suspension in melody voice:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
-    >>> vl_iter = voice_lead_chords(I, V43, (48, 55, 64, 72),
-    ...                             chord2_suspensions={72: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I, V43, (48, 55, 64, 72), chord2_suspensions={72: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((50, 55, 65, 72), (50, 53, 62, 72), (50, 62, 65, 72))
 
+    Unprepared suspension in melody voice:
+    # TODO: (Malcolm 2023-07-13) this has a bug
+    # >>> suspension = Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)
+    # >>> vl_iter = voice_lead_chords(I, V43, (48, 52, 60, 67), chord2_melody_pitch=64,
+    # ...                             chord2_suspensions={64: suspension})
+    # >>> next(vl_iter), next(vl_iter), next(vl_iter)
+
+
     Suspension overlapping with melody voice:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
-    >>> vl_iter = voice_lead_chords(I, V, (48, 64, 72, 72), chord2_melody_pitch=74,
-    ...                             chord2_suspensions={72: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     V,
+    ...     (48, 64, 72, 72),
+    ...     chord2_melody_pitch=74,
+    ...     chord2_suspensions={72: suspension},
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((43, 62, 72, 74), (43, 67, 72, 74), (55, 62, 72, 74))
 
     Unprepared suspension overlapping with melody voice:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
-    >>> vl_iter = voice_lead_chords(I, V, (48, 64, 67, 72), chord2_melody_pitch=74,
-    ...                             chord2_suspensions={72: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     V,
+    ...     (48, 64, 67, 72),
+    ...     chord2_melody_pitch=74,
+    ...     chord2_suspensions={72: suspension},
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((43, 67, 72, 74), (55, 67, 72, 74), (43, 62, 72, 74))
 
     Suspension in bass voice:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=0)
-    >>> vl_iter = voice_lead_chords(I, V6, (48, 55, 64, 72),
-    ...                             chord2_suspensions={48: suspension})
+    >>> vl_iter = voice_lead_chords(
+    ...     I, V6, (48, 55, 64, 72), chord2_suspensions={48: suspension}
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((48, 55, 62, 74), (48, 55, 67, 74), (48, 55, 62, 67))
 
     Multiple inner suspensions:
     >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
     >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=1)
-    >>> vl_iter = voice_lead_chords(V43, I6, (50, 62, 65, 71),
-    ...                             chord2_suspensions={62: suspension1, 65: suspension2})
+    >>> vl_iter = voice_lead_chords(
+    ...     V43,
+    ...     I6,
+    ...     (50, 62, 65, 71),
+    ...     chord2_suspensions={62: suspension1, 65: suspension2},
+    ... )
     >>> next(vl_iter), next(vl_iter)
     ((52, 62, 65, 72), (40, 62, 65, 72))
-    >>> next(vl_iter)  # Because all 3 upper voices are fixed, this exhausts the iterator
+    >>> next(
+    ...     vl_iter
+    ... )  # Because all 3 upper voices are fixed, this exhausts the iterator
     Traceback (most recent call last):
     StopIteration
 
     Melody suspension w/ inner suspension:
     >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
     >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=1)
-    >>> vl_iter = voice_lead_chords(V43, I6, (50, 55, 62, 65),
-    ...                             chord2_suspensions={62: suspension1, 65: suspension2})
+    >>> vl_iter = voice_lead_chords(
+    ...     V43,
+    ...     I6,
+    ...     (50, 55, 62, 65),
+    ...     chord2_suspensions={62: suspension1, 65: suspension2},
+    ... )
     >>> next(vl_iter), next(vl_iter)
     ((52, 55, 62, 65), (40, 55, 62, 65))
 
     Bass suspension w/ melody suspension:
     >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
     >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)
-    >>> vl_iter = voice_lead_chords(V43, I, (62, 67, 71, 77),
-    ...                             chord2_suspensions={62: suspension1, 77: suspension2})
+    >>> vl_iter = voice_lead_chords(
+    ...     V43,
+    ...     I,
+    ...     (62, 67, 71, 77),
+    ...     chord2_suspensions={62: suspension1, 77: suspension2},
+    ... )
     >>> next(vl_iter), next(vl_iter)
     ((62, 67, 72, 77), (62, 72, 72, 77))
 
     Bass suspension w/ inner suspension:
     >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
     >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)
-    >>> vl_iter = voice_lead_chords(V43, I, (62, 65, 67, 71),
-    ...                             chord2_suspensions={62: suspension1, 65: suspension2})
+    >>> vl_iter = voice_lead_chords(
+    ...     V43,
+    ...     I,
+    ...     (62, 65, 67, 71),
+    ...     chord2_suspensions={62: suspension1, 65: suspension2},
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((62, 65, 67, 72), (62, 65, 72, 72), (62, 65, 72, 79))
 
@@ -1272,14 +1451,22 @@ def voice_lead_chords(
     Spacing constraints
     ------------------------------------------------------------------------------------
 
-    >>> vl_iter = voice_lead_chords(I, V6, (60, 64, 67, 72),
-    ...     spacing_constraints=SpacingConstraints(max_adjacent_interval=5))
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     V6,
+    ...     (60, 64, 67, 72),
+    ...     spacing_constraints=SpacingConstraints(max_adjacent_interval=5),
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((59, 62, 67, 67), (59, 67, 67, 67), (59, 62, 62, 67))
 
     Starting from a very widely spaced chord
-    >>> vl_iter = voice_lead_chords(I, V6, (36, 48, 64, 79),
-    ...     spacing_constraints=SpacingConstraints(max_adjacent_interval=9))
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     V6,
+    ...     (36, 48, 64, 79),
+    ...     spacing_constraints=SpacingConstraints(max_adjacent_interval=9),
+    ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((35, 55, 62, 67), (35, 62, 67, 74), (35, 55, 62, 62))
 
@@ -1376,7 +1563,6 @@ def voice_lead_chords(
         else ()
     )
 
-    spacing_constraint_dict = asdict(spacing_constraints)
     chord2_options = chord2.get_pcs_needed_to_complete_voicing(
         other_chord_factors=prespecified_pitches,
         suspensions=chord2_suspensions,
@@ -1434,7 +1620,7 @@ def voice_lead_chords(
         output = tuple(
             sorted(candidate_pitches + prespecified_pitches + chord2_suspension_pitches)
         )
-        if not validate_spacing(output, **spacing_constraint_dict):
+        if not validate_spacing(output, spacing_constraints):
             continue
         if succession_has_forbidden_parallels(chord1_pitches, output):
             continue

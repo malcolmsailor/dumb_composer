@@ -2,7 +2,7 @@ from itertools import combinations, count
 import typing as t
 
 import numpy as np
-from dumb_composer.pitch_utils.intervals import reduce_compound_chromatic_interval
+from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 
 from dumb_composer.pitch_utils.types import (
     ChromaticInterval,
@@ -359,12 +359,8 @@ def succession_has_forbidden_parallels(
         if not forbidden_intervals:
             continue
 
-        harmonic_interval1 = reduce_compound_chromatic_interval(
-            abs(atom2_p1 - atom1_p1)
-        )
-        harmonic_interval2 = reduce_compound_chromatic_interval(
-            abs(atom2_p2 - atom1_p2)
-        )
+        harmonic_interval1 = reduce_compound_interval(abs(atom2_p1 - atom1_p1))
+        harmonic_interval2 = reduce_compound_interval(abs(atom2_p2 - atom1_p2))
 
         if (
             harmonic_interval1 == harmonic_interval2
@@ -405,12 +401,8 @@ def outer_voices_have_forbidden_antiparallels(
     if (bass_melodic_interval > 0) == (melody_melodic_interval > 0):
         return False
 
-    harmonic_interval1 = reduce_compound_chromatic_interval(
-        abs(melody_pitch1 - bass_pitch1)
-    )
-    harmonic_interval2 = reduce_compound_chromatic_interval(
-        abs(melody_pitch2 - bass_pitch2)
-    )
+    harmonic_interval1 = reduce_compound_interval(abs(melody_pitch1 - bass_pitch1))
+    harmonic_interval2 = reduce_compound_interval(abs(melody_pitch2 - bass_pitch2))
 
     return (
         harmonic_interval1 == harmonic_interval2

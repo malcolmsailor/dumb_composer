@@ -15,7 +15,7 @@ from .time_utils import (
     get_barline_times_within_duration,
     get_onset_closest_to_middle_of_duration,
 )
-from .shared_classes import Score
+from .shared_classes import _ScoreBase, Score
 from .utils.math_ import linear_arc, quadratic_arc, softmax
 
 from enum import Enum, auto
@@ -43,6 +43,7 @@ class StructuralPartitionerSettings:
     arc_shape: Shape = Shape.QUADRATIC
 
 
+# TODO: (Malcolm) can I replace this with flatten_iterables ?
 def _flatten_list_sub(x: t.Union[t.Any, t.List[t.Any]]):
     if isinstance(x, list):
         out = []
@@ -150,7 +151,7 @@ class StructuralPartitioner:
             self._step(split_point, chord_release),
         ]
 
-    def __call__(self, score: Score):
+    def __call__(self, score: _ScoreBase):
         """Updates score in place.
 
         TODO it would be good to preserve the original "score.chords" somehow.

@@ -3,46 +3,64 @@ import typing as t
 import numpy as np
 
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
-from dumb_composer.pitch_utils.types import (
-    ChromaticInterval,
-    Pitch,
-    PitchClass,
-)
+from dumb_composer.pitch_utils.types import Interval, Pitch, PitchClass
 
 
-def reduce_compound_chromatic_interval(
-    interval: ChromaticInterval, tet: int = 12
-) -> ChromaticInterval:
+def reduce_compound_interval(
+    interval: Interval, n_steps_per_octave: int = 12
+) -> Interval:
     """
-    Result is similar to `interval % tet` except:
+    Result is similar to `interval % n_steps_per_octave` except:
     1. negative intervals have negative sign
     2. we treat octaves specially: only unisons return 0; all other octaves and their
-        compounds return +/- 12
+        compounds return +/- n_steps_per_octave
 
-    >>> reduce_compound_chromatic_interval(7)
+    ------------------------------------------------------------------------------------
+    Chromatic intervals
+    ------------------------------------------------------------------------------------
+
+    The default value of `n_steps_per_octave` is for chromatic intervals in 12-tet.
+
+    >>> reduce_compound_interval(7)
     7
-    >>> reduce_compound_chromatic_interval(-7)
+    >>> reduce_compound_interval(-7)
     -7
-    >>> reduce_compound_chromatic_interval(12)
+    >>> reduce_compound_interval(12)
     12
-    >>> reduce_compound_chromatic_interval(-12)
+    >>> reduce_compound_interval(-12)
     -12
-    >>> reduce_compound_chromatic_interval(0)
+    >>> reduce_compound_interval(0)
     0
-    >>> reduce_compound_chromatic_interval(24)
+    >>> reduce_compound_interval(24)
     12
-    >>> reduce_compound_chromatic_interval(-24)
+    >>> reduce_compound_interval(-24)
     -12
+
+    ------------------------------------------------------------------------------------
+    Scalar intervals
+    ------------------------------------------------------------------------------------
+
+    The same function can be used for scalar intervals by changing the value of
+    `n_steps_per_octave` appropriately.
+
+    >>> reduce_compound_interval(7, n_steps_per_octave=7)  # Diatonic octave
+    7
+    >>> reduce_compound_interval(-7, n_steps_per_octave=7)  # Diatonic octave
+    -7
+    >>> reduce_compound_interval(14, n_steps_per_octave=7)  # Diatonic octave
+    7
+    >>> reduce_compound_interval(10, n_steps_per_octave=7)  # Diatonic compound 4th
+    3
     """
-    reduced = interval % tet
+    reduced = interval % n_steps_per_octave
     if interval < 0:
-        return reduced - tet
+        return reduced - n_steps_per_octave
 
     if reduced > 0:
         return reduced
 
     if interval != 0:
-        return tet
+        return n_steps_per_octave
     return 0
 
 
@@ -59,12 +77,13 @@ class IntervalQuerier:
         >>> iq.pitches_contain_ic([60, 64, 67], 8)
         True
 
-        >>> all(iq.pitches_contain_ic([60, 64, 67, 70], i)
-        ...     for i in (2, 3, 4, 5, 6, 7, 8, 9, 10))
+        >>> all(
+        ...     iq.pitches_contain_ic([60, 64, 67, 70], i)
+        ...     for i in (2, 3, 4, 5, 6, 7, 8, 9, 10)
+        ... )
         True
 
-        >>> not any(iq.pitches_contain_ic([60, 64, 67, 70], i)
-        ...         for i in (1, 11))
+        >>> not any(iq.pitches_contain_ic([60, 64, 67, 70], i) for i in (1, 11))
         True
         """
         # TODO I don't think it's necessary to cast to frozenset; maybe
@@ -124,10 +143,6 @@ class IntervalQuerier:
 
         if (pc, existing_pitches) in self._pc_can_be_omitted_memo:
             return self._pc_can_be_omitted_memo[pc, existing_pitches]
-        # TODO: (Malcolm) remove
-        # if pc == existing_pitches[0] % 12:
-        #     self._pc_can_be_omitted_memo[pc, existing_pitches] = False
-        #     return False
         for ic in (1, 2, 3, 4, 6):
             if self.pitches_contain_ic(existing_pitches, ic):
                 self._pc_can_be_omitted_memo[pc, existing_pitches] = True
@@ -155,10 +170,13 @@ def get_forbidden_intervals(
     """Get intervals (if any) from starting_pitch that would cause forbidden
     parallels with existing_pitch_pairs.
 
-    >>> get_forbidden_intervals(60, [(53, 52), (72, 76)], [0,7])
+    >>> get_forbidden_intervals(60, [(53, 52), (72, 76)], [0, 7])
     [-1, 4]
-    >>> sorted(get_forbidden_intervals(60, [(53, 52), (72, 76)], [0,7],
-    ...     forbidden_antiparallels=[0, 7]))
+    >>> sorted(
+    ...     get_forbidden_intervals(
+    ...         60, [(53, 52), (72, 76)], [0, 7], forbidden_antiparallels=[0, 7]
+    ...     )
+    ... )
     [-8, -1, 4, 11]
     """
     out = []
@@ -182,23 +200,43 @@ def interval_finder(
     allow_steps_outside_of_range: bool = False,
 ) -> t.List[int]:
     """
-    >>> sorted(interval_finder(60, eligible_pcs=[0, 4, 7],
-    ...        min_pitch=48, max_pitch=72))
+    Returns a list of intervals from the starting pitch to the eligible pitch-classes.
+
+    >>> sorted(interval_finder(60, eligible_pcs=[0, 4, 7], min_pitch=48, max_pitch=72))
     [-12, -8, -5, 0, 4, 7, 12]
 
     Note that forbidden_intervals are *not* octave equivalent:
-    >>> sorted(interval_finder(60, eligible_pcs=[2, 6, 9],
-    ...        min_pitch=48, max_pitch=72,
-    ...        forbidden_intervals=[6]))
+    >>> sorted(
+    ...     interval_finder(
+    ...         60,
+    ...         eligible_pcs=[2, 6, 9],
+    ...         min_pitch=48,
+    ...         max_pitch=72,
+    ...         forbidden_intervals=[6],
+    ...     )
+    ... )
     [-10, -6, -3, 2, 9]
 
-    >>> sorted(interval_finder(60, eligible_pcs=[2, 6, 9],
-    ...        min_pitch=48, max_pitch=72,
-    ...        forbidden_intervals=[-6, 6]))
+    >>> sorted(
+    ...     interval_finder(
+    ...         60,
+    ...         eligible_pcs=[2, 6, 9],
+    ...         min_pitch=48,
+    ...         max_pitch=72,
+    ...         forbidden_intervals=[-6, 6],
+    ...     )
+    ... )
     [-10, -3, 2, 9]
 
-    >>> sorted(interval_finder(60, eligible_pcs=[2, 10],
-    ...        min_pitch=59, max_pitch=61, allow_steps_outside_of_range=True))
+    >>> sorted(
+    ...     interval_finder(
+    ...         60,
+    ...         eligible_pcs=[2, 10],
+    ...         min_pitch=59,
+    ...         max_pitch=61,
+    ...         allow_steps_outside_of_range=True,
+    ...     )
+    ... )
     [-2, 2]
     """
     if max_interval is not None:

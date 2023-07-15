@@ -1,5 +1,5 @@
-from typing import Callable, Generator, Sequence, Tuple, Union
 import warnings
+from typing import Callable, Generator, Sequence, Tuple, Union
 
 try:
     import numpy as np  # type:ignore
@@ -25,16 +25,14 @@ except ModuleNotFoundError:
 
 def nested(
     coerce_to_list: bool = False,
-    types_to_process: Union[type, Tuple[type]] = None,
+    types_to_process: Union[type, Tuple[type], None] = None,
     # fail_silently: bool = False,
 ) -> Callable:
-    """Decorator to extend a function to arbitrarily deep/nested list-likes or
-    dicts.
+    """Decorator to extend a function to arbitrarily deep/nested list-likes or dicts.
 
-    If the argument to the decorated function is a non-string sequence
-    or a numpy array, the
-    function will be recalled recursively on every item of the sequence.
-    Otherwise, `func` will be called on the argument.
+    If the argument to the decorated function is a non-string sequence or a numpy array,
+    the function will be recalled recursively on every item of the sequence. Otherwise,
+    `func` will be called on the argument.
 
     Keyword args:
         - types_to_process: if passed, elements that match this type will be
@@ -46,16 +44,10 @@ def nested(
 
     def _decorator(func: Callable) -> Callable:
         def f(item, *args, **kwargs):
-            if isinstance(item, (Sequence, Generator)) and not isinstance(
-                item, str
-            ):
+            if isinstance(item, (Sequence, Generator)) and not isinstance(item, str):
                 if coerce_to_list or isinstance(item, Generator):
-                    return list(
-                        f(sub_item, *args, **kwargs) for sub_item in item
-                    )
-                return type(item)(
-                    f(sub_item, *args, **kwargs) for sub_item in item
-                )
+                    return list(f(sub_item, *args, **kwargs) for sub_item in item)
+                return type(item)(f(sub_item, *args, **kwargs) for sub_item in item)
             elif isinstance(item, dict):
                 if coerce_to_list:
                     warnings.warn("Can't coerce dict to list")
@@ -65,9 +57,7 @@ def nested(
                 }
             elif HAS_NUMPY and isinstance(item, np.ndarray):
                 if coerce_to_list:
-                    return list(
-                        f(sub_item, *args, **kwargs) for sub_item in item
-                    )
+                    return list(f(sub_item, *args, **kwargs) for sub_item in item)
                 return np.fromiter(
                     (f(sub_item, *args, **kwargs) for sub_item in item),
                     dtype=item.dtype,
@@ -76,9 +66,7 @@ def nested(
                 if not item.dim():
                     return func(item.item(), *args, **kwargs)
                 if coerce_to_list:
-                    return list(
-                        f(sub_item, *args, **kwargs) for sub_item in item
-                    )
+                    return list(f(sub_item, *args, **kwargs) for sub_item in item)
                 # e.g., "float32" if item.dtype is "torch.float32"
                 base_dtype = item.dtype.__repr__().split(".")[1]
                 return type(item)(
@@ -89,9 +77,7 @@ def nested(
                 )
             elif HAS_PANDAS and isinstance(item, pd.Series):
                 if coerce_to_list:
-                    return list(
-                        f(sub_item, *args, **kwargs) for sub_item in item
-                    )
+                    return list(f(sub_item, *args, **kwargs) for sub_item in item)
                 return item.apply(f, args=args, **kwargs)
             else:
                 if types_to_process is not None and not isinstance(

@@ -5,8 +5,9 @@ import tempfile
 from tempfile import mkstemp
 
 import pytest
-from get_changed_files import get_changed_files
 from tqdm import tqdm
+
+from tests.get_changed_files import get_changed_files
 
 # from tests.test_helpers import TEST_OUT_DIR
 TEST_OUT_DIR = os.path.join(os.path.dirname((os.path.realpath(__file__))), "test_out")
@@ -107,6 +108,7 @@ def _mid_to_png():
 
 
 def pytest_addoption(parser):
+    parser.addoption("--pngs", action="store_true", help="make png files of results")
     parser.addoption(
         "--quick", action="store_true", help="run 'quick' version of tests"
     )
@@ -136,4 +138,5 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    _mid_to_png()
+    if session.config.getoption("--pngs"):
+        _mid_to_png()

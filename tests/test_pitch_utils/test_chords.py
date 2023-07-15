@@ -1,17 +1,11 @@
+import typing as t
 from dataclasses import dataclass, field
 from numbers import Number
-import textwrap
-import typing as t
 
 import pytest
 
-import os
-import sys
-
-# TODO: (Malcolm) remove path append after fixing env
-sys.path.append(os.path.join(os.path.dirname((os.path.realpath(__file__))), "../.."))
-from dumb_composer.constants import TIME_TYPE
 import dumb_composer.pitch_utils.chords as chords
+from dumb_composer.constants import TIME_TYPE
 
 
 @pytest.mark.parametrize(

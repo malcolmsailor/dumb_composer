@@ -1,18 +1,18 @@
+import logging
+import typing as t
 from dataclasses import dataclass
 from enum import Enum, auto
-import logging
-import pandas as pd
 
-import typing as t
+import pandas as pd
 
 from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
 from dumb_composer.patterns import PatternMaker
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
-from dumb_composer.shared_classes import Annotation, Chord, Note, Score
+from dumb_composer.shared_classes import Annotation, Chord, Note, PrefabScore
 from dumb_composer.time import Meter
-from .utils.recursion import DeadEnd
 
+from .utils.recursion import DeadEnd
 
 # def pc_int(pc1: int, pc2: int, tet: int = 12) -> int:
 #     return (pc2 - pc1) % tet
@@ -45,7 +45,7 @@ class AccompAnnots(Enum):
 class DumbAccompanistSettings(SimpleSpacerSettings):
     pattern: t.Optional[str] = None
     accompaniment_annotations: AccompAnnots = AccompAnnots.ALL
-    # provides the name of attributes of Score that the accompaniment
+    # provides the name of attributes of PrefabScore that the accompaniment
     #   should be kept below.
     accompaniment_below: t.Optional[t.Union[str, t.Sequence[str]]] = None
     accompaniment_above: t.Optional[t.Union[str, t.Sequence[str]]] = None
@@ -73,7 +73,7 @@ class DumbAccompanist:
         self._iq = IntervalQuerier()
         self._pm: t.Optional[PatternMaker] = None
 
-    def _get_below(self, score: Score):
+    def _get_below(self, score: PrefabScore):
         if self.settings.accompaniment_below is None:
             return self.settings.accomp_range[1]
         i = len(score.accompaniments)
@@ -85,7 +85,7 @@ class DumbAccompanist:
             + [self.settings.accomp_range[1]]
         )
 
-    def _get_above(self, score: Score):
+    def _get_above(self, score: PrefabScore):
         if self.settings.accompaniment_above is None:
             # TODO I think we still want to keep this above the bass
             return self.settings.accomp_range[0]
@@ -98,7 +98,7 @@ class DumbAccompanist:
             + [self.settings.accomp_range[0]]
         )
 
-    def _final_step(self, score: Score):
+    def _final_step(self, score: PrefabScore):
         if not self.settings.end_with_solid_chord:
             return self._step(score)
         i = len(score.accompaniments)
@@ -129,7 +129,7 @@ class DumbAccompanist:
             ]
 
     def _step(
-        self, score: Score
+        self, score: PrefabScore
     ) -> t.Iterator[t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]]:
         assert self._pm is not None
 
@@ -138,7 +138,7 @@ class DumbAccompanist:
         chord_change = score.is_chord_change(i)
         below = self._get_below(score)
         above = self._get_above(score)
-        if i in score.suspension_indices:
+        if i in score.melody_suspensions:
             suspensions = (score.structural_melody[i],)
         else:
             suspensions = ()
@@ -202,7 +202,7 @@ class DumbAccompanist:
     def __call__(
         self,
         chord_data: t.Optional[t.Union[str, t.List[Chord]]] = None,
-        score: t.Optional[Score] = None,
+        score: t.Optional[PrefabScore] = None,
         ts: t.Optional[str] = None,
     ) -> pd.DataFrame:
         """If chord_data is a string, it should be a roman text file.
@@ -221,7 +221,7 @@ class DumbAccompanist:
         if score is None:
             if isinstance(chord_data, str):
                 chord_data, ts = get_chords_from_rntxt(chord_data)  # type:ignore
-            score = Score(chord_data, ts=ts)  # type:ignore
+            score = PrefabScore(chord_data, ts=ts)  # type:ignore
 
         assert ts is not None
 

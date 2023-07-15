@@ -1,27 +1,32 @@
-from collections import defaultdict, deque
-from functools import cached_property
+import collections.abc
 import logging
 import math
-from numbers import Number
 import re
 import textwrap
-import pandas as pd
 import typing as t
+from abc import abstractmethod
+from collections import defaultdict, deque
+from functools import cached_property
+from numbers import Number
 
-from .time import Meter
+import pandas as pd
 
-from .utils.df_helpers import sort_note_df
-
-from .pitch_utils.scale import Scale, ScaleDict
+from dumb_composer.constants import TIME_TYPE
+from dumb_composer.pitch_utils.chords import (
+    Allow,
+    Chord,
+    get_chords_from_rntxt,
+    is_same_harmony,
+)
+from dumb_composer.pitch_utils.spacings import RangeConstraints
+from dumb_composer.pitch_utils.types import Pitch, PitchClass, TimeStamp
+from dumb_composer.suspensions import Suspension
+from dumb_composer.utils.iterables import flatten_iterables
 
 from .pitch_utils.put_in_range import put_in_range
-
-from dumb_composer.pitch_utils.chords import (
-    get_chords_from_rntxt,
-    Allow,
-    is_same_harmony,
-    Chord,
-)
+from .pitch_utils.scale import Scale, ScaleDict
+from .time import Meter
+from .utils.df_helpers import sort_note_df
 
 
 class Annotation(pd.Series):
@@ -69,11 +74,13 @@ def notes(
 def print_notes(notes: t.Iterable[Note]) -> None:
     """Helper function to make printing notes convenient in doctests.
 
-    >>> print_notes([
-    ...     Note(pitch=48, onset=0, release=1),
-    ...     Note(pitch=52, onset=1, release=2),
-    ...     Note(pitch=55, onset=1, release=2),
-    ... ])
+    >>> print_notes(
+    ...     [
+    ...         Note(pitch=48, onset=0, release=1),
+    ...         Note(pitch=52, onset=1, release=2),
+    ...         Note(pitch=55, onset=1, release=2),
+    ...     ]
+    ... )
     on  off   pitches
     0    1     (48,)
     1    2  (52, 55)
@@ -103,17 +110,19 @@ def apply_ties(
     """
     >>> len(apply_ties([Note(60, 0.0, 1.0), Note(60, 1.0, 2.0)]))
     2
-    >>> len(apply_ties(
-    ...     [Note(60, 0.0, 1.0, tie_to_next=True), Note(60, 1.0, 2.0)])
-    ... )
+    >>> len(apply_ties([Note(60, 0.0, 1.0, tie_to_next=True), Note(60, 1.0, 2.0)]))
     1
-    >>> len(apply_ties(
-    ...     [Note(60, 0.0, 1.0, tie_to_next=True),
-    ...      Note(60, 1.0, 2.0, tie_to_next=True),
-    ...      Note(60, 2.0, 3.0),
-    ...      Note(60, 3.0, 4.0, tie_to_next=True),
-    ...      Note(60, 4.0, 5.0)]
-    ... ))
+    >>> len(
+    ...     apply_ties(
+    ...         [
+    ...             Note(60, 0.0, 1.0, tie_to_next=True),
+    ...             Note(60, 1.0, 2.0, tie_to_next=True),
+    ...             Note(60, 2.0, 3.0),
+    ...             Note(60, 3.0, 4.0, tie_to_next=True),
+    ...             Note(60, 4.0, 5.0),
+    ...         ]
+    ...     )
+    ... )
     2
 
     An exception is always raised if the last note is a tie (because there is
@@ -128,19 +137,23 @@ def apply_ties(
     second.
 
     >>> apply_ties(
-    ...     [Note(60, 0.0, 1.0, tie_to_next=True),
-    ...      Note(60, 1.0, 2.0, tie_to_next=True),
-    ...      Note(60, 2.5, 3.0)],
+    ...     [
+    ...         Note(60, 0.0, 1.0, tie_to_next=True),
+    ...         Note(60, 1.0, 2.0, tie_to_next=True),
+    ...         Note(60, 2.5, 3.0),
+    ...     ],
     ...     check_correctness=True,
     ... )
     Traceback (most recent call last):
     ValueError: Release of note at 2.0 != onset of note at 2.5
 
     >>> apply_ties(
-    ...     [Note(60, 0.0, 1.0, tie_to_next=True),
-    ...      Note(60, 1.0, 2.0),
-    ...      Note(60, 2.5, 3.0, tie_to_next=True),
-    ...      Note(62, 3.0, 4.0)],
+    ...     [
+    ...         Note(60, 0.0, 1.0, tie_to_next=True),
+    ...         Note(60, 1.0, 2.0),
+    ...         Note(60, 2.5, 3.0, tie_to_next=True),
+    ...         Note(62, 3.0, 4.0),
+    ...     ],
     ...     check_correctness=True,
     ... )
     Traceback (most recent call last):
@@ -198,7 +211,20 @@ def apply_ties(
 
 
 class ScaleGetter:
-    def __init__(self, scale_pcs: t.Iterable[t.Sequence[int]]):
+    """
+    # TODO: (Malcolm) I'm not sure why this class is necessary in addition to
+    # ScaleDict
+    >>> C_major = (0, 2, 4, 5, 7, 9, 11)
+    >>> D_major = (2, 4, 6, 7, 9, 11, 1)
+    >>> Octatonic = (0, 2, 3, 5, 6, 8, 9, 11)
+    >>> scale_getter = ScaleGetter([C_major, D_major, Octatonic])
+    >>> len(scale_getter)
+    3
+    >>> scale_getter[0]
+    Scale(pcs=(0, 2, 4, 5, 7, 9, 11), zero_pitch=0, tet=12)
+    """
+
+    def __init__(self, scale_pcs: t.Iterable[t.Tuple[PitchClass, ...]]):
         self._scale_pcs = list(scale for scale in scale_pcs)
         self._scales = ScaleDict()
 
@@ -208,14 +234,16 @@ class ScaleGetter:
     def __getitem__(self, idx: int) -> Scale:
         return self._scales[self._scale_pcs[idx]]
 
-    def insert_scale_pcs(self, i: int, scale_pcs: t.Sequence[int]) -> None:
+    def insert_scale_pcs(self, i: int, scale_pcs: t.Tuple[PitchClass, ...]) -> None:
         self._scale_pcs.insert(i, scale_pcs)
 
-    def pop_scale_pcs(self, i: int) -> t.Sequence[int]:
+    def pop_scale_pcs(self, i: int) -> t.Tuple[PitchClass, ...]:
         return self._scale_pcs.pop(i)
 
 
-class StructuralMelodyIntervalGetter:
+class StructuralMelodyIntervals(collections.abc.Mapping):
+    """Provides a [] interface to retrieve structural melody intervals."""
+
     def __init__(
         self,
         scales: ScaleGetter,
@@ -223,60 +251,37 @@ class StructuralMelodyIntervalGetter:
         structural_bass: t.List[int],
     ):
         # This class doesn't really have custody of its attributes, which
-        #   should all be attributes of the Score that creates it. The only
+        #   should all be attributes of the PrefabScore that creates it. The only
         #   reason this class exists is to that we can provide a [] subscript
-        #   syntax to Score.structural_melody_intervals
+        #   syntax to PrefabScore.structural_melody_intervals
         self.scales = scales
         self.structural_melody = structural_melody
         self.structural_bass = structural_bass
-        # self._melody_intervals: t.List[int] = []
 
     def __getitem__(self, idx):
-        return self.scales[idx].get_interval_class(
+        return self.scales[idx].get_reduced_scalar_interval(
             self.structural_bass[idx], self.structural_melody[idx]
         )
-        # TODO remove---I don't think caching is practicable once we start
-        #   splitting chords in the Score
-        # try:
-        #     return self._melody_intervals[idx]
-        # except IndexError:
-        #     for i in range(len(self._melody_intervals), idx + 1):
-        #         self._melody_intervals.append(
-        #             self.scales[i].get_interval_class(
-        #                 self.structural_bass[i], self.structural_melody[i]
-        #             )
-        #         )
-        #     return self._melody_intervals[idx]
+
+    def __len__(self):
+        return min(len(self.structural_bass), len(self.structural_melody))
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
 
-class Score:
-    """This class provides a "shared working area" for the various classes and
-    functions that build a score. It doesn't encapsulate much of anything.
-
-    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
-    >>> score = Score(chord_data=rntxt)
-
-    >>> [chord.pcs for chord in score.chords]
-    [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
-
-    >>> score.structural_bass
-    [36, 41, 31, 40]
-    """
-
+class _ScoreBase:
     def __init__(
         self,
         chord_data: t.Union[str, t.List[Chord]],
-        bass_range: t.Tuple[int, int] = (30, 50),
-        mel_range: t.Tuple[int, int] = (60, 78),
-        prefab_track: int = 1,
-        bass_track: int = 2,
-        accompaniments_track: int = 3,
-        ts: t.Optional[t.Union[Meter, str]] = None,
+        range_constraints: RangeConstraints = RangeConstraints(),
+        ts: Meter | str | None = None,
         transpose: int = 0,
     ):
         if isinstance(chord_data, str):
             logging.debug(f"reading chords from {chord_data}")
-            chord_data, ts = get_chords_from_rntxt(chord_data)
+            chord_data, ts = get_chords_from_rntxt(chord_data)  # type:ignore
         elif ts is None:
             raise ValueError(f"`ts` must be supplied if `chord_data` is not a string")
         if isinstance(ts, str):
@@ -287,34 +292,22 @@ class Score:
         if transpose:
             self._chords = [chord.transpose(transpose) for chord in self._chords]
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in chord_data)
-        self.bass_range = bass_range
-        self.mel_range = mel_range
+        self.range_constraints = range_constraints
         self.structural_melody: t.List[int] = []
-        self._structural_melody_interval_getter = StructuralMelodyIntervalGetter(
+        self.melody_suspensions: t.Dict[int, Suspension] = {}
+        self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
+
+        self._structural_melody_interval_getter = StructuralMelodyIntervals(
             self.scales, self.structural_melody, self.structural_bass
         )
-        self.prefabs: t.List[t.List[Note]] = []
-        self.accompaniments: t.List[t.List[Note]] = []
-        self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
-        self.prefab_track = prefab_track
-        self.bass_track = bass_track
-        self.accompaniments_track = accompaniments_track
-        self.suspension_indices: t.Set[int] = set()
-        self.tied_prefab_indices: t.Set[int] = set()
-        self.allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
 
     @cached_property
     def structural_bass(self) -> t.List[int]:
-        out = list(
-            put_in_range((chord.foot for chord in self._chords), *self.bass_range)
-        )
-        logging.debug(
-            textwrap.fill(
-                f"Initializing {self.__class__.__name__}.structural_bass: {out}",
-                subsequent_indent=" " * 4,
-            )
-        )
-        return out
+        return [chord.foot for chord in self._chords]  # type:ignore
+
+    @property
+    def structural_melody_intervals(self) -> StructuralMelodyIntervals:
+        return self._structural_melody_interval_getter
 
     @property
     def chords(self) -> t.List[Chord]:
@@ -327,7 +320,7 @@ class Score:
         #   time it is needed
         del self.structural_bass
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in self._chords)
-        self._structural_melody_interval_getter = StructuralMelodyIntervalGetter(
+        self._structural_melody_interval_getter = StructuralMelodyIntervals(
             self.scales, self.structural_melody, self.structural_bass
         )
 
@@ -336,80 +329,38 @@ class Score:
         return self._scale_getter
 
     @property
-    def structural_melody_intervals(self) -> StructuralMelodyIntervalGetter:
-        return self._structural_melody_interval_getter
-
-    @property
-    def structural_bass_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            Note(  # type:ignore
-                bass_pitch,
-                self.chords[i].onset,
-                self.chords[i].release,
-                track=self.bass_track,
-            )
-            for i, bass_pitch in enumerate(self.structural_bass)
-        )
-
-    @property
-    def prefabs_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            apply_ties(
-                (note for prefab in self.prefabs for note in prefab),
-                check_correctness=True,  # TODO remove this when I'm more confident
-            )
-        )
-
-    @property
-    def accompaniments_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            note for accompaniment in self.accompaniments for note in accompaniment
-        )
-
-    @property
-    def annotations_as_df(self) -> pd.DataFrame:
-        # return pd.DataFrame(self.annotations)
-        out = pd.concat([pd.DataFrame(annots) for annots in self.annotations.values()])
-        # only one annotation per time-point appears in the kern files (or is it
-        #   the verovio realizations?). Anyway, we merge them into one here. TODO
-        #   is there a way around this constraint?
-        temp = []
-        for onset in sorted(out.onset.unique()):
-            new_annot = Annotation(
-                onset,
-                "".join(annot.text for _, annot in out[out.onset == onset].iterrows()),
-            )
-            temp.append(new_annot)
-        out = pd.DataFrame(temp)
-        return out
+    @abstractmethod
+    def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
+        raise NotImplementedError
 
     def get_existing_pitches(
         self,
         idx: int,
-        attr_names: t.Sequence[str] = ("structural_bass", "structural_melody"),
-    ):
+        attr_names: t.Sequence[str] | None = None,
+    ) -> t.Tuple[Pitch]:
+        if attr_names is None:
+            attr_names = self.default_existing_pitch_attr_names
+
         return tuple(  # type:ignore
-            getattr(self, attr_name)[idx]
-            for attr_name in attr_names
-            if len(getattr(self, attr_name)) > idx
+            flatten_iterables(
+                getattr(self, attr_name)[idx]
+                for attr_name in attr_names
+                if len(getattr(self, attr_name)) > idx
+            )
         )
 
-    def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
-        if isinstance(contents, str):
-            contents = [contents]
-        dfs = (getattr(self, f"{name}_as_df") for name in contents)
-        df = pd.concat(dfs)
-        return sort_note_df(df)
+    def _validate_split_ith_chord_at(self, i: int, chord: Chord, time: TimeStamp):
+        assert chord.onset < time < chord.release
 
     def split_ith_chord_at(
-        self, i: int, time: Number, check_correctness: bool = True
+        self, i: int, time: TimeStamp, check_correctness: bool = True
     ) -> None:
         """
         >>> rntxt = '''Time Signature: 4/4
         ... m1 C: I
         ... m2 V
         ... m3 I'''
-        >>> score = Score(rntxt)
+        >>> score = PrefabScore(rntxt)
         >>> {float(chord.onset): chord.token for chord in score.chords}
         {0.0: 'C:I', 4.0: 'V', 8.0: 'I'}
         >>> score.split_ith_chord_at(1, 6.0)
@@ -425,9 +376,7 @@ class Score:
         # TODO make debug flag for check_correctness
         chord = self.chords[i]
         if check_correctness:
-            assert chord.onset < time < chord.release
-            assert len(self.prefabs) <= i
-            assert len(self.accompaniments) <= i
+            self._validate_split_ith_chord_at(i, chord, time)
         new_chord = chord.copy()
         chord.release = time
         new_chord.onset = time
@@ -464,7 +413,7 @@ class Score:
         >>> rntxt = '''Time Signature: 4/4
         ... m1 I b4 V
         ... m2 V'''
-        >>> score = Score(rntxt)
+        >>> score = PrefabScore(rntxt)
         >>> score.is_chord_change(0)
         True
         >>> score.is_chord_change(1)
@@ -479,3 +428,237 @@ class Score:
             compare_inversions,
             allow_subsets,
         )
+
+    @property
+    def annotations_as_df(self) -> pd.DataFrame:
+        # return pd.DataFrame(self.annotations)
+        out = pd.concat([pd.DataFrame(annots) for annots in self.annotations.values()])
+        # only one annotation per time-point appears in the kern files (or is it
+        #   the verovio realizations?). Anyway, we merge them into one here. TODO
+        #   is there a way around this constraint?
+        temp = []
+        for onset in sorted(out.onset.unique()):
+            new_annot = Annotation(
+                onset,
+                "".join(annot.text for _, annot in out[out.onset == onset].iterrows()),
+            )
+            temp.append(new_annot)
+        out = pd.DataFrame(temp)
+        return out
+
+    def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
+        if isinstance(contents, str):
+            contents = [contents]
+        dfs = (getattr(self, f"{name}_as_df") for name in contents)
+        df = pd.concat(dfs)
+        return sort_note_df(df)
+
+
+class Score(_ScoreBase):
+    """This class provides a "shared working area" for the various classes and
+    functions that build a score. It doesn't encapsulate much of anything.
+
+    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
+    >>> score = Score(chord_data=rntxt)
+
+    >>> [chord.pcs for chord in score.chords]
+    [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
+
+    >>> score.structural_bass  # Pitch classes
+    [0, 5, 7, 4]
+    """
+
+    @property
+    def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
+        return "structural_bass", "structural_melody"  # type:ignore
+
+
+class PrefabScore(_ScoreBase):
+    """This class provides a "shared working area" for the various classes and
+    functions that build a score. It doesn't encapsulate much of anything.
+
+    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
+    >>> score = PrefabScore(chord_data=rntxt)
+
+    >>> [chord.pcs for chord in score.chords]
+    [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
+
+    # TODO: (Malcolm 2023-07-14) maybe I want to update to use pitch-classes instead?
+    >>> score.structural_bass  # Pitches, not pitch-classes
+    [36, 41, 31, 40]
+    """
+
+    def __init__(
+        self,
+        chord_data: t.Union[str, t.List[Chord]],
+        range_constraints: RangeConstraints = RangeConstraints(),
+        prefab_track: int = 1,
+        bass_track: int = 3,
+        accompaniments_track: int = 2,
+        ts: t.Optional[t.Union[Meter, str]] = None,
+        transpose: int = 0,
+    ):
+        super().__init__(
+            chord_data,
+            range_constraints=range_constraints,
+            ts=ts,
+            transpose=transpose,
+        )
+
+        self.prefabs: t.List[t.List[Note]] = []
+        self.accompaniments: t.List[t.List[Note]] = []
+        self.prefab_track = prefab_track
+        self.bass_track = bass_track
+        self.accompaniments_track = accompaniments_track
+        self.tied_prefab_indices: t.Set[int] = set()
+        self.allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
+
+    @property
+    def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
+        return "structural_bass", "structural_melody"  # type:ignore
+
+    # TODO: (Malcolm 2023-07-12) I'm not sure why it's necessary for the structural
+    # bass to be pitches rather than pitch-classes
+    @cached_property
+    def structural_bass(self) -> t.List[int]:
+        out = list(
+            put_in_range(
+                (chord.foot for chord in self._chords),
+                self.range_constraints.min_bass_pitch,
+                self.range_constraints.max_bass_pitch,
+            )
+        )
+        logging.debug(
+            textwrap.fill(
+                f"Initializing {self.__class__.__name__}.structural_bass: {out}",
+                subsequent_indent=" " * 4,
+            )
+        )
+        return out
+
+    @property
+    def structural_bass_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            Note(  # type:ignore
+                bass_pitch,
+                self.chords[i].onset,
+                self.chords[i].release,
+                track=self.bass_track,
+            )
+            for i, bass_pitch in enumerate(self.structural_bass)
+        )
+
+    @property
+    def prefabs_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            apply_ties(
+                (note for prefab in self.prefabs for note in prefab),
+                check_correctness=True,  # TODO remove this when I'm more confident
+            )
+        )
+
+    @property
+    def accompaniments_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            note for accompaniment in self.accompaniments for note in accompaniment
+        )
+
+    def _validate_split_ith_chord_at(self, i: int, chord: Chord, time: TIME_TYPE):
+        super()._validate_split_ith_chord_at(i, chord, time)
+        assert len(self.prefabs) <= i
+        assert len(self.accompaniments) <= i
+
+
+class FourPartScore(_ScoreBase):
+    """
+    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
+    >>> score = FourPartScore(chord_data=rntxt)
+
+    >>> score.structural_bass  # Pitch-classes, not pcs
+    [0, 5, 7, 4]
+
+    Let's create a bass:
+    >>> score.bass.extend(put_in_range(pc, low=36) for pc in (score.structural_bass))
+    >>> score.bass
+    [36, 41, 43, 40]
+
+    Let's add a melody:
+    >>> score.structural_melody.extend([72, 74, 71, 72])
+    >>> score.get_existing_pitches(0)
+    (36, 72)
+    >>> score.get_existing_pitches(1)
+    (41, 74)
+
+    Let's add inner parts:
+    >>> score.inner_voices.extend([[55, 64], [57, 65], [55, 62], [55, 77]])
+    >>> score.get_existing_pitches(0)
+    (36, 55, 64, 72)
+    """
+
+    def __init__(
+        self,
+        chord_data: t.Union[str, t.List[Chord]],
+        range_constraints: RangeConstraints = RangeConstraints(),
+        ts: t.Optional[t.Union[Meter, str]] = None,
+        transpose: int = 0,
+        melody_track: int = 1,
+        bass_track: int = 2,
+        inner_voices_track: int = 3,
+    ):
+        super().__init__(
+            chord_data,
+            range_constraints=range_constraints,
+            ts=ts,
+            transpose=transpose,
+        )
+        self.bass: t.List[Pitch] = []
+        # Maybe eventually we want to distinguish `melody` from `structural_melody`
+        self.melody: t.List[Pitch] = self.structural_melody
+        self.inner_voices: t.List[t.Tuple[Pitch]] = []
+
+        self.melody_track = melody_track
+        self.bass_track = bass_track
+        self.inner_voices_track = inner_voices_track
+
+    @property
+    def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
+        return "bass", "inner_voices", "melody"  # type:ignore
+
+    @property
+    def bass_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            Note(  # type:ignore
+                bass_pitch,
+                self.chords[i].onset,
+                self.chords[i].release,
+                track=self.bass_track,
+            )
+            for i, bass_pitch in enumerate(self.bass)
+        )
+
+    @property
+    def melody_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            Note(  # type:ignore
+                melody_pitch,
+                self.chords[i].onset,
+                self.chords[i].release,
+                track=self.melody_track,
+            )
+            for i, melody_pitch in enumerate(self.melody)
+        )
+
+    @property
+    def inner_voices_as_df(self) -> pd.DataFrame:
+        notes = []
+        for chord_i, inner_voices in enumerate(self.inner_voices):
+            for pitch in inner_voices:
+                notes.append(
+                    Note(  # type:ignore
+                        pitch,
+                        self.chords[chord_i].onset,
+                        self.chords[chord_i].release,
+                        track=self.inner_voices_track,
+                    )
+                )
+        return pd.DataFrame(notes)

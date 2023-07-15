@@ -3,21 +3,18 @@ import random
 
 from dumb_composer.composer_wrangler import ComposerWrangler
 from dumb_composer.utils.recursion import RecursionFailed
-from test_helpers import write_df
-from tests.test_helpers import get_funcname, TEST_OUT_DIR
+from tests.test_helpers import TEST_OUT_DIR, get_funcname, write_df
 
 WHEN_IN_ROME_DIR = os.environ["WHEN_IN_ROME_DIR"]
 
 N_FILES = 5
 
 
-def test_composer_wrangler(pytestconfig):
+def test_composer_wrangler(pytestconfig, slow):
     funcname = get_funcname()
     test_out_dir = os.path.join(TEST_OUT_DIR, funcname)
     cw = ComposerWrangler()
-    paths = list(
-        cw._get_paths(WHEN_IN_ROME_DIR, basename_startswith="analysis")
-    )
+    paths = list(cw._get_paths(WHEN_IN_ROME_DIR, basename_startswith="analysis"))
     random.seed(42)
     path_formatter = (
         lambda path, i, transpose, prefab_voice: os.path.dirname(path)
@@ -26,8 +23,9 @@ def test_composer_wrangler(pytestconfig):
         .replace(os.path.sep, "_")
         + f"_{prefab_voice}_transpose={transpose}_{i+1:09d}"
     )
+    n_calls = 2 if not slow else 20
     cw.call_n_times(
-        20,
+        n_calls,
         test_out_dir,
         paths,
         path_formatter=path_formatter,

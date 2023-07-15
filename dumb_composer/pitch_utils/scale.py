@@ -4,6 +4,10 @@ import typing as t
 from bisect import bisect
 from functools import cached_property
 
+from dumb_composer.pitch_utils.intervals import reduce_compound_interval
+from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
+from dumb_composer.pitch_utils.types import Interval, Pitch, PitchClass, ScalarInterval
+
 
 def strictly_increasing(l: t.Sequence):
     return all(x < y for x, y in zip(l, l[1:]))
@@ -30,7 +34,7 @@ class ScaleDict:
     def __init__(self):
         self._scales = {}
 
-    def __getitem__(self, args: t.Tuple):
+    def __getitem__(self, args: t.Tuple[PitchClass, ...] | t.Tuple[t.Any, ...]):
         """ """
         if not isinstance(args, tuple):
             raise ValueError
@@ -84,7 +88,7 @@ class Scale:
     @property
     def tonic_pc(self):  # pylint: disable=missing-docstring
         """
-        >>> scale = Scale([7,9,11,0,2,4,6]) # G major
+        >>> scale = Scale([7, 9, 11, 0, 2, 4, 6])  # G major
         >>> scale.tonic_pc
         7
         """
@@ -98,12 +102,80 @@ class Scale:
 
     def __getitem__(self, key: int) -> int:
         """
-        >>> scale = Scale([7,9,11,0,2,4,6]) # G major
-        >>> scale[35] # tonic in 5th octave is 5 * 7
+        >>> scale = Scale([7, 9, 11, 0, 2, 4, 6])  # G major
+        >>> scale[35]  # tonic in 5th octave is 5 * 7
         67
         """
         octave, scale_degree = divmod(key + self._tonic_idx, len(self))
         return self._pcs[scale_degree] + self._tet * octave + self._zero_pitch
+
+    def pitch_has_upper_step(self, pitch: Pitch) -> bool:
+        """
+        >>> d_minor = Scale([2, 4, 5, 7, 9, 10, 1])  # D harmonic minor
+        >>> all(d_minor.pitch_has_upper_step(pc) for pc in [2, 4, 5, 7, 9, 1])
+        True
+        >>> d_minor.pitch_has_upper_step(10)
+        False
+        """
+        if len(self) == 7:
+            next_pitch = self[self.index(pitch) + 1]
+            return next_pitch - pitch in (1, 2)
+        raise ValueError(
+            "pitch_has_upper_step() only implemented for heptatonic scales"
+        )
+
+    def pitch_has_lower_step(self, pitch: Pitch) -> bool:
+        """
+        >>> d_minor = Scale([2, 4, 5, 7, 9, 10, 1])  # D harmonic minor
+        >>> all(d_minor.pitch_has_lower_step(pc) for pc in [2, 4, 5, 7, 9, 10])
+        True
+        >>> d_minor.pitch_has_lower_step(1)
+        False
+        """
+        if len(self) == 7:
+            next_pitch = self[self.index(pitch) - 1]
+            return pitch - next_pitch in (1, 2)
+        raise ValueError(
+            "pitch_has_lower_step() only implemented for heptatonic scales"
+        )
+
+    def adjusted_lower_bound(self, pitch: Pitch) -> Pitch:
+        """
+        Note: this function assumes that scale pitches have no more than a small number
+        of intervening chromatic steps. If that assumption doesn't hold the
+        implementation will be quite inefficient.
+
+        >>> d_minor = Scale([2, 4, 5, 7, 9, 10, 1])  # D harmonic minor
+        >>> d_minor.adjusted_lower_bound(50)  # D4
+        50
+        >>> d_minor.adjusted_lower_bound(48)  # C4 -> C#
+        49
+        >>> d_minor.adjusted_lower_bound(47)  # B3 -> C#
+        49
+        """
+
+        while pitch not in self:
+            pitch += 1
+        return pitch
+
+    def adjusted_upper_bound(self, pitch: Pitch) -> Pitch:
+        """
+        Note: this function assumes that scale pitches have no more than a small number
+        of intervening chromatic steps. If that assumption doesn't hold the
+        implementation will be quite inefficient.
+
+        >>> d_minor = Scale([2, 4, 5, 7, 9, 10, 1])  # D harmonic minor
+        >>> d_minor.adjusted_upper_bound(50)  # D4
+        50
+        >>> d_minor.adjusted_upper_bound(48)  # C4 -> Bb
+        46
+        >>> d_minor.adjusted_upper_bound(47)  # B3 -> Bb
+        46
+        """
+
+        while pitch not in self:
+            pitch -= 1
+        return pitch
 
     def get_auxiliary(
         self,
@@ -124,11 +196,11 @@ class Scale:
         - D will be raised to D#
         - Bb will be raised to B#
 
-        >>> d_minor = Scale([2,4,5,7,9,10,1]) # D harmonic minor
-        >>> d_minor.get_auxiliary(35, "+") # raised ^1 = D#
+        >>> d_minor = Scale([2, 4, 5, 7, 9, 10, 1])  # D harmonic minor
+        >>> d_minor.get_auxiliary(35, "+")  # raised ^1 = D#
         63
 
-        >>> d_minor.get_auxiliary(33, "+") # raised ^6 = B#
+        >>> d_minor.get_auxiliary(33, "+")  # raised ^6 = B#
         60
 
 
@@ -143,11 +215,11 @@ class Scale:
         - D will be left unaltered
         - C# will be lowered to C (not Cb)
 
-        >>> d_minor.get_auxiliary(36, "-") # ^2 has whole-tone below, lowered to Eb
+        >>> d_minor.get_auxiliary(36, "-")  # ^2 has whole-tone below, lowered to Eb
         63
-        >>> d_minor.get_auxiliary(35, "-") # ^1 has semitone below, left as D
+        >>> d_minor.get_auxiliary(35, "-")  # ^1 has semitone below, left as D
         62
-        >>> d_minor.get_auxiliary(34, "-") # ^7 has augmented 2nd below, lowered to C
+        >>> d_minor.get_auxiliary(34, "-")  # ^7 has augmented 2nd below, lowered to C
         60
 
         Otherwise if `lower_degrees` is "chromatic", then the pitch one semitone
@@ -157,8 +229,9 @@ class Scale:
         E.g., in D harmonic minor
         - C# will be lowered to Cb
 
-        >>> d_minor.get_auxiliary(34, "-",
-        ...     lowered_degrees="chromatic") # ^7 has augmented 2nd below, lowered to Cb
+        >>> d_minor.get_auxiliary(
+        ...     34, "-", lowered_degrees="chromatic"
+        ... )  # ^7 has augmented 2nd below, lowered to Cb
         59
         """
         if alteration in ("+", "#"):
@@ -176,8 +249,8 @@ class Scale:
 
     def index(self, pitch):
         """
-        >>> scale = Scale([7,9,11,0,2,4,6]) # G major
-        >>> scale.index(67) # tonic in 5th octave is 5 * 7
+        >>> scale = Scale([7, 9, 11, 0, 2, 4, 6])  # G major
+        >>> scale.index(67)  # tonic in 5th octave is 5 * 7
         35
         >>> scale.index(11)
         2
@@ -212,12 +285,12 @@ class Scale:
         be the best solution musically. E.g., in F pentatonic, we might prefer
         to think of E as "a step below F" but this function will return the
         index to F (as though E were in fact F-flat).)
-        >>> pentatonic_scale = Scale([5,7,9,0,2]) # F pentatonic
-        >>> pentatonic_scale.nearest_index(65) # F5, returns 5 * 5 for F5
+        >>> pentatonic_scale = Scale([5, 7, 9, 0, 2])  # F pentatonic
+        >>> pentatonic_scale.nearest_index(65)  # F5, returns 5 * 5 for F5
         25
-        >>> pentatonic_scale.nearest_index(64) # E5, returns 5 * 5 for F5
+        >>> pentatonic_scale.nearest_index(64)  # E5, returns 5 * 5 for F5
         25
-        >>> pentatonic_scale.nearest_index(63) # Eb5, returns 5 * 5 - 1 for D5
+        >>> pentatonic_scale.nearest_index(63)  # Eb5, returns 5 * 5 - 1 for D5
         24
 
         However we mostly use heptatonic scales, where there is never an
@@ -225,8 +298,8 @@ class Scale:
         in the scale, there will be two pitches equidistant from it. In those
         cases, if scale2 is not provided, by default we return the lower of the
         possible indices (which corresponds to "sharpening" the lower pitch).
-        >>> scale = Scale([7,9,11,0,2,4,6]) # G major
-        >>> scale.nearest_index(61) # C#5/Db5, returns 7 * 5 - 4 for C5
+        >>> scale = Scale([7, 9, 11, 0, 2, 4, 6])  # G major
+        >>> scale.nearest_index(61)  # C#5/Db5, returns 7 * 5 - 4 for C5
         31
 
         Case 2: scale2 is passed.
@@ -238,25 +311,25 @@ class Scale:
                 then index to the pitch below is returned (i.e., the new pitch
                 is interpreted as a sharpened version of a pitch in this scale).
 
-        >>> scale1 = Scale([7,9,11,0,2,4,6]) # G major
-        >>> scale2 = Scale([4,6,8,9,11,1,3]) # E major
-        >>> scale1.nearest_index(68, scale2) # G#5/Ab5, returns 7 * 5 for G5
+        >>> scale1 = Scale([7, 9, 11, 0, 2, 4, 6])  # G major
+        >>> scale2 = Scale([4, 6, 8, 9, 11, 1, 3])  # E major
+        >>> scale1.nearest_index(68, scale2)  # G#5/Ab5, returns 7 * 5 for G5
         35
 
         - if the pitch *below* 'pitch' in this scale is present in scale2,
                 then index to the pitch above is returned (i.e., the new pitch
                 is interpreted as a flattened version of a pitch in this scale).
 
-        >>> scale3 = Scale([8,10,0,1,3,5,7]) # A-flat major
-        >>> scale1.nearest_index(68, scale3) # G#5/Ab5, returns 7 * 5 + 1 for A5
+        >>> scale3 = Scale([8, 10, 0, 1, 3, 5, 7])  # A-flat major
+        >>> scale1.nearest_index(68, scale3)  # G#5/Ab5, returns 7 * 5 + 1 for A5
         36
 
         In the case where both the pitches above and below are present in
         scale2 (e.g., in a chromatic scale), the behavior as the same as in
         case 1.
 
-        >>> chromatic = Scale([0,1,2,3,4,5,6,7,8,9,10,11])
-        >>> scale1.nearest_index(68, chromatic) # G#5/Ab5, returns 7 * 5 for G5
+        >>> chromatic = Scale([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+        >>> scale1.nearest_index(68, chromatic)  # G#5/Ab5, returns 7 * 5 for G5
         35
         """
         octave, pc = divmod(pitch - self._zero_pitch, self._tet)
@@ -289,7 +362,7 @@ class Scale:
     ):
         """Gets generic interval between two pitches.
 
-        >>> s = Scale([0,2,4,5,7,9,11]) # C major
+        >>> s = Scale([0, 2, 4, 5, 7, 9, 11])  # C major
         >>> s.get_interval(60, 65)
         3
         >>> s.get_interval(60, 86)
@@ -301,28 +374,28 @@ class Scale:
 
         With second pitch present only in second scale:
 
-        >>> s2 = Scale([4,6,8,9,11,1,3]) # E major
-        >>> s.get_interval(60, 68, scale2=s2) # an augmented fifth
+        >>> s2 = Scale([4, 6, 8, 9, 11, 1, 3])  # E major
+        >>> s.get_interval(60, 68, scale2=s2)  # an augmented fifth
         4
 
-        >>> s3 = Scale([8,10,0,1,3,5,7]) # A-flat major
-        >>> s.get_interval(60, 68, scale2=s3) # a minor 6th
+        >>> s3 = Scale([8, 10, 0, 1, 3, 5, 7])  # A-flat major
+        >>> s.get_interval(60, 68, scale2=s3)  # a minor 6th
         5
 
         With first pitch present only in second scale:
 
-        >>> s2 = Scale([4,6,8,9,11,1,3]) # E major
-        >>> s.get_interval(68, 60, scale2=s2) # an augmented fifth
+        >>> s2 = Scale([4, 6, 8, 9, 11, 1, 3])  # E major
+        >>> s.get_interval(68, 60, scale2=s2)  # an augmented fifth
         -4
 
-        >>> s3 = Scale([8,10,0,1,3,5,7]) # A-flat major
-        >>> s.get_interval(68, 72, scale2=s3) # a minor 3rd
+        >>> s3 = Scale([8, 10, 0, 1, 3, 5, 7])  # A-flat major
+        >>> s.get_interval(68, 72, scale2=s3)  # a minor 3rd
         2
 
         Both pitches present only in second scale:
 
-        >>> s2 = Scale([4,6,8,9,11,1,3]) # E major
-        >>> s.get_interval(61, 68, scale2=s2) # a perfect fifth
+        >>> s2 = Scale([4, 6, 8, 9, 11, 1, 3])  # E major
+        >>> s.get_interval(61, 68, scale2=s2)  # a perfect fifth
         4
         """
         out = self.nearest_index(pitch2, scale2) - self.nearest_index(pitch1, scale2)
@@ -330,27 +403,127 @@ class Scale:
             out = out % len(self)
         return out
 
-    def get_interval_class(
+    def get_reduced_scalar_interval(
+        self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None
+    ) -> Interval:
+        """
+        "Reduced" intervals are intervals <= octave (no compound intervals), with
+        unisons distinguished from octaves.
+
+        >>> s = Scale([0, 2, 4, 5, 7, 9, 11])  # C major
+        >>> s.get_reduced_scalar_interval(60, 60)  # C5, C5 -> Unison
+        0
+        >>> s.get_reduced_scalar_interval(60, 48)  # C5, C4 -> Descending octave
+        -7
+        >>> s.get_reduced_scalar_interval(48, 60)  # C4, C5 -> Ascending octave
+        7
+        >>> s.get_reduced_scalar_interval(48, 72)  # C4, C6 -> Compound ascending octave
+        7
+        >>> s.get_reduced_scalar_interval(72, 57)  # C6, A4 -> Compound descending third
+        -2
+        """
+        return reduce_compound_interval(
+            self.get_interval(pitch1, pitch2, scale2), n_steps_per_octave=len(self)
+        )
+
+    def get_scalar_forward_interval(
         self, pitch1: int, pitch2: int, scale2: t.Optional[Scale] = None
     ):
         """
-        >>> s = Scale([0,2,4,5,7,9,11]) # C major
-        >>> s.get_interval_class(60, 65)
+        By "forward interval" I mean the interval measured "upwards" from the
+        pitch-class of the first pitch to the pitch-class of the second pitch.
+
+        E.g., a descending 7th counts as a 2nd, etc.
+
+        This differs from "interval class" as it occurs in music theory because
+        we treat ascending 2nds/descending 7ths as different from
+        ascending 7ths/descending 2nds.
+
+        # TODO: (Malcolm 2023-07-12) come up with a better name than "forward interval"?
+
+        >>> s = Scale([0, 2, 4, 5, 7, 9, 11])  # C major
+        >>> s.get_scalar_forward_interval(60, 65)  # C5, F5 -> 4th
         3
-        >>> s.get_interval_class(60, 86)
+        >>> s.get_scalar_forward_interval(60, 86)  # C5, D7 -> 2nd
         1
-        >>> s.get_interval_class(64, 50)
+        >>> s.get_scalar_forward_interval(64, 50)  # E5, D4 -> 7th
         6
+        >>> s.get_scalar_forward_interval(60, 60)  # C5, C5 -> Unison
+        0
+        >>> s.get_scalar_forward_interval(48, 60)  # C4, C5 -> Unison
+        0
         """
         return self.get_interval(pitch1, pitch2, scale2) % len(self)
 
     def pitch_is_diatonic(self, pitch: int) -> bool:
         """
         Indicates whether the pitch is diatonic to this scale.
-        >>> s = Scale([0,2,4,5,7,9,11]) # C major
+        >>> s = Scale([0, 2, 4, 5, 7, 9, 11])  # C major
         >>> s.pitch_is_diatonic(60)
         True
         >>> s.pitch_is_diatonic(61)
         False
         """
         return (pitch % 12) in self._pcs_set
+
+    def find_intervals(
+        self,
+        starting_pitch: Pitch,
+        eligible_pcs: t.Sequence[PitchClass],
+        min_pitch: Pitch,
+        max_pitch: Pitch,
+        max_interval: ScalarInterval | None = None,
+        forbidden_intervals: t.Iterable[int] | None = None,
+        allow_steps_outside_of_range: bool = False,
+    ) -> t.List[ScalarInterval]:
+        """
+        >>> d_minor = Scale([2, 4, 5, 7, 9, 10, 1])  # D harmonic minor
+
+        >>> d_minor.find_intervals(  # From tonic to other tonic triad members
+        ...     62, eligible_pcs=[2, 5, 9], min_pitch=50, max_pitch=74
+        ... )
+        [-7, 0, 7, -5, 2, -3, 4]
+
+        >>> d_minor.find_intervals(  # From #^6 (not in scale) to dominant triad
+        ...     71, eligible_pcs=[9, 1, 4], min_pitch=50, max_pitch=74
+        ... )
+        [-8, -1, -6, 1, -11, -4]
+
+        If any pc in `eligible_pcs` is not in the scale, an IndexError is raised.
+        E.g., pc 0 is outside of scale:
+        >>> d_minor.find_intervals(  # From #^6 (not in scale) to dominant *minor*
+        ...     71, eligible_pcs=[9, 0, 4], min_pitch=50, max_pitch=74
+        ... )
+        Traceback (most recent call last):
+        IndexError: pitch 0 with pitch-class 0 is not in scale [1, 2, 4, 5, 7, 9, 10]
+
+        """
+
+        if forbidden_intervals is not None:
+            raise NotImplementedError("# TODO: (Malcolm 2023-07-15) ?")
+        min_pitch = self.adjusted_lower_bound(min_pitch)
+        max_pitch = self.adjusted_upper_bound(max_pitch)
+        _min_interval = self.get_interval(starting_pitch, min_pitch)
+        _max_interval = self.get_interval(starting_pitch, max_pitch)
+
+        if max_interval is not None:
+            _min_interval = max(_min_interval, -max_interval)
+            _max_interval = min(_max_interval, max_interval)
+
+        if allow_steps_outside_of_range:
+            if not _min_interval and self.pitch_has_lower_step(starting_pitch):
+                _min_interval = -1
+            if not _max_interval and self.pitch_has_upper_step(starting_pitch):
+                _max_interval = 1
+
+        starting_index = self.nearest_index(starting_pitch)
+
+        eligible_scalar_pcs = (self.index(eligible_pc) for eligible_pc in eligible_pcs)
+        scalar_pcs_in_range = get_all_in_range(
+            eligible_scalar_pcs,
+            low=starting_index + _min_interval,
+            high=starting_index + _max_interval,
+            steps_per_octave=len(self),
+        )
+        intervals = [scalar_pc - starting_index for scalar_pc in scalar_pcs_in_range]
+        return intervals

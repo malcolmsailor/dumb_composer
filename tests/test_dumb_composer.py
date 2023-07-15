@@ -1,11 +1,10 @@
-import random
 import os
+import random
 
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.time import MeterError
 from dumb_composer.utils.recursion import RecursionFailed
-from test_helpers import write_df
-from tests.test_helpers import get_funcname, TEST_OUT_DIR
+from tests.test_helpers import TEST_OUT_DIR, get_funcname, write_df
 
 
 def test_prefab_composer(quick, pytestconfig):
@@ -41,9 +40,7 @@ def test_prefab_composer(quick, pytestconfig):
                 )
                 mid_path = path_wo_ext + ".mid"
                 log_path = path_wo_ext + ".log"
-                logging_plugin = pytestconfig.pluginmanager.get_plugin(
-                    "logging-plugin"
-                )
+                logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
                 logging_plugin.set_log_path(log_path)
                 rn_temp = rn_format.format(ts)
                 settings = PrefabComposerSettings(
@@ -61,7 +58,9 @@ def test_prefab_composer(quick, pytestconfig):
                     return
 
 
-def test_problem_files():
+def test_problem_files(slow):
+    if not slow:
+        return
     problem_files = [
         "/Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Early_Choral_Bach,_Johann_Sebastian_Chorales_07.txt",
         "/Users/malcolm/datasets/When-in-Rome/Corpus/../analyses_only/Etudes_and_Preludes_Bach,_Johann_Sebastian_The_Well-Tempered_Clavier_I_05.txt",

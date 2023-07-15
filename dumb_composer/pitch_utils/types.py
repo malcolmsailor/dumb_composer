@@ -1,4 +1,5 @@
 import typing as t
+
 from dumb_composer.constants import TIME_TYPE
 
 Pitch = int
@@ -6,7 +7,9 @@ PitchClass = int
 PitchOrPitchClass = int
 ChordFactor = int
 TimeStamp = TIME_TYPE
+Interval = int
 ChromaticInterval = int
+ScalarInterval = int
 ScaleDegree = int
 VoiceCount = int
 

@@ -7,7 +7,7 @@ from dumb_composer.chord_spacer import (
 )
 import pytest
 
-from dumb_composer.shared_classes import Score
+from dumb_composer.shared_classes import PrefabScore
 
 
 # TODO: (Malcolm) implement accounting for voice-leading
@@ -27,7 +27,7 @@ def test_apply_spacing_constraints(
     max_bass_interval,
 ):
     chord_spacer = SimpleSpacer()
-    score = Score(chord_data=rntxt)
+    score = PrefabScore(chord_data=rntxt)
     spacing_constraints = SpacingConstraints(
         max_adjacent_interval,
         max_total_interval,

@@ -17,12 +17,11 @@ class DeadEnd(UndoRecursiveStep):
 
 @contextmanager
 def append_attempt(
-    list_: t.Union[t.List[t.Any], t.Tuple[t.List[t.Any]]],
-    item: t.Union[t.Any, t.Tuple[t.Any]],
+    list_: t.Union[t.List[t.Any], t.Tuple[t.List[t.Any,], ...]],
+    item: t.Union[t.Any, t.Tuple[t.Any, ...]],
     reraise: t.Optional[
-        t.Union[t.Type[UndoRecursiveStep], t.Tuple[t.Type[UndoRecursiveStep]]]
+        t.Union[t.Type[UndoRecursiveStep], t.Tuple[t.Type[UndoRecursiveStep], ...]]
     ] = None,
-    # id_: str = "",
 ):
     if isinstance(list_, tuple):
         for sub_list, sub_item in zip(list_, item):

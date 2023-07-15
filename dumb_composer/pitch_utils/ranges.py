@@ -1,12 +1,11 @@
-from dataclasses import dataclass
-from functools import cached_property
 import logging
 import random
-import sys
 import typing as t
+from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
-from scipy.stats import truncnorm  # type:ignore
+from scipy.stats import truncnorm
 
 from dumb_composer.constants import unspeller
 from dumb_composer.utils.math_ import softmax_from_slope
@@ -44,6 +43,8 @@ class Ranger:
 
     slope_scale: float = 0.1
 
+    seed: int | None = None
+
     def __post_init__(self):
         for attr in (
             "min_nadir",
@@ -66,10 +67,24 @@ class Ranger:
     @cached_property
     def _truncnorm(self):
         out = truncnorm(-1, 1)
-        out.random_state = np.random.default_rng(random.randrange(10000))
+        out.random_state = np.random.default_rng(
+            random.randrange(10000) if self.seed is None else self.seed
+        )
         return out
 
-    def within(self, top, bottom, dist="normal"):
+    def sample_within(self, top, bottom, dist="normal"):
+        """
+        >>> ranger = Ranger()
+        >>> sampled_within = [ranger.sample_within(0, 10) for _ in range(1000)]
+        >>> min(sampled_within)
+        0
+        >>> max(sampled_within)
+        10
+
+        Mean should be close to 5:
+        >>> sum(sampled_within) / len(sampled_within)  # doctest: +SKIP
+        5.115
+        """
         if dist != "normal":
             raise NotImplementedError
         loc = (top + bottom) / 2
@@ -85,7 +100,8 @@ class Ranger:
     def _choose_ambitus(self, ambitus_delta, slope, ambitus_min):
         weights = softmax_from_slope(ambitus_delta, slope)
         ambitus = (
-            random.choices(range(ambitus_delta + 1), weights=weights)[0] + ambitus_min
+            random.choices(range(ambitus_delta + 1), weights=weights)[0]  # type:ignore
+            + ambitus_min
         )
         return ambitus
 
@@ -153,8 +169,8 @@ class Ranger:
         }
 
     def __call__(self, melody_part: str = "soprano") -> t.Dict[str, t.Tuple[int, int]]:
-        nadir = self.within(self.min_nadir, self.max_nadir)
-        apogee = self.within(self.min_apogee, self.max_apogee)
+        nadir = self.sample_within(self.min_nadir, self.max_nadir)
+        apogee = self.sample_within(self.min_apogee, self.max_apogee)
         ambitus = apogee - nadir
         slope = self._get_slope(self._min_ambitus, self._max_ambitus, ambitus)
         if melody_part == "soprano":

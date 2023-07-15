@@ -1,6 +1,9 @@
-from functools import partial, reduce
 import math
+import random
 import typing as t
+from functools import partial, reduce
+
+from dumb_composer.pitch_utils.types import Pitch, PitchClass, PitchOrPitchClass
 from dumb_composer.utils.nested import nested
 
 # TODO: (Malcolm) maybe consolidate these functions between libraries
@@ -53,11 +56,12 @@ def put_in_range(p, low=None, high=None, tet=12, fail_silently: bool = False):
 
 
 def get_all_in_range(
-    p: t.Union[t.Sequence[int], int],
-    low: int,
-    high: int,
-    tet: int = 12,
+    p: t.Sequence[PitchOrPitchClass] | PitchOrPitchClass,
+    low: Pitch,
+    high: Pitch,
+    steps_per_octave: int = 12,
     sorted: bool = False,
+    shuffled: bool = False,
 ) -> t.List[int]:
     """Bounds are inclusive.
 
@@ -67,25 +71,79 @@ def get_all_in_range(
     []
     >>> get_all_in_range(58, low=58, high=85)
     [58, 70, 82]
+    >>> get_all_in_range(58, low=58, high=85, shuffled=True)  # doctest: +SKIP
+    [70, 82, 58]
+
+    If a single pitch-class is passed and shuffled=False, the output is always
+    sorted. But with multiple pitch-classes we need to add sorted=True if we want
+    the output to be in order:
+    >>> get_all_in_range([58, 60], low=58, high=83)
+    [58, 70, 82, 60, 72]
     >>> get_all_in_range([58, 60], low=58, high=83, sorted=True)
     [58, 60, 70, 72, 82]
+    >>> get_all_in_range([58, 60], low=58, high=83, shuffled=True)  # doctest: +SKIP
+    [60, 72, 70, 82, 58]
+
+    This function can also be used on scale degrees or scale indices if
+    `steps_per_octave` is set appropriately.
+    >>> get_all_in_range(  # scalar thirds between 3rd and 6th octaves
+    ...     2, low=21, high=42, steps_per_octave=7
+    ... )
+    [23, 30, 37]
+    >>> get_all_in_range(  # tonic triad between 3rd and 5th octaves
+    ...     [0, 2, 4], low=28, high=42, steps_per_octave=7, sorted=True
+    ... )
+    [28, 30, 32, 35, 37, 39, 42]
     """
     if not isinstance(p, int):
         if not p:
             return []
         out = reduce(
             lambda x, y: x + y,
-            [get_all_in_range(pp, low, high, tet) for pp in p],
+            [get_all_in_range(pp, low, high, steps_per_octave) for pp in p],
         )
-        if sorted:
+        if shuffled:
+            random.shuffle(out)
+        elif sorted:
             out.sort()
         return out
+    pc = p % steps_per_octave
+    low_octave, low_pc = divmod(low, steps_per_octave)
+    low_octave += pc < low_pc
+    high_octave, high_pc = divmod(high, steps_per_octave)
+    high_octave -= pc > high_pc
+    octaves = range(low_octave, high_octave + 1)
+    if shuffled:
+        octaves = random.sample(octaves, len(octaves))
+    return [pc + octave * steps_per_octave for octave in octaves]
+
+
+# TODO: (Malcolm 2023-07-13) do we actually need this?
+def yield_all_in_range(
+    p: t.Sequence[PitchOrPitchClass] | PitchOrPitchClass,
+    low: Pitch,
+    high: Pitch,
+    tet: int = 12,
+) -> t.Iterable[Pitch]:
+    """
+    >>> list(yield_all_in_range(60, low=58, high=72))
+    [60, 72]
+    >>> list(yield_all_in_range(60, low=58, high=59))
+    []
+    >>> list(yield_all_in_range(58, low=58, high=85))
+    [58, 70, 82]
+
+    Note: sorted is not yet implemented
+    >>> list(yield_all_in_range([58, 60], low=58, high=83))
+    [58, 70, 82, 60, 72]
+    """
+    if not isinstance(p, int):
+        for x in p:
+            yield from yield_all_in_range(x, low, high, tet)
+        return
     pc = p % tet
     low_octave, low_pc = divmod(low, tet)
     low_octave += pc < low_pc
     high_octave, high_pc = divmod(high, tet)
     high_octave -= pc > high_pc
-    return [pc + octave * tet for octave in range(low_octave, high_octave + 1)]
-
-
-# TODO put_in_range with smoothing [what did I mean by this?]
+    yield from (pc + octave * tet for octave in range(low_octave, high_octave + 1))

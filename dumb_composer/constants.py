@@ -1,7 +1,7 @@
 from fractions import Fraction
 from types import MappingProxyType
 
-from mspell import Unspeller, Speller
+from mspell import Speller, Unspeller
 
 unspeller_pcs = Unspeller(pitches=False)
 speller_pcs = Speller(pitches=False)
@@ -30,13 +30,14 @@ DEFAULT_TENOR_ACCOMP_RANGE = (60, 84)
 
 DISSONANT_INTERVALS_ABOVE_BASS = {1, 2, 5, 6, 10, 11}
 DISSONANT_INTERVAL_CLASSES_BETWEEN_UPPER_VOICES = {1, 2}
-DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES = (
-    DISSONANT_INTERVAL_CLASSES_BETWEEN_UPPER_VOICES
-    | {12 - ic for ic in DISSONANT_INTERVAL_CLASSES_BETWEEN_UPPER_VOICES}
-)
+DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES: set[
+    int
+] = DISSONANT_INTERVAL_CLASSES_BETWEEN_UPPER_VOICES | {
+    12 - ic for ic in DISSONANT_INTERVAL_CLASSES_BETWEEN_UPPER_VOICES
+}
 
 CLOSE_REGISTERS = MappingProxyType(
-    unspeller(
+    unspeller(  # type:ignore
         {
             0: ("Bb3", "F5"),
             1: ("Eb4", "C6"),
@@ -46,7 +47,7 @@ CLOSE_REGISTERS = MappingProxyType(
     )
 )
 OPEN_REGISTERS = MappingProxyType(
-    unspeller(
+    unspeller(  # type:ignore
         {
             0: ("A1", "E5"),
             1: ("A2", "C6"),
@@ -56,7 +57,7 @@ OPEN_REGISTERS = MappingProxyType(
     )
 )
 KEYBOARD_STYLE_REGISTERS = MappingProxyType(
-    unspeller(
+    unspeller(  # type:ignore
         {
             0: (("A2", "C4"), ("D4", "E5")),
             1: (("D3", "F4"), ("G4", "A5")),

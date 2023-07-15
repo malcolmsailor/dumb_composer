@@ -1,30 +1,26 @@
+import logging
+import random
+import typing as t
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
-import logging
 from numbers import Number
-import typing as t
-import random
-import warnings
+
 import pandas as pd
-from .pitch_utils.chords import Chord, Inflection
 
-from dumb_composer.pitch_utils.intervals import (
-    get_relative_chord_factors,
-)
-from .utils.math_ import weighted_sample_wo_replacement
-from .utils.recursion import DeadEnd
-from .pitch_utils.scale import Scale, ScaleDict
-from dumb_composer.shared_classes import Note, Score
-
-from dumb_composer.prefabs.prefab_pitches import (
-    PrefabPitchDirectory,
-    PrefabPitches,
-)
+from dumb_composer.pitch_utils.intervals import get_relative_chord_factors
+from dumb_composer.prefabs.prefab_pitches import PrefabPitchDirectory, PrefabPitches
 from dumb_composer.prefabs.prefab_rhythms import (
     PrefabRhythmDirectory,
     PrefabRhythms,
     SingletonRhythm,
 )
+from dumb_composer.shared_classes import Note, PrefabScore
+
+from .pitch_utils.chords import Chord, Inflection
+from .pitch_utils.scale import Scale, ScaleDict
+from .utils.math_ import weighted_sample_wo_replacement
+from .utils.recursion import DeadEnd
 
 # TODO prefab "inertia": more likely to select immediately preceding prefab
 #    if possible (or choose from previous N prefabs)
@@ -151,12 +147,12 @@ class PrefabApplier:
         #     pass
         return notes
 
-    def get_decorated_voice(self, score: Score):
+    def get_decorated_voice(self, score: PrefabScore):
         if self.settings.prefab_voice == "bass":
             return score.structural_bass
         return score.structural_melody
 
-    def get_nondecorated_structural_voice(self, score: Score):
+    def get_nondecorated_structural_voice(self, score: PrefabScore):
         if self.settings.prefab_voice == "bass":
             return score.structural_melody
         return score.structural_bass
@@ -196,7 +192,7 @@ class PrefabApplier:
         epsilon = remaining_mass / (len(prefab_options) - len(temp))
         return [temp.get(prefab, epsilon) for prefab in prefab_options]
 
-    def _step(self, score: Score):
+    def _step(self, score: PrefabScore):
         current_i = len(score.prefabs)
         current_scale = score.scales[current_i]
         next_scale = score.scales[current_i + 1]
@@ -205,9 +201,9 @@ class PrefabApplier:
 
         current_mel_pitch = decorated_voice[current_i]
         next_mel_pitch = decorated_voice[current_i + 1]
-        is_suspension = current_i in score.suspension_indices
-        is_preparation = current_i + 1 in score.suspension_indices
-        is_resolution = current_i - 1 in score.suspension_indices
+        is_suspension = current_i in score.melody_suspensions
+        is_preparation = current_i + 1 in score.melody_suspensions
+        is_resolution = current_i - 1 in score.melody_suspensions
         is_after_tie = current_i - 1 in score.tied_prefab_indices
         start_with_rest = (
             None
@@ -291,7 +287,7 @@ class PrefabApplier:
         raise DeadEnd()
 
     def _has_forbidden_parallels(
-        self, current_i: int, score: Score, realized_notes: t.List[Note]
+        self, current_i: int, score: PrefabScore, realized_notes: t.List[Note]
     ) -> bool:
         decorated_voice = self.get_decorated_voice(score)
         this_next_pitch = decorated_voice[current_i + 1]
@@ -306,7 +302,7 @@ class PrefabApplier:
         this_mel_interval = this_next_pitch - realized_notes[-1].pitch
         return other_mel_interval == this_mel_interval
 
-    def _final_step(self, score: Score):
+    def _final_step(self, score: PrefabScore):
         # TODO eventually it would be nice to be able to decorate the last note
         #   etc.
         current_i = len(score.prefabs)

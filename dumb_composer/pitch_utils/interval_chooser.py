@@ -1,10 +1,17 @@
-import typing as t
-from dataclasses import dataclass
+"""Provides a class, IntervalChooser, that chooses small intervals more often than 
+larger intervals."""
 import math
 import random
+import typing as t
+from collections import Counter  # used by doctests
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+NonnegativeFloat = float
+
+# TODO: (Malcolm 2023-07-14) update so that we can also weight intervals arbitrarily
 
 
 @dataclass
@@ -20,17 +27,54 @@ class IntervalChooserSettings:
                 absolute value.)
         Nevertheless the exponential curve seems to have an appropriate
         shape. If lambda_ = 0, then all intervals are equally likely.
-        As it increases, small intervals become correspondingly more likely.
+        As it increases, small intervals become more likely.
     unison_weighted_as: In many contexts, we want melodic unisons to be
         relatively rare; in this case, we can set "unison_weighted_as" to a
         relatively high value (e.g., 3).
     """
 
-    lambda_: float = 0.25
+    lambda_: NonnegativeFloat = 0.25
     unison_weighted_as: int = 0
 
 
 class IntervalChooser:
+    """
+
+    ------------------------------------------------------------------------------------
+    Default settings
+    ------------------------------------------------------------------------------------
+
+    >>> ic = IntervalChooser()
+    >>> intervals = [-7, -5, -2, 0, 2, 5, 7]
+
+    To get a single interval, call an instance directly
+    >>> ic(intervals)  # doctest: +SKIP
+    0
+
+    To get a list of intervals use `choose_intervals()`
+    >>> Counter(ic.choose_intervals(intervals, n=1000))  # doctest: +SKIP
+    Counter({0: 323, -2: 190, 2: 189, -5: 97, 5: 93, -7: 57, 7: 51})
+
+    ------------------------------------------------------------------------------------
+    Custom settings
+    ------------------------------------------------------------------------------------
+
+    Increasing lambda concentrates the distribution on smaller intervals:
+    >>> ic = IntervalChooser(IntervalChooserSettings(lambda_=1.0))
+    >>> Counter(ic.choose_intervals(intervals, n=1000))  # doctest: +SKIP
+    Counter({0: 775, 2: 109, -2: 103, 5: 6, -5: 4, 7: 2, -7: 1})
+
+    Zero lambda (uniform distribution):
+    >>> ic = IntervalChooser(IntervalChooserSettings(lambda_=0.0))
+    >>> Counter(ic.choose_intervals(intervals, n=1000))  # doctest: +SKIP
+    Counter({-7: 156, 7: 153, -5: 150, 0: 146, 5: 135, 2: 132, -2: 128})
+
+    Reweighting unison:
+    >>> ic = IntervalChooser(IntervalChooserSettings(lambda_=1.0, unison_weighted_as=7))
+    >>> Counter(ic.choose_intervals(intervals, n=1000))  # doctest: +SKIP
+    Counter({-2: 473, 2: 468, 5: 33, -5: 20, 7: 2, -7: 2, 0: 2})
+    """
+
     def __init__(self, settings: t.Optional[IntervalChooserSettings] = None):
         if settings is None:
             settings = IntervalChooserSettings()
@@ -55,9 +99,7 @@ class IntervalChooser:
             * (self._unison_weighted_as if interval == 0 else abs(interval))
         )
 
-    def choose_intervals(
-        self, intervals: t.Sequence[int], n: int = 1
-    ) -> t.List[int]:
+    def choose_intervals(self, intervals: t.Sequence[int], n: int = 1) -> t.List[int]:
         """Intervals should ideally be sorted so that the memo-ing is accurate
         but it probably isn't worth actually sorting them.
         """

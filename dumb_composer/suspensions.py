@@ -1,11 +1,13 @@
+import typing as t
 from dataclasses import dataclass, field
 from numbers import Number
-import typing as t
 
 from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
 )
+from dumb_composer.pitch_utils.types import TimeStamp
+
 from .time import Meter, MeterError
 
 
@@ -71,6 +73,7 @@ def find_suspensions(
 
     >>> for s in find_suspensions(71, (5, 9, 0)):
     ...     print(s)
+    ...
     Suspension(resolves_by=-2, dissonant=True, interval_above_bass=6)
     Suspension(resolves_by=1, dissonant=True, interval_above_bass=6)
 
@@ -132,30 +135,26 @@ def find_suspensions(
 
 
 def find_suspension_release_times(
-    start: Number,
-    stop: Number,
+    start: TimeStamp,
+    stop: TimeStamp,
     meter: Meter,
     max_weight_diff: t.Optional[int] = None,
     max_suspension_dur: t.Union[str, Number] = "bar",
-) -> t.List[Number]:
+) -> t.List[TimeStamp]:
     """Returns a list of times at which suspension releases could occur.
 
     # TODO behavior is inconsistent between 9/8 and 3/4. FIX!
-    >>> find_suspension_release_times(
-    ...     0.0, 4.5, Meter("9/8"), max_weight_diff=2)
+    >>> find_suspension_release_times(0.0, 4.5, Meter("9/8"), max_weight_diff=2)
     [Fraction(3, 1), Fraction(1, 1)]
 
     By default, suspensions can be at most one bar long:
 
-    >>> find_suspension_release_times(
-    ...     0.0, 16.0, Meter("4/4"), max_weight_diff=2)
+    >>> find_suspension_release_times(0.0, 16.0, Meter("4/4"), max_weight_diff=2)
     [Fraction(4, 1), Fraction(2, 1), Fraction(1, 1)]
-    >>> find_suspension_release_times(
-    ...     0.0, 12.0, Meter("3/4"), max_weight_diff=1)
+    >>> find_suspension_release_times(0.0, 12.0, Meter("3/4"), max_weight_diff=1)
     [Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)]
 
-    >>> find_suspension_release_times(
-    ...     16.0, 32.0, Meter("4/4"), max_weight_diff=2)
+    >>> find_suspension_release_times(16.0, 32.0, Meter("4/4"), max_weight_diff=2)
     [Fraction(20, 1), Fraction(18, 1), Fraction(17, 1)]
 
     """

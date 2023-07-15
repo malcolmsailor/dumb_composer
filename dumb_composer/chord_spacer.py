@@ -1,33 +1,30 @@
-from dataclasses import dataclass, asdict
 import itertools as it
 import logging
 import random
 import typing as t
+from dataclasses import asdict, dataclass
 
-# TODO: (Malcolm) figure out why pylance doesn't recognize these imports
-from voice_leader import (  # type:ignore
-    voice_lead_pitches,
-    NoMoreVoiceLeadingsError,
+from voice_leader import (
     CardinalityDiffersTooMuch,
+    NoMoreVoiceLeadingsError,
+    voice_lead_pitches,
 )
 
 from dumb_composer.constants import (
     CLOSE_REGISTERS,
+    DEFAULT_ACCOMP_RANGE,
+    DEFAULT_BASS_RANGE,
     HI_PITCH,
     KEYBOARD_STYLE_REGISTERS,
     LOW_PITCH,
     OPEN_REGISTERS,
     TET,
-    DEFAULT_BASS_RANGE,
-    DEFAULT_ACCOMP_RANGE,
 )
+from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
+from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spacing
 from dumb_composer.shared_classes import Allow
 from dumb_composer.utils.attr_compiler import attr_compiler
-from dumb_composer.pitch_utils.put_in_range import (
-    get_all_in_range,
-    put_in_range,
-)
-from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spacing
+
 from .utils.recursion import UndoRecursiveStep
 
 
@@ -420,7 +417,9 @@ class SimpleSpacer:
         they can never be used anyway.
         >>> SimpleSpacer._apply_omissions((0, 4, 7), (Allow.ONLY,) * 3)
         ([0], [])
-        >>> SimpleSpacer._apply_omissions((0, 4, 7), (Allow.ONLY,) * 3, include_bass=False)
+        >>> SimpleSpacer._apply_omissions(
+        ...     (0, 4, 7), (Allow.ONLY,) * 3, include_bass=False
+        ... )
         ([], [])
 
         """
@@ -446,7 +445,7 @@ class SimpleSpacer:
         min_bass_pitch: t.Optional[int],
         max_bass_pitch: t.Optional[int],
         spacing_constraints: t.Optional[SpacingConstraints] = None,
-    ):
+    ) -> t.Iterator[t.Tuple[int, ...]]:
         if self._prev_pitches is not None:
             try:
                 pitches = voice_lead_pitches(
@@ -483,11 +482,11 @@ class SimpleSpacer:
         random.shuffle(spacings)
         for spacing in spacings:
             # put pitches in ascending order
-            spacing = sorted(spacing)
+            spacing = tuple(sorted(spacing))
             # we skip spacings that do not validate. It would be more efficient not to
             # generate them in the first place though.
             if (spacing_constraints is not None) and (
-                not validate_spacing(spacing, **asdict(spacing_constraints))
+                not validate_spacing(spacing, spacing_constraints)
             ):
                 continue
             self._prev_pitches = spacing
@@ -530,7 +529,7 @@ class SimpleSpacer:
         min_bass_pitch: t.Optional[int] = None,
         max_bass_pitch: t.Optional[int] = None,
         spacing_constraints: t.Optional[SpacingConstraints] = None,
-    ) -> t.Iterator[t.List[int]]:
+    ) -> t.Iterator[t.Tuple[int, ...]]:
         pcs, possible_omissions = self._apply_omissions(pcs, omissions, include_bass)
         min_accomp_pitch = (
             self.settings.accomp_range[0]

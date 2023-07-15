@@ -1,16 +1,17 @@
+import logging
+import random
+import typing as t
 from enum import Enum, auto
 from fractions import Fraction
-import logging
 from numbers import Number
-import random
 from re import M
-import typing as t
 from types import MappingProxyType
-import pandas as pd
-from dumb_composer.chord_spacer import SpacingConstraints
 
-from dumb_composer.time import RhythmFetcher, Meter
+import pandas as pd
+
+from dumb_composer.chord_spacer import SpacingConstraints
 from dumb_composer.shared_classes import Allow, Note, notes, print_notes
+from dumb_composer.time import Meter, RhythmFetcher
 
 
 class ExtraPitches(Enum):
@@ -27,7 +28,7 @@ def pattern_method(
     min_dur_fallback: str = "simple_chord",
     min_pitch_count: t.Optional[int] = None,
     min_pitch_count_fallback: str = "simple_chord",
-    spacing_constraints: SpacingConstraints = SpacingConstraints(12),
+    spacing_constraints: SpacingConstraints = SpacingConstraints(),
 ):
     """
     Keyword args:
