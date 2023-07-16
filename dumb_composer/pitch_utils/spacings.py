@@ -186,6 +186,7 @@ class SpacingConstraints:
 
     max_adjacent_interval: int = 12
     min_adjacent_interval: int = 0
+    min_total_interval: int = None  # type:ignore
     max_total_interval: int = None  # type:ignore
     control_bass_interval: bool = False
     max_bass_interval: int = None  # type:ignore
@@ -198,6 +199,8 @@ class SpacingConstraints:
     avoid_melody_crossing: bool = True
 
     def __post_init__(self):
+        if self.min_total_interval is None:
+            self.min_total_interval = -(2**30)
         if self.max_total_interval is None:
             self.max_total_interval = 2**31
 

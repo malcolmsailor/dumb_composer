@@ -3,6 +3,7 @@ import random
 import sys
 import typing as t
 from dataclasses import dataclass
+from enum import Enum, IntEnum, auto
 from numbers import Number
 
 import pandas as pd
@@ -14,9 +15,14 @@ from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
 )
-from dumb_composer.pitch_utils.intervals import get_forbidden_intervals, interval_finder
+from dumb_composer.pitch_utils.intervals import (
+    get_forbidden_intervals,
+    interval_finder,
+    is_direct_interval,
+)
+from dumb_composer.pitch_utils.pcs import PitchClass
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
-from dumb_composer.pitch_utils.spacings import RangeConstraints
+from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import ChromaticInterval, Pitch, TimeStamp
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
 
@@ -29,6 +35,11 @@ from .utils.recursion import DeadEnd
 
 # TODO don't permit suspension resolutions to tendency tones (I think I may have
 # done this, double check)
+
+
+class OuterVoice(IntEnum):
+    BASS = 0
+    MELODY = 1
 
 
 @dataclass
@@ -53,7 +64,9 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     allow_avoid_intervals: bool = False
     allow_steps_outside_of_range: bool = True
     range_constraints: RangeConstraints = RangeConstraints()
+    spacing_constraints: SpacingConstraints = SpacingConstraints()
     expected_total_number_of_voices: int = 4
+    do_first: OuterVoice = OuterVoice.BASS
 
     def __post_init__(self):
         if hasattr(super(), "__post_init__"):
@@ -109,8 +122,8 @@ class TwoPartContrapuntist:
         self,
         score: _ScoreBase,
         next_chord: Chord,
-        cur_mel_pitch: int,
-        next_bass_has_tendency: bool,
+        cur_melody_pitch: int,
+        pcs_not_to_double: t.Container[PitchClass],
     ):
         suspension_release_times = find_suspension_release_times(
             next_chord.onset,
@@ -122,16 +135,15 @@ class TwoPartContrapuntist:
         if not suspension_release_times:
             yield None
             return
-        if next_bass_has_tendency:
-            eligible_pcs = next_chord.pcs[1:]
-        else:
-            eligible_pcs = next_chord.pcs
+
+        eligible_pcs = [pc for pc in next_chord.pcs if pc not in pcs_not_to_double]
+
         suspensions = find_suspensions(
             # TODO providing next_scale_pcs prohibits "chromatic" suspensions
             #   (see the definition of find_suspensions()) but in the long
             #   run I'm not sure whether this is indeed something we want to
             #   do.
-            cur_mel_pitch,
+            cur_melody_pitch,
             eligible_pcs,
             next_scale_pcs=next_chord.scale_pcs,
             resolve_up_by=self._upward_suspension_resolutions,
@@ -184,13 +196,13 @@ class TwoPartContrapuntist:
         self,
         score: _ScoreBase,
         i: int,
-        cur_mel_pitch: int,
+        cur_melody_pitch: int,
         next_chord: Chord,
         intervals: t.List[int],
         next_bass_has_tendency: bool,
     ) -> t.Iterable[int]:
         cur_chord = score.chords[i - 1]
-        tendency = cur_chord.get_pitch_tendency(cur_mel_pitch)
+        tendency = cur_chord.get_pitch_tendency(cur_melody_pitch)
         if tendency is Tendency.NONE or cur_chord == next_chord:
             return
         if tendency is Tendency.UP:
@@ -199,7 +211,7 @@ class TwoPartContrapuntist:
             steps = (-1, -2)
         for step in steps:
             if step in intervals:
-                candidate_pitch = cur_mel_pitch + step
+                candidate_pitch = cur_melody_pitch + step
                 if next_bass_has_tendency and (
                     candidate_pitch % 12 == score.structural_bass[i] % 12
                 ):
@@ -208,83 +220,130 @@ class TwoPartContrapuntist:
                 intervals.remove(step)
                 return
         logging.debug(
-            f"resolving tendency-tone with pitch {cur_mel_pitch} " f"would exceed range"
+            f"resolving tendency-tone with pitch {cur_melody_pitch} "
+            f"would exceed range"
         )
 
-    def _get_first_melody_pitch(self, score: _ScoreBase, i: int):
-        next_bass_pitch = score.structural_bass[i]
+    def _get_boundary_pitches(
+        self, voice: OuterVoice, pitch_in_other_voice: Pitch | None = None
+    ) -> t.Tuple[Pitch, Pitch]:
+        if voice is OuterVoice.BASS:
+            min_pitch = self.settings.range_constraints.min_bass_pitch
+            max_pitch = self.settings.range_constraints.max_bass_pitch
+
+            if pitch_in_other_voice is not None:
+                min_pitch = max(
+                    min_pitch,
+                    pitch_in_other_voice
+                    - self.settings.spacing_constraints.max_total_interval,
+                )
+                max_pitch = min(
+                    max_pitch,
+                    pitch_in_other_voice
+                    - self.settings.spacing_constraints.min_total_interval,
+                )
+
+        elif voice is OuterVoice.MELODY:
+            min_pitch = self.settings.range_constraints.min_melody_pitch
+            max_pitch = self.settings.range_constraints.max_melody_pitch
+            if pitch_in_other_voice is not None:
+                min_pitch = max(
+                    min_pitch,
+                    pitch_in_other_voice
+                    + self.settings.spacing_constraints.min_total_interval,
+                )
+                max_pitch = min(
+                    max_pitch,
+                    pitch_in_other_voice
+                    + self.settings.spacing_constraints.max_total_interval,
+                )
+
+        else:
+            raise ValueError()
+
+        return min_pitch, max_pitch
+
+    def _get_first_melody_pitch(
+        self, score: _ScoreBase, i: int, bass_pitch: Pitch | None
+    ) -> t.Iterator[Pitch]:
         next_chord = score.chords[i]
         eligible_pcs = next_chord.get_pcs_that_can_be_added_to_existing_voicing()
 
-        # TODO: (Malcolm 2023-07-14) weight choices according to interval
-        mel_pitch_choices = get_all_in_range(
-            eligible_pcs,
-            max(next_bass_pitch, score.range_constraints.min_melody_pitch),
-            score.range_constraints.max_melody_pitch,
+        min_pitch, max_pitch = self._get_boundary_pitches(
+            OuterVoice.MELODY, pitch_in_other_voice=bass_pitch
         )
-        random.shuffle(mel_pitch_choices)
-        yield from mel_pitch_choices
+
+        # TODO: (Malcolm 2023-07-14) weight choices according to interval
+        yield from get_all_in_range(
+            eligible_pcs, low=min_pitch, high=max_pitch, shuffled=True
+        )
+
+    def _get_first_bass_pitch(
+        self, score: _ScoreBase, i: int, melody_pitch: Pitch | None
+    ) -> t.Iterator[Pitch]:
+        next_bass_pc = score.pc_bass[i]
+
+        min_pitch, max_pitch = self._get_boundary_pitches(
+            OuterVoice.BASS, pitch_in_other_voice=melody_pitch
+        )
+
+        yield from get_all_in_range(
+            next_bass_pc, low=min_pitch, high=max_pitch, shuffled=True
+        )
 
     def _resolve_suspension(self, i: int):
         yield self._suspension_resolutions[i]
 
     def _choose_intervals(
         self,
-        cur_bass_pitch: Pitch,
-        next_bass_pitch: Pitch,
-        next_bass_has_tendency: bool,
-        cur_mel_pitch: Pitch,
+        cur_other_pitch: Pitch,
+        next_other_pitch: Pitch | None,
+        cur_pitch: Pitch,
+        dont_double_other_pc: bool,
         intervals: t.List[ChromaticInterval],
+        voice_to_choose_for: OuterVoice,
     ):
         avoid_intervals = []
         direct_intervals = []
+
         while intervals:
             interval = self._ic(intervals)
-            candidate_pitch = cur_mel_pitch + interval
+            candidate_pitch = cur_pitch + interval
 
-            # Check for avoid intervals
+            if next_other_pitch is not None:
+                # Check for avoid intervals
 
-            if next_bass_has_tendency and (candidate_pitch % 12) == (
-                next_bass_pitch % 12
-            ):
-                # Don't double tendency tones in bass
-                intervals.remove(interval)
-                avoid_intervals.append(interval)
-                continue
+                if dont_double_other_pc and (candidate_pitch % 12) == (
+                    next_other_pitch % 12
+                ):
+                    # Don't double tendency tones
+                    intervals.remove(interval)
+                    avoid_intervals.append(interval)
+                    continue
 
-            bass_interval = next_bass_pitch - cur_bass_pitch
-
-            # TODO: (Malcolm 2023-07-14) As far as I can tell `accomp_bass_range` no
-            #   longer exists. I'm commenting out this code but leaving it for the
-            #   time being to see if there are any associated issues.
-            # adjusting the bass_intervals in this way isn't really ideal
-            #   I think it is only necessary because "bass_range" and
-            #   "accomp_bass_range" don't necessarily agree. I should
-            #   enforce agreement between them.
-            # if abs(bass_interval) > 6:
-            #     if bass_interval > 0:
-            #         bass_interval -= 12
-            #     else:
-            #         bass_interval += 12
-
-            # Check for direct intervals
-
-            if (
-                abs(interval) > 2
-                and (
-                    (candidate_pitch - next_bass_pitch) % 12
-                    in self.settings.unpreferred_direct_intervals
-                )
-                and (
-                    (0 not in (interval, bass_interval))
-                    and ((interval > 0) == (bass_interval > 0))
-                )
-            ):
-                # We move unpreferred direct intervals into another list and only
-                # consider them later if we need to
-                intervals.remove(interval)
-                direct_intervals.append(interval)
-                continue
+                # Check for direct intervals
+                if voice_to_choose_for is OuterVoice.BASS:
+                    pitch_args = (
+                        cur_pitch,
+                        candidate_pitch,
+                        cur_other_pitch,
+                        next_other_pitch,
+                    )
+                else:
+                    pitch_args = (
+                        cur_other_pitch,
+                        next_other_pitch,
+                        cur_pitch,
+                        candidate_pitch,
+                    )
+                if is_direct_interval(
+                    *pitch_args, self.settings.unpreferred_direct_intervals
+                ):
+                    # We move unpreferred direct intervals into another list and only
+                    # consider them later if we need to
+                    intervals.remove(interval)
+                    direct_intervals.append(interval)
+                    continue
 
             # Try interval
 
@@ -298,7 +357,7 @@ class TwoPartContrapuntist:
             while avoid_intervals:
                 interval = self._ic(avoid_intervals)
                 logging.warning(f"must use avoid interval {interval}")
-                yield cur_mel_pitch + interval
+                yield cur_pitch + interval
                 avoid_intervals.remove(interval)
 
         # -------------------------------------------------------------------------------
@@ -307,20 +366,153 @@ class TwoPartContrapuntist:
         while direct_intervals:
             interval = self._ic(direct_intervals)
             logging.warning(f"must use direct interval {interval}")
-            yield cur_mel_pitch + interval
+            yield cur_pitch + interval
             direct_intervals.remove(interval)
 
-    def _get_next_melody_pitch(self, score: _ScoreBase, i: int):
+    # TODO: (Malcolm 2023-07-16) remove
+    def _choose_melody_intervals(
+        self,
+        cur_bass_pitch: Pitch,
+        next_bass_pitch: Pitch | None,
+        cur_melody_pitch: Pitch,
+        next_bass_has_tendency: bool,
+        intervals: t.List[ChromaticInterval],
+    ):
+        avoid_intervals = []
+        direct_intervals = []
+        while intervals:
+            interval = self._ic(intervals)
+            candidate_pitch = cur_melody_pitch + interval
+
+            if next_bass_pitch is not None:
+                # Check for avoid intervals
+
+                if next_bass_has_tendency and (candidate_pitch % 12) == (
+                    next_bass_pitch % 12
+                ):
+                    # Don't double tendency tones in bass
+                    intervals.remove(interval)
+                    avoid_intervals.append(interval)
+                    continue
+
+                # Check for direct intervals
+                if is_direct_interval(
+                    cur_bass_pitch,
+                    next_bass_pitch,
+                    cur_melody_pitch,
+                    candidate_pitch,
+                    self.settings.unpreferred_direct_intervals,
+                ):
+                    # We move unpreferred direct intervals into another list and only
+                    # consider them later if we need to
+                    intervals.remove(interval)
+                    direct_intervals.append(interval)
+                    continue
+
+            # Try interval
+
+            yield candidate_pitch
+            intervals.remove(interval)
+
+        # -------------------------------------------------------------------------------
+        # Try avoid intervals
+        # -------------------------------------------------------------------------------
+        if self.settings.allow_avoid_intervals:
+            while avoid_intervals:
+                interval = self._ic(avoid_intervals)
+                logging.warning(f"must use avoid interval {interval}")
+                yield cur_melody_pitch + interval
+                avoid_intervals.remove(interval)
+
+        # -------------------------------------------------------------------------------
+        # Try direct intervals
+        # -------------------------------------------------------------------------------
+        while direct_intervals:
+            interval = self._ic(direct_intervals)
+            logging.warning(f"must use direct interval {interval}")
+            yield cur_melody_pitch + interval
+            direct_intervals.remove(interval)
+
+    # TODO: (Malcolm 2023-07-16) remove
+    def _choose_bass_intervals(
+        self,
+        cur_melody_pitch: Pitch,
+        next_melody_pitch: Pitch | None,
+        cur_bass_pitch: Pitch,
+        next_melody_has_tendency: bool,
+        intervals: t.List[ChromaticInterval],
+    ):
+        avoid_intervals = []
+        direct_intervals = []
+        while intervals:
+            interval = self._ic(intervals)
+            candidate_pitch = cur_bass_pitch + interval
+
+            if next_melody_pitch is not None:
+                # Check for avoid intervals
+
+                if next_melody_has_tendency and (candidate_pitch % 12) == (
+                    next_melody_pitch % 12
+                ):
+                    # Don't double tendency tones
+                    intervals.remove(interval)
+                    avoid_intervals.append(interval)
+                    continue
+
+                # Check for direct intervals
+                if is_direct_interval(
+                    cur_bass_pitch,
+                    candidate_pitch,
+                    cur_melody_pitch,
+                    next_melody_pitch,
+                    self.settings.unpreferred_direct_intervals,
+                ):
+                    # We move unpreferred direct intervals into another list and only
+                    # consider them later if we need to
+                    intervals.remove(interval)
+                    direct_intervals.append(interval)
+                    continue
+
+            # Try interval
+
+            yield candidate_pitch
+            intervals.remove(interval)
+
+        # -------------------------------------------------------------------------------
+        # Try avoid intervals
+        # -------------------------------------------------------------------------------
+        if self.settings.allow_avoid_intervals:
+            while avoid_intervals:
+                interval = self._ic(avoid_intervals)
+                logging.warning(f"must use avoid interval {interval}")
+                yield cur_bass_pitch + interval
+                avoid_intervals.remove(interval)
+
+        # -------------------------------------------------------------------------------
+        # Try direct intervals
+        # -------------------------------------------------------------------------------
+        while direct_intervals:
+            interval = self._ic(direct_intervals)
+            logging.warning(f"must use direct interval {interval}")
+            yield cur_bass_pitch + interval
+            direct_intervals.remove(interval)
+
+    def _get_next_melody_pitch(
+        self, score: _ScoreBase, i: int, next_bass_pitch: Pitch | None
+    ) -> t.Iterator[Pitch]:
         cur_bass_pitch = score.structural_bass[i - 1]
-        next_bass_pitch = score.structural_bass[i]
+        next_bass_pc = score.pc_bass[i]
         next_chord = score.chords[i]
-        cur_mel_pitch = score.structural_melody[i - 1]
-        next_bass_has_tendency = (
-            next_chord.get_pitch_tendency(next_bass_pitch) is not Tendency.NONE
+        cur_melody_pitch = score.structural_melody[i - 1]
+        dont_double_bass_pc = (
+            next_chord.get_pitch_tendency(next_bass_pc) is not Tendency.NONE
         )
         # "no suspension" is understood as `suspension is None`
         for suspension in self._choose_suspension(
-            score, next_chord, cur_mel_pitch, next_bass_has_tendency
+            score,
+            next_chord,
+            cur_melody_pitch,
+            {next_bass_pc} if dont_double_bass_pc else set(),
         ):
             if suspension is not None:
                 yield self._apply_suspension(score, i, *suspension)
@@ -333,19 +525,27 @@ class TwoPartContrapuntist:
 
                 # Find the intervals that would create forbidden parallels/antiparallels
                 # so they can be excluded below
-                forbidden_intervals = get_forbidden_intervals(
-                    cur_mel_pitch,
-                    [(cur_bass_pitch, next_bass_pitch)],
-                    self.settings.forbidden_parallels,
-                    self.settings.forbidden_antiparallels,
+                if next_bass_pitch is None:
+                    forbidden_intervals = []
+                else:
+                    forbidden_intervals = get_forbidden_intervals(
+                        cur_melody_pitch,
+                        [(cur_bass_pitch, next_bass_pitch)],
+                        self.settings.forbidden_parallels,
+                        self.settings.forbidden_antiparallels,
+                    )
+
+                # Get pitch bounds
+                min_pitch, max_pitch = self._get_boundary_pitches(
+                    OuterVoice.MELODY, pitch_in_other_voice=next_bass_pitch
                 )
 
                 # Get a list of all available intervals
                 intervals = interval_finder(
-                    cur_mel_pitch,
+                    cur_melody_pitch,
                     next_chord.pcs,
-                    score.range_constraints.min_melody_pitch,
-                    score.range_constraints.max_melody_pitch,
+                    min_pitch,
+                    max_pitch,
                     max_interval=self.settings.max_interval,
                     forbidden_intervals=forbidden_intervals,
                     allow_steps_outside_of_range=self.settings.allow_steps_outside_of_range,
@@ -359,10 +559,10 @@ class TwoPartContrapuntist:
                 for pitch in self._get_tendency(
                     score,
                     i,
-                    cur_mel_pitch,
+                    cur_melody_pitch,
                     next_chord,
                     intervals,
-                    next_bass_has_tendency,
+                    dont_double_bass_pc,
                 ):
                     # self._get_tendency removes intervals
                     logging.debug(
@@ -372,17 +572,82 @@ class TwoPartContrapuntist:
 
                 # If the current tone does not have a tendency, or proceeding
                 # according to the tendency doesn't work, try the other intervals
-                for pitch in self._choose_intervals(
+                yield from self._choose_intervals(
                     cur_bass_pitch,
                     next_bass_pitch,
-                    next_bass_has_tendency,
-                    cur_mel_pitch,
+                    cur_melody_pitch,
+                    dont_double_bass_pc,
                     intervals,
-                ):
-                    logging.debug(f"{self.__class__.__name__} yielding pitch {pitch}")
-                    yield pitch
+                    voice_to_choose_for=OuterVoice.MELODY,
+                )
 
-    def _step(self, score: _ScoreBase):
+    def _get_next_bass_pitch(
+        self, score: _ScoreBase, i: int, next_melody_pitch: Pitch | None
+    ) -> t.Iterator[Pitch]:
+        next_chord = score.chords[i]
+        cur_bass_pitch = score.structural_bass[i - 1]
+        cur_melody_pitch = score.structural_melody[i - 1]
+
+        if next_melody_pitch is None:
+            dont_double_melody_pc = False
+        elif i in score.melody_suspensions:
+            # Don't double a suspension
+            dont_double_melody_pc = True
+        else:
+            # Don't double the pc if it is a tendency tone
+            dont_double_melody_pc = (
+                next_chord.get_pitch_tendency(next_melody_pitch) is not Tendency.NONE
+            )
+
+        for suspension in [None]:
+            if suspension is not None:
+                raise NotImplementedError("# TODO: (Malcolm 2023-07-15) ")
+            else:
+                # no suspension (suspension is None)
+
+                # Find the intervals that would create forbidden parallels/antiparallels
+                # so they can be excluded below
+                if next_melody_pitch is None:
+                    forbidden_intervals = []
+                else:
+                    forbidden_intervals = get_forbidden_intervals(
+                        cur_bass_pitch,
+                        [(cur_melody_pitch, next_melody_pitch)],
+                        self.settings.forbidden_parallels,
+                        self.settings.forbidden_antiparallels,
+                    )
+
+                # Get pitch bounds
+                min_pitch, max_pitch = self._get_boundary_pitches(
+                    OuterVoice.BASS, pitch_in_other_voice=next_melody_pitch
+                )
+
+                # Get a list of all available intervals
+                intervals = interval_finder(
+                    cur_bass_pitch,
+                    (next_chord.foot,),
+                    min_pitch,
+                    max_pitch,
+                    max_interval=self.settings.max_interval,
+                    forbidden_intervals=forbidden_intervals,
+                    allow_steps_outside_of_range=self.settings.allow_steps_outside_of_range,
+                )
+
+                # Compared with the melody implementation, we don't worry about tendency
+                # tones since the next PC is determined by the chord symbol in any case
+
+                yield from self._choose_intervals(
+                    cur_melody_pitch,
+                    next_melody_pitch,
+                    cur_bass_pitch,
+                    dont_double_melody_pc,
+                    intervals,
+                    voice_to_choose_for=OuterVoice.MELODY,
+                )
+
+    def _melody_step(
+        self, score: _ScoreBase, bass_pitch: Pitch | None = None
+    ) -> t.Iterator[Pitch]:
         i = len(score.structural_melody)
 
         # -------------------------------------------------------------------------------
@@ -391,7 +656,7 @@ class TwoPartContrapuntist:
 
         if not i:
             # generate the first note
-            for pitch in self._get_first_melody_pitch(score, i):
+            for pitch in self._get_first_melody_pitch(score, i, bass_pitch):
                 logging.debug(f"{self.__class__.__name__} yielding first pitch {pitch}")
                 yield pitch
 
@@ -400,7 +665,6 @@ class TwoPartContrapuntist:
         # -------------------------------------------------------------------------------
 
         elif i in self._suspension_resolutions:
-            # TODO: (Malcolm 2023-07-14) I think we should check if
             for pitch in self._resolve_suspension(i):
                 logging.debug(
                     f"{self.__class__.__name__} yielding suspension resolution pitch {pitch}"
@@ -412,8 +676,46 @@ class TwoPartContrapuntist:
         # -------------------------------------------------------------------------------
 
         else:
-            for pitch in self._get_next_melody_pitch(score, i):
+            yield from self._get_next_melody_pitch(score, i, bass_pitch)
+
+    def _bass_step(
+        self, score: _ScoreBase, melody_pitch: Pitch | None = None
+    ) -> t.Iterator[Pitch]:
+        i = len(score.structural_bass)
+
+        # -------------------------------------------------------------------------------
+        # Condition 1: start the bass
+        # -------------------------------------------------------------------------------
+
+        if not i:
+            for pitch in self._get_first_bass_pitch(score, i, melody_pitch):
+                logging.debug(f"{self.__class__.__name__} yielding first pitch {pitch}")
                 yield pitch
+
+        # -------------------------------------------------------------------------------
+        # Condition 2: there is an ongoing suspension to resolve
+        # -------------------------------------------------------------------------------
+
+        # TODO: (Malcolm 2023-07-15)
+
+        # -------------------------------------------------------------------------------
+        # Condition 3: choose a note freely
+        # -------------------------------------------------------------------------------
+
+        else:
+            for pitch in self._get_next_bass_pitch(score, i, melody_pitch):
+                yield pitch
+
+    def _step(self, score: _ScoreBase) -> t.Iterator[t.Dict[str, Pitch]]:
+        if self.settings.do_first is OuterVoice.BASS:
+            for bass_pitch in self._bass_step(score):
+                for melody_pitch in self._melody_step(score, bass_pitch):
+                    yield {"bass": bass_pitch, "melody": melody_pitch}
+        else:
+            for melody_pitch in self._melody_step(score):
+                print(f"{melody_pitch=}")
+                for bass_pitch in self._bass_step(score, melody_pitch):
+                    yield {"bass": bass_pitch, "melody": melody_pitch}
 
         raise DeadEnd()
 
@@ -436,8 +738,10 @@ class TwoPartContrapuntist:
         while True:
             if len(score.structural_melody) == len(score.chords):
                 break
-            next_pitch = next(self._step(score))
-            score.structural_melody.append(next_pitch)
+            next_pitches = next(self._step(score))
+            # TODO: (Malcolm 2023-07-15) not sure if this will work
+            score.structural_melody.append(next_pitches["melody"])
+            score.structural_bass.append(next_pitches["bass"])
         return score
 
     def get_mididf_from_score(self, score: _ScoreBase):

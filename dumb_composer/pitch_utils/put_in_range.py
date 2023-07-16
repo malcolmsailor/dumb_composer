@@ -56,7 +56,7 @@ def put_in_range(p, low=None, high=None, tet=12, fail_silently: bool = False):
 
 
 def get_all_in_range(
-    p: t.Sequence[PitchOrPitchClass] | PitchOrPitchClass,
+    p: t.Iterable[PitchOrPitchClass] | PitchOrPitchClass,
     low: Pitch,
     high: Pitch,
     steps_per_octave: int = 12,

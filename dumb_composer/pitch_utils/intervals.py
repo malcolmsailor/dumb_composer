@@ -3,7 +3,12 @@ import typing as t
 import numpy as np
 
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
-from dumb_composer.pitch_utils.types import Interval, Pitch, PitchClass
+from dumb_composer.pitch_utils.types import (
+    ChromaticInterval,
+    Interval,
+    Pitch,
+    PitchClass,
+)
 
 
 def reduce_compound_interval(
@@ -276,3 +281,61 @@ def get_relative_chord_factors(
 
     down = tuple(f - scale_card for f in up)
     return down + up
+
+
+def is_direct_interval(
+    lower_pitch_1: Pitch,
+    lower_pitch_2: Pitch,
+    upper_pitch_1: Pitch,
+    upper_pitch_2: Pitch,
+    unpreferred_direct_intervals: t.Container[ChromaticInterval] = (7, 0),
+    tet: int = 12,
+):
+    """
+    >>> is_direct_interval(59, 60, 67, 72)
+    True
+    >>> is_direct_interval(62, 60, 67, 72)
+    False
+    >>> is_direct_interval(59, 60, 74, 72)
+    False
+
+    Similar motion where upper voice moves by step
+    >>> is_direct_interval(55, 60, 71, 72)
+    False
+    >>> is_direct_interval(67, 60, 74, 72)
+    False
+
+    Oblique motion
+    >>> is_direct_interval(60, 60, 65, 67)
+    False
+    >>> is_direct_interval(60, 60, 69, 67)
+    False
+    >>> is_direct_interval(62, 60, 67, 67)
+    False
+    >>> is_direct_interval(59, 60, 67, 67)
+    False
+
+    Contrary motion
+    >>> is_direct_interval(64, 60, 67, 72)
+    False
+    >>> is_direct_interval(55, 60, 76, 72)
+    False
+
+    Note: this function doesn't check for parallel intervals:
+    >>> is_direct_interval(59, 60, 71, 72)
+    False
+    """
+    if tet != 12:
+        raise NotImplementedError()
+
+    lower_melodic_interval = lower_pitch_2 - lower_pitch_1
+    upper_melodic_interval = upper_pitch_2 - upper_pitch_1
+
+    return (
+        abs(upper_melodic_interval) > 2
+        and ((upper_pitch_2 - lower_pitch_2) % 12 in unpreferred_direct_intervals)
+        and (
+            (0 not in (lower_melodic_interval, upper_melodic_interval))
+            and ((lower_melodic_interval > 0) == (upper_melodic_interval > 0))
+        )
+    )

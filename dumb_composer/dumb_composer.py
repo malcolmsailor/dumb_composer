@@ -167,9 +167,9 @@ class PrefabComposer:
             return
 
         logging.debug(
-            f"{self.__class__.__name__}._recurse: {i} {score.chords[i].token} "
-            f"onset={score.chords[i].onset} "
-            f"structural_bass={score.structural_bass[i]}"
+            f"{self.__class__.__name__}._recurse: {i=} {score.chords[i].token=} "
+            f"{score.chords[i].onset=} "
+            f"{score.pc_bass[i]=}"
         )
         # There should be two outcomes to the recursive stack:
         #   1. success
@@ -379,7 +379,7 @@ class FourPartComposer:
             for pitch_voicing in chord.pitch_voicings(
                 min_notes=4,
                 max_notes=4,
-                melody_pitch=score.melody[0],
+                melody_pitch=score.structural_melody[0],
                 range_constraints=self.settings.range_constraints,
                 spacing_constraints=self.settings.spacing_constraints,
                 shuffled=True,
@@ -389,10 +389,10 @@ class FourPartComposer:
         else:
             chord1 = score.chords[i - 1]
             chord2 = score.chords[i]
-            chord2_melody_pitch = score.melody[i]
+            chord2_melody_pitch = score.structural_melody[i]
             if i - 1 in score.melody_suspensions:
                 chord1_suspensions = {
-                    score.melody[i - 1]: score.melody_suspensions[i - 1]
+                    score.structural_melody[i - 1]: score.melody_suspensions[i - 1]
                 }
             else:
                 chord1_suspensions = {}
@@ -405,7 +405,7 @@ class FourPartComposer:
                 chord1,
                 chord2,
                 chord1_pitches=score.get_existing_pitches(
-                    i - 1, ("bass", "inner_voices", "melody")
+                    i - 1, ("structural_bass", "inner_voices", "structural_melody")
                 ),
                 chord1_suspensions=chord1_suspensions,
                 chord2_melody_pitch=chord2_melody_pitch,
@@ -433,7 +433,8 @@ class FourPartComposer:
                 for chord in self._voice_lead_chords(i, score):
                     LOGGER.debug(f"append attempt {chord} to bass/inner voices")
                     with append_attempt(
-                        (score.bass, score.inner_voices), (chord[0], chord[1:])
+                        (score.structural_bass, score.inner_voices),
+                        (chord[0], chord[1:]),
                     ):
                         return self._recurse(i + 1, score)
 
@@ -455,4 +456,4 @@ class FourPartComposer:
             self._recurse(0, score)
         except DeadEnd:
             raise RecursionFailed("Reached a terminal dead end")
-        return score.get_df(["melody", "inner_voices", "bass"])
+        return score.get_df(["structural_melody", "inner_voices", "structural_bass"])

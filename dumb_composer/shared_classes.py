@@ -278,6 +278,8 @@ class _ScoreBase:
         range_constraints: RangeConstraints = RangeConstraints(),
         ts: Meter | str | None = None,
         transpose: int = 0,
+        melody_track: int = 1,
+        bass_track: int = 2,
     ):
         if isinstance(chord_data, str):
             logging.debug(f"reading chords from {chord_data}")
@@ -293,7 +295,8 @@ class _ScoreBase:
             self._chords = [chord.transpose(transpose) for chord in self._chords]
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in chord_data)
         self.range_constraints = range_constraints
-        self.structural_melody: t.List[int] = []
+        self.structural_bass: t.List[Pitch] = []
+        self.structural_melody: t.List[Pitch] = []
         self.melody_suspensions: t.Dict[int, Suspension] = {}
         self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
 
@@ -301,8 +304,11 @@ class _ScoreBase:
             self.scales, self.structural_melody, self.structural_bass
         )
 
+        self.melody_track = melody_track
+        self.bass_track = bass_track
+
     @cached_property
-    def structural_bass(self) -> t.List[int]:
+    def pc_bass(self) -> t.List[int]:
         return [chord.foot for chord in self._chords]  # type:ignore
 
     @property
@@ -316,9 +322,9 @@ class _ScoreBase:
     @chords.setter
     def chords(self, new_chords: t.List[Chord]):
         self._chords = new_chords
-        # deleting self.structural_bass allows it to be regenerated next
-        #   time it is needed
-        del self.structural_bass
+        # deleting cached property self.pc_bass allows it to be regenerated next time it
+        #   is needed
+        del self.pc_bass
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in self._chords)
         self._structural_melody_interval_getter = StructuralMelodyIntervals(
             self.scales, self.structural_melody, self.structural_bass
@@ -370,9 +376,9 @@ class _ScoreBase:
         >>> {float(chord.onset): chord.token for chord in score.chords}
         {0.0: 'C:I', 4.0: 'V', 8.0: 'I'}
         """
-        # just in case structural_bass has not been computed yet, we need
+        # just in case pc_bass has not been computed yet, we need
         #   to compute it now:
-        self.structural_bass
+        self.pc_bass
         # TODO make debug flag for check_correctness
         chord = self.chords[i]
         if check_correctness:
@@ -381,15 +387,15 @@ class _ScoreBase:
         chord.release = time
         new_chord.onset = time
         self.chords.insert(i + 1, new_chord)
-        self.structural_bass.insert(i + 1, self.structural_bass[i])
+        self.pc_bass.insert(i + 1, self.pc_bass[i])
         if len(self.structural_melody) > i:
             self.structural_melody.insert(i + 1, self.structural_melody[i])
         self._scale_getter.insert_scale_pcs(i + 1, new_chord.scale_pcs)
 
     def merge_ith_chords(self, i: int, check_correctness: bool = True) -> None:
-        # just in case structural_bass has not been computed yet, we need
+        # just in case pc_bass has not been computed yet, we need
         #   to compute it now:
-        self.structural_bass
+        self.pc_bass
         # TODO make debug flag for check_correctness
         chord1, chord2 = self.chords[i : i + 2]
         chord1.release = chord2.release
@@ -397,7 +403,7 @@ class _ScoreBase:
             chord2.onset = chord1.onset
             assert chord1 == chord2
         self.chords.pop(i + 1)
-        self.structural_bass.pop(i + 1)
+        self.pc_bass.pop(i + 1)
         if len(self.structural_melody) > i + 2:
             self.structural_melody.pop(i + 1)
         self._scale_getter.pop_scale_pcs(i + 1)
@@ -446,6 +452,30 @@ class _ScoreBase:
         out = pd.DataFrame(temp)
         return out
 
+    @property
+    def structural_bass_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            Note(  # type:ignore
+                bass_pitch,
+                self.chords[i].onset,
+                self.chords[i].release,
+                track=self.bass_track,
+            )
+            for i, bass_pitch in enumerate(self.structural_bass)
+        )
+
+    @property
+    def structural_melody_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            Note(  # type:ignore
+                melody_pitch,
+                self.chords[i].onset,
+                self.chords[i].release,
+                track=self.melody_track,
+            )
+            for i, melody_pitch in enumerate(self.structural_melody)
+        )
+
     def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
         if isinstance(contents, str):
             contents = [contents]
@@ -464,7 +494,7 @@ class Score(_ScoreBase):
     >>> [chord.pcs for chord in score.chords]
     [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
 
-    >>> score.structural_bass  # Pitch classes
+    >>> score.pc_bass  # Pitch classes
     [0, 5, 7, 4]
     """
 
@@ -483,9 +513,8 @@ class PrefabScore(_ScoreBase):
     >>> [chord.pcs for chord in score.chords]
     [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
 
-    # TODO: (Malcolm 2023-07-14) maybe I want to update to use pitch-classes instead?
-    >>> score.structural_bass  # Pitches, not pitch-classes
-    [36, 41, 31, 40]
+    >>> score.pc_bass  # Pitch-classes
+    [0, 5, 7, 4]
     """
 
     def __init__(
@@ -493,6 +522,7 @@ class PrefabScore(_ScoreBase):
         chord_data: t.Union[str, t.List[Chord]],
         range_constraints: RangeConstraints = RangeConstraints(),
         prefab_track: int = 1,
+        melody_track: int = 2,
         bass_track: int = 3,
         accompaniments_track: int = 2,
         ts: t.Optional[t.Union[Meter, str]] = None,
@@ -503,22 +533,25 @@ class PrefabScore(_ScoreBase):
             range_constraints=range_constraints,
             ts=ts,
             transpose=transpose,
+            melody_track=melody_track,
+            bass_track=bass_track,
         )
 
         self.prefabs: t.List[t.List[Note]] = []
         self.accompaniments: t.List[t.List[Note]] = []
         self.prefab_track = prefab_track
-        self.bass_track = bass_track
         self.accompaniments_track = accompaniments_track
         self.tied_prefab_indices: t.Set[int] = set()
         self.allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
+        # In this class (for now, anyway) we compute structural bass on the
+        # fly as a cached attribute
+        # TODO: (Malcolm 2023-07-16) probably change this?
+        del self.structural_bass
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
         return "structural_bass", "structural_melody"  # type:ignore
 
-    # TODO: (Malcolm 2023-07-12) I'm not sure why it's necessary for the structural
-    # bass to be pitches rather than pitch-classes
     @cached_property
     def structural_bass(self) -> t.List[int]:
         out = list(
@@ -535,18 +568,6 @@ class PrefabScore(_ScoreBase):
             )
         )
         return out
-
-    @property
-    def structural_bass_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            Note(  # type:ignore
-                bass_pitch,
-                self.chords[i].onset,
-                self.chords[i].release,
-                track=self.bass_track,
-            )
-            for i, bass_pitch in enumerate(self.structural_bass)
-        )
 
     @property
     def prefabs_as_df(self) -> pd.DataFrame:
@@ -574,12 +595,12 @@ class FourPartScore(_ScoreBase):
     >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
     >>> score = FourPartScore(chord_data=rntxt)
 
-    >>> score.structural_bass  # Pitch-classes, not pcs
+    >>> score.pc_bass  # Pitch-classes, not pcs
     [0, 5, 7, 4]
 
     Let's create a bass:
-    >>> score.bass.extend(put_in_range(pc, low=36) for pc in (score.structural_bass))
-    >>> score.bass
+    >>> score.structural_bass.extend(put_in_range(pc, low=36) for pc in (score.pc_bass))
+    >>> score.structural_bass
     [36, 41, 43, 40]
 
     Let's add a melody:
@@ -610,43 +631,15 @@ class FourPartScore(_ScoreBase):
             range_constraints=range_constraints,
             ts=ts,
             transpose=transpose,
+            melody_track=melody_track,
+            bass_track=bass_track,
         )
-        self.bass: t.List[Pitch] = []
-        # Maybe eventually we want to distinguish `melody` from `structural_melody`
-        self.melody: t.List[Pitch] = self.structural_melody
         self.inner_voices: t.List[t.Tuple[Pitch]] = []
-
-        self.melody_track = melody_track
-        self.bass_track = bass_track
         self.inner_voices_track = inner_voices_track
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
-        return "bass", "inner_voices", "melody"  # type:ignore
-
-    @property
-    def bass_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            Note(  # type:ignore
-                bass_pitch,
-                self.chords[i].onset,
-                self.chords[i].release,
-                track=self.bass_track,
-            )
-            for i, bass_pitch in enumerate(self.bass)
-        )
-
-    @property
-    def melody_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            Note(  # type:ignore
-                melody_pitch,
-                self.chords[i].onset,
-                self.chords[i].release,
-                track=self.melody_track,
-            )
-            for i, melody_pitch in enumerate(self.melody)
-        )
+        return "structural_bass", "inner_voices", "structural_melody"  # type:ignore
 
     @property
     def inner_voices_as_df(self) -> pd.DataFrame:

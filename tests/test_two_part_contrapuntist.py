@@ -1,13 +1,12 @@
-import random
 import os
+import random
 
 import pytest
-from dumb_composer.shared_classes import PrefabScore
-
-import dumb_composer.two_part_contrapuntist as mod
-from dumb_composer.utils.recursion import DeadEnd
 from midi_to_notes import df_to_midi
 
+import dumb_composer.two_part_contrapuntist as mod
+from dumb_composer.shared_classes import PrefabScore
+from dumb_composer.utils.recursion import DeadEnd
 from tests.test_helpers import TEST_OUT_DIR
 
 
@@ -19,15 +18,24 @@ from tests.test_helpers import TEST_OUT_DIR
         ("m1 F: V7 b3 #viio7/vi", [60, 64, 67, 70]),
     ),
 )
-def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches):
-    tpc = mod.TwoPartContrapuntist()
+@pytest.mark.parametrize("do_first", (mod.OuterVoice.MELODY,))
+def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches, do_first):
+    random.seed(42)
+    settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
+    tpc = mod.TwoPartContrapuntist(settings)
     score = PrefabScore(chord_data=rntxt)
+    print(f"{rntxt=} {structural_melody_pitches=}")
     for melody_pitch in structural_melody_pitches:
+        print(f"first{melody_pitch=}")
+        score.structural_bass.clear()
+        score.structural_bass.append(score.chords[0].foot + 24)
         score.structural_melody.clear()
         score.structural_melody.append(melody_pitch)
+        print(f"{score.structural_bass=} {score.structural_melody=}")
         try:
-            for pitch in tpc._step(score):
-                assert pitch % 12 != score.structural_bass[-1] % 12
+            for pitches in tpc._step(score):
+                assert pitches["melody"] % 12 != pitches["bass"] % 12
+                print(f"{pitches=}")
         except DeadEnd:
             pass
 
