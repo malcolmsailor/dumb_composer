@@ -99,23 +99,45 @@ class IntervalChooser:
             * (self._unison_weighted_as if interval == 0 else abs(interval))
         )
 
-    def choose_intervals(self, intervals: t.Sequence[int], n: int = 1) -> t.List[int]:
-        """Intervals should ideally be sorted so that the memo-ing is accurate
-        but it probably isn't worth actually sorting them.
+    def choose_intervals(
+        self,
+        intervals: t.Sequence[int],
+        n: int = 1,
+        custom_weights: t.Sequence[float] | None = None,
+    ) -> t.List[int]:
         """
+        For now we are just summing `custom_weights` with `interval_weights`.
+        The latter are normalized so they always sum to 1.
+        """
+
         intervals = tuple(intervals)
+
         if intervals in self._weights_memo:
-            weights = self._weights_memo[intervals]
+            interval_weights = self._weights_memo[intervals]
         else:
-            weights = [self._get_weight(interval) for interval in intervals]
-            if sum(weights) == 0:
-                weights = [1.0 for _ in intervals]
-            self._weights_memo[intervals] = weights
+            interval_weights = [self._get_weight(interval) for interval in intervals]
+            weight_sum = sum(interval_weights)
+            if weight_sum == 0:
+                interval_weights = [1.0 / len(intervals) for _ in intervals]
+            else:
+                interval_weights = [x / weight_sum for x in interval_weights]
+            self._weights_memo[intervals] = interval_weights
+
+        if custom_weights is None:
+            weights = interval_weights
+        else:
+            weights = [x + y for x, y in zip(custom_weights, interval_weights)]
+
         out = random.choices(intervals, weights=weights, k=n)
+
         return out
 
-    def __call__(self, intervals: t.Sequence[int]) -> int:
-        return self.choose_intervals(intervals, n=1)[0]
+    def __call__(
+        self,
+        intervals: t.Sequence[int],
+        custom_weights: t.Sequence[float] | None = None,
+    ) -> int:
+        return self.choose_intervals(intervals, n=1, custom_weights=custom_weights)[0]
 
 
 # if __name__ == "__main__":

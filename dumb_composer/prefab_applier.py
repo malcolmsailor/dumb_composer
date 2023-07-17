@@ -172,7 +172,8 @@ class PrefabApplier:
         >>> prefab_applier._get_prefab_weights(  # doctest: +SKIP
         ...     prefab_options=rhythm_options,
         ...     prefab_stack_key=segment_dur,
-        ...     prefab_type=PrefabRhythms)
+        ...     prefab_type=PrefabRhythms,
+        ... )
         [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
         """
         if prefab_type is PrefabRhythms:
@@ -239,7 +240,7 @@ class PrefabApplier:
                 0
                 if self.settings.prefab_voice == "bass"
                 else score.structural_melody_intervals[current_i],
-                current_chord.intervals_above_bass,
+                current_chord.scalar_intervals_above_bass,
                 len(current_scale),
             )
             pitch_options = self.prefab_pitch_dir(

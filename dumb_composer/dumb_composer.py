@@ -175,11 +175,11 @@ class PrefabComposer:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
         #       context manager handles popping from the list
-        for mel_pitch in self.two_part_contrapuntist._step(score):
+        for pitches in self.two_part_contrapuntist._step(score):
             try:
                 with append_attempt(
-                    score.structural_melody,
-                    mel_pitch,
+                    (score.structural_bass, score.structural_melody),
+                    (pitches["bass"], pitches["melody"]),
                     reraise=MissingPrefabError,
                 ):
                     if i == 0:

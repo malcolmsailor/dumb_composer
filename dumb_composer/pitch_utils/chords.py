@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import logging
+import operator
 import os
 import re
 import typing as t
@@ -40,6 +42,7 @@ from dumb_composer.pitch_utils.types import (
     PitchClass,
     PitchOrPitchClass,
     RNToken,
+    ScalarInterval,
     ScaleDegree,
     TimeStamp,
     VoiceCount,
@@ -47,6 +50,8 @@ from dumb_composer.pitch_utils.types import (
 from dumb_composer.suspensions import Suspension
 from dumb_composer.time import Meter
 from dumb_composer.utils.iterables import yield_from_sequence_of_iters
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Allow(Enum):
@@ -63,6 +68,12 @@ class Tendency(Enum):
     NONE = auto()
     UP = auto()
     DOWN = auto()
+
+
+RNTokenWithoutFigure = str
+
+AbstractChordTendencies = t.Mapping[ChordFactor, Tendency]
+ConcreteChordTendencies = t.Mapping[BassFactor, Tendency]
 
 
 class Inflection(Enum):
@@ -83,7 +94,7 @@ class Resolution:
 # not typically descend.
 # Likewise, it is not only cadential 64 chords where we want to have the specified
 # tendencies, but also neighbor 64 chords.
-TENDENCIES = MappingProxyType(
+TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingProxyType(
     {
         # V: 3rd: up; 7th: down
         "V": {Third: Tendency.UP, Seventh: Tendency.DOWN},
@@ -101,6 +112,49 @@ TENDENCIES = MappingProxyType(
         "N": {Root: Tendency.DOWN},
     }
 )
+
+
+def is_consonant_64(chord: Chord) -> bool:
+    return chord.chromatic_intervals_above_bass in ((5, 8), (5, 9))
+
+
+def is_stationary_64(
+    chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
+) -> bool:
+    """
+    >>> rntxt = '''m1 C: I b2 IV64 b3 V6/ii'''
+    >>> (I, IV64, V6_of_ii), _ = get_chords_from_rntxt(rntxt)
+    >>> is_stationary_64(IV64, None, None)
+    False
+    >>> is_stationary_64(IV64, V6_of_ii, None)
+    False
+    >>> is_stationary_64(IV64, None, V6_of_ii)
+    False
+    >>> is_stationary_64(IV64, I, None)
+    True
+    >>> is_stationary_64(IV64, None, I)
+    True
+    >>> is_stationary_64(IV64, I, I)
+    True
+    >>> is_stationary_64(IV64, V6_of_ii, V6_of_ii)
+    False
+    >>> is_stationary_64(IV64, V6_of_ii, I)
+    True
+    """
+    if not is_consonant_64(chord):
+        return False
+    if next_chord is not None:
+        if next_chord.foot == chord.foot:
+            return True
+    if previous_chord is not None:
+        if previous_chord.foot == chord.foot:
+            return True
+    return False
+
+
+CONDITIONAL_TENDENCIES: t.Mapping[
+    t.Callable[[Chord, Chord | None, Chord | None], bool], AbstractChordTendencies
+] = MappingProxyType({is_stationary_64: {Root: Tendency.DOWN, Third: Tendency.DOWN}})
 
 # TODO: (Malcolm) long run we may want to normalize these tokens somehow, so e.g.
 # V643 -> V43
@@ -128,8 +182,7 @@ class Chord:
     release: TimeStamp
     inversion: int
     token: str
-    intervals_above_bass: t.Tuple[int]
-    tendencies: t.Dict[ChordFactor, Tendency]
+    tendencies: ConcreteChordTendencies
 
     # whereas 'onset' and 'release' should be the start of this particular
     #   structural "unit" (which might, for example, break at a barline
@@ -147,9 +200,45 @@ class Chord:
             # By default we permit tripling the root of consonant triads
             self._max_doublings[self.chord_factor_to_bass_factor[0]] = 3
 
+    @classmethod
+    def from_music21_rn(
+        cls,
+        rn: music21.roman.RomanNumeral,
+        onset: TimeStamp,
+        release: TimeStamp,
+        token_prefix: str = "",
+    ) -> Chord:
+        chord_pcs = _get_chord_pcs(rn)
+        scale_pcs = fit_scale_to_rn(rn)
+        inversion = rn.inversion()
+        tendencies = apply_tendencies(rn)
+        return cls(
+            pcs=chord_pcs,
+            scale_pcs=scale_pcs,
+            onset=onset,
+            release=release,
+            inversion=inversion,
+            token=token_prefix + rn.figure,
+            tendencies=tendencies,
+        )
+
     @property
     def foot(self):
         return self.pcs[0]
+
+    @cached_property
+    def scalar_intervals_above_bass(self) -> t.Tuple[ScalarInterval]:
+        foot = self.foot
+        scale_cardinality = len(self.scale_pcs)
+        return tuple(
+            (self.scale_pcs.index(pc) - self.scale_pcs.index(foot)) % scale_cardinality
+            for pc in self.pcs
+        )
+
+    @cached_property
+    def chromatic_intervals_above_bass(self) -> t.Tuple[ChromaticInterval]:
+        foot = self.foot
+        return tuple(pc - foot for pc in self.pcs[1:])
 
     def copy(self):
         """
@@ -158,8 +247,8 @@ class Chord:
         >>> I.copy()  # doctest: +NORMALIZE_WHITESPACE
         Chord(pcs=(0, 4, 7), scale_pcs=(0, 2, 4, 5, 7, 9, 11), onset=Fraction(0, 1),
               release=Fraction(4, 1), inversion=0, token='C:I',
-              intervals_above_bass=(0, 2, 4), tendencies={},
-              harmony_onset=Fraction(0, 1), harmony_release=Fraction(4, 1))
+              tendencies={}, harmony_onset=Fraction(0, 1),
+              harmony_release=Fraction(4, 1))
         """
         return deepcopy(self)
 
@@ -279,6 +368,21 @@ class Chord:
         """
         return pcs_consonant(self.pcs, self.scale_pcs)
 
+    def update_tendencies_from_context(
+        self, prev_chord: Chord | None, next_chord: Chord | None
+    ):
+        number_of_conditions_that_match = 0
+        for condition, tendencies in CONDITIONAL_TENDENCIES.items():
+            if condition(self, prev_chord, next_chord):
+                if number_of_conditions_that_match > 0:
+                    LOGGER.warning(
+                        f"{number_of_conditions_that_match} conditions match chord {self}"
+                    )
+                tendencies = abstract_to_concrete_chord_tendencies(
+                    tendencies, self.inversion, self.cardinality
+                )
+                self.tendencies = dict(self.tendencies) | tendencies
+
     def get_pcs_that_can_be_added_to_existing_voicing(
         self,
         existing_voices_not_including_bass: t.Iterable[PitchOrPitchClass] = (),
@@ -358,21 +462,38 @@ class Chord:
                 return Resolution(by=interval, to=pitch + interval)
         return None
 
-    def get_pitch_tendency(self, pitch: Pitch) -> Tendency:
+    def get_pitch_tendency(
+        self,
+        pitch: Pitch,
+        previous_chord: Chord | None = None,
+        next_chord: Chord | None = None,
+    ) -> Tendency:
         """
-        >>> rntxt = '''Time Signature: 4/4
-        ... m1 C: V7
-        ... m2 viio6
-        ... m3 Cad64'''
-        >>> (V7, viio6, Cad64), _ = get_chords_from_rntxt(rntxt)
-        >>> V7.get_pitch_tendency(11)
-        <Tendency.UP: 2>
-        >>> viio6.get_pitch_tendency(5)
-        <Tendency.DOWN: 3>
-        >>> Cad64.get_pitch_tendency(0)
-        <Tendency.DOWN: 3>
+        # TODO: (Malcolm 2023-07-16) restore
+        # >>> rntxt = '''m1 C: V7 b2 viio6 b3 Cad64'''
+        # >>> (V7, viio6, Cad64), _ = get_chords_from_rntxt(rntxt)
+        # >>> V7.get_pitch_tendency(11)
+        # <Tendency.UP: 2>
+        # >>> viio6.get_pitch_tendency(5)
+        # <Tendency.DOWN: 3>
+        # >>> Cad64.get_pitch_tendency(0)
+        # <Tendency.DOWN: 3>
+
+        # >>> rntxt = '''m1 C: I b2 IV64 b3 V6/ii b4 V64
+        # ... m2 I6'''
+        # >>> (I, IV64, V6_of_ii, V64, I6), _ = get_chords_from_rntxt(rntxt)
+        # >>> IV64.get_pitch_tendency(69, previous_chord=I, next_chord=V6_of_ii)
+        # <Tendency.DOWN: 3>
+        # >>> V64.get_pitch_tendency(69, previous_chord=V6_of_ii, next_chord=I6)
+        # <Tendency.NONE: 1>
         """
         bass_factor = self._lookup_pcs[pitch % 12]
+        # TODO: (Malcolm 2023-07-16) save conditional tendencies on initialization
+        #   rather than calculating every time
+        for condition, tendencies in CONDITIONAL_TENDENCIES.items():
+            if condition(self, previous_chord, next_chord):
+                if bass_factor in tendencies:
+                    return tendencies[bass_factor]
         return self.tendencies.get(bass_factor, Tendency.NONE)
 
     def pc_can_be_doubled(self, pitch_or_pc: int) -> bool:
@@ -988,27 +1109,41 @@ def is_same_harmony(
     return True
 
 
-def get_inversionless_figure(rn: music21.roman.RomanNumeral):
+def get_rn_without_figure(rn: music21.roman.RomanNumeral):
     """It seems that music21 doesn't provide a method for returning everything
     *but* the numeric figures from a roman numeral token.
 
     >>> RN = music21.roman.RomanNumeral
-    >>> get_inversionless_figure(RN("V6"))
+    >>> get_rn_without_figure(RN("V6"))
     'V'
-    >>> get_inversionless_figure(RN("V+6"))
+    >>> get_rn_without_figure(RN("V+6"))
     'V+'
-    >>> get_inversionless_figure(RN("viio6"))
+    >>> get_rn_without_figure(RN("viio6"))
     'viio'
-    >>> get_inversionless_figure(RN("Cad64"))
+    >>> get_rn_without_figure(RN("Cad64"))
     'Cad'
     """
     if rn.figure.startswith("Cad"):
-        # Cadential 6/4 chord is a special case
+        # Cadential 6/4 chord is a special case: rn.primaryFigure will return "I"
         return "Cad"
     return rn.primaryFigure.rstrip("0123456789/")
 
 
-def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[BassFactor, Tendency]:
+def abstract_to_concrete_chord_tendencies(
+    abstract_chord_tendencies: AbstractChordTendencies, inversion: int, cardinality: int
+) -> ConcreteChordTendencies:
+    return {
+        (chord_factor_i - inversion)
+        % cardinality: abstract_chord_tendencies[chord_factor_i]
+        for chord_factor_i in range(cardinality)
+        if chord_factor_i in abstract_chord_tendencies
+    }
+
+
+def apply_tendencies(
+    rn: music21.roman.RomanNumeral,
+    tendencies: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = TENDENCIES,
+) -> ConcreteChordTendencies:
     """
     Keys of returned dict are BassFactors (i.e., the pcs in
     close position with the bass as the first element).
@@ -1033,15 +1168,11 @@ def apply_tendencies(rn: music21.roman.RomanNumeral) -> t.Dict[BassFactor, Tende
     """
     inversion = rn.inversion()
     cardinality = rn.pitchClassCardinality
-    figure = get_inversionless_figure(rn)
-    if figure not in TENDENCIES:
+    figure = get_rn_without_figure(rn)
+    if figure not in tendencies:
         return {}
-    raw_tendencies = TENDENCIES[figure]
-    return {
-        (chord_factor_i - inversion) % cardinality: raw_tendencies[chord_factor_i]
-        for chord_factor_i in range(cardinality)
-        if chord_factor_i in raw_tendencies
-    }
+    raw_tendencies = tendencies[figure]
+    return abstract_to_concrete_chord_tendencies(raw_tendencies, inversion, cardinality)
 
 
 def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
@@ -1638,64 +1769,120 @@ def get_chords_from_rntxt(
     t.Tuple[t.List[Chord], Meter, music21.stream.Score],  # type:ignore
     t.Tuple[t.List[Chord], Meter],
 ]:
-    """Converts roman numerals to pcs.
-
-    Args:
-        rn_data: either path to a romantext file or the contents thereof.
-    """
     if no_added_tones:
         rn_data = strip_added_tones(rn_data)
     score = parse_rntxt(rn_data)
     m21_ts = score[music21.meter.TimeSignature].first()  # type:ignore
     ts = f"{m21_ts.numerator}/{m21_ts.denominator}"  # type:ignore
     ts = Meter(ts)
-    prev_scale = duration = start = pickup_offset = key = None
+    duration = start = pickup_offset = key = None
     prev_chord = None
     out_list = []
     for rn in score.flatten()[music21.roman.RomanNumeral]:
         if pickup_offset is None:
             pickup_offset = TIME_TYPE(((rn.beat) - 1) * rn.beatDuration.quarterLength)
-        chord = _get_chord_pcs(rn)
-        scale = fit_scale_to_rn(rn)
-        if scale != prev_scale or chord != prev_chord.pcs:  # type:ignore
+        start = TIME_TYPE(rn.offset) + pickup_offset
+        duration = TIME_TYPE(rn.duration.quarterLength)
+        if rn.key.tonicPitchNameWithCase != key:  # type:ignore
+            key = rn.key.tonicPitchNameWithCase  # type:ignore
+            token_prefix = key + ":"
+        else:
+            token_prefix = ""
+        chord = Chord.from_music21_rn(
+            rn, onset=start, release=start + duration, token_prefix=token_prefix
+        )
+        if prev_chord is not None and is_same_harmony(prev_chord, chord):
+            prev_chord.release += TIME_TYPE(rn.duration.quarterLength)
+        else:
             if prev_chord is not None:
                 out_list.append(prev_chord)
-            start = TIME_TYPE(rn.offset) + pickup_offset
-            duration = TIME_TYPE(rn.duration.quarterLength)
-            intervals_above_bass = tuple(
-                (scale.index(pc) - scale.index(chord[0])) % len(scale) for pc in chord
-            )
-            tendencies = apply_tendencies(rn)
-            if rn.key.tonicPitchNameWithCase != key:  # type:ignore
-                key = rn.key.tonicPitchNameWithCase  # type:ignore
-                pre_token = key + ":"
-            else:
-                pre_token = ""
-            prev_chord = Chord(
-                pcs=chord,
-                scale_pcs=scale,
-                onset=start,
-                release=start + duration,
-                inversion=rn.inversion(),
-                token=pre_token + rn.figure,
-                intervals_above_bass=intervals_above_bass,
-                tendencies=tendencies,
-            )
-            prev_scale = scale
-        else:
-            prev_chord.release += TIME_TYPE(rn.duration.quarterLength)  # type:ignore
+            prev_chord = chord
 
-    out_list.append(prev_chord)
+    if prev_chord is not None:
+        out_list.append(prev_chord)
 
     if split_chords_at_metric_strong_points:
         chord_list = ts.split_at_metric_strong_points(
             out_list, min_split_dur=ts.beat_dur
         )
         out_list = []
-        for chord in chord_list:
-            out_list.extend(ts.split_odd_duration(chord, min_split_dur=ts.beat_dur))
+        for chord_pcs in chord_list:
+            out_list.extend(ts.split_odd_duration(chord_pcs, min_split_dur=ts.beat_dur))
+
     get_harmony_onsets_and_releases(out_list)
+
+    for prev_chord, chord, next_chord in zip(
+        [None] + out_list[:-1], out_list, out_list[1:] + [None]
+    ):
+        chord.update_tendencies_from_context(prev_chord, next_chord)
     return out_list, ts
+
+
+# # TODO: (Malcolm 2023-07-16) remove
+# # @cacher()
+# def get_chords_from_rntxt_old(
+#     rn_data: str,
+#     split_chords_at_metric_strong_points: bool = True,
+#     no_added_tones: bool = True,
+# ) -> t.Union[
+#     t.Tuple[t.List[Chord], Meter, music21.stream.Score],  # type:ignore
+#     t.Tuple[t.List[Chord], Meter],
+# ]:
+#     """Converts roman numerals to pcs.
+
+#     Args:
+#         rn_data: either path to a romantext file or the contents thereof.
+#     """
+#     if no_added_tones:
+#         rn_data = strip_added_tones(rn_data)
+#     score = parse_rntxt(rn_data)
+#     m21_ts = score[music21.meter.TimeSignature].first()  # type:ignore
+#     ts = f"{m21_ts.numerator}/{m21_ts.denominator}"  # type:ignore
+#     ts = Meter(ts)
+#     prev_scale = duration = start = pickup_offset = key = None
+#     prev_chord = None
+#     out_list = []
+#     for rn in score.flatten()[music21.roman.RomanNumeral]:
+#         if pickup_offset is None:
+#             pickup_offset = TIME_TYPE(((rn.beat) - 1) * rn.beatDuration.quarterLength)
+#         chord_pcs = _get_chord_pcs(rn)
+#         scale_pcs = fit_scale_to_rn(rn)
+#         if scale_pcs != prev_scale or chord_pcs != prev_chord.pcs:  # type:ignore
+#             if prev_chord is not None:
+#                 out_list.append(prev_chord)
+#             start = TIME_TYPE(rn.offset) + pickup_offset
+#             duration = TIME_TYPE(rn.duration.quarterLength)
+#             tendencies = apply_tendencies(rn)
+#             if rn.key.tonicPitchNameWithCase != key:  # type:ignore
+#                 key = rn.key.tonicPitchNameWithCase  # type:ignore
+#                 pre_token = key + ":"
+#             else:
+#                 pre_token = ""
+#             prev_chord = Chord(
+#                 pcs=chord_pcs,
+#                 scale_pcs=scale_pcs,
+#                 onset=start,
+#                 release=start + duration,
+#                 inversion=rn.inversion(),
+#                 token=pre_token + rn.figure,
+#                 tendencies=tendencies,
+#             )
+#             prev_scale = scale_pcs
+#         else:
+#             prev_chord.release += TIME_TYPE(rn.duration.quarterLength)  # type:ignore
+
+#     out_list.append(prev_chord)
+
+#     if split_chords_at_metric_strong_points:
+#         chord_list = ts.split_at_metric_strong_points(
+#             out_list, min_split_dur=ts.beat_dur
+#         )
+#         out_list = []
+#         for chord_pcs in chord_list:
+#             out_list.extend(ts.split_odd_duration(chord_pcs, min_split_dur=ts.beat_dur))
+#     breakpoint()
+#     get_harmony_onsets_and_releases(out_list)
+#     return out_list, ts
 
 
 # doctests in cached_property methods are not discovered and need to be

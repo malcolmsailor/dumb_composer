@@ -42,6 +42,9 @@ class OuterVoice(IntEnum):
     MELODY = 1
 
 
+Weight = float
+
+
 @dataclass
 class TwoPartContrapuntistSettings(IntervalChooserSettings):
     forbidden_parallels: t.Sequence[int] = (7, 0)
@@ -68,9 +71,14 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     expected_total_number_of_voices: int = 4
     do_first: OuterVoice = OuterVoice.BASS
 
+    tendency_decay_per_measure: float = 0.75
+
     def __post_init__(self):
         if hasattr(super(), "__post_init__"):
             super().__post_init__()  # type:ignore
+
+
+# TODO: (Malcolm 2023-07-17) favor thirds or other harmonic intervals
 
 
 class TwoPartContrapuntist:
@@ -85,8 +93,13 @@ class TwoPartContrapuntist:
         #   how long the chord is. If a chord lasts for a whole note it can move
         #   by virtually any amount. If a chord lasts for an eighth note it
         #   should move by a relatively small amount.
+        # TODO: (Malcolm 2023-07-17) and the above in turn should be influenced by the
+        #   expected density of ornamentation. If we're embellishing in 16ths then
+        #   each note should be free to move relatively widely.
         self._ic = IntervalChooser(settings)
         self._suspension_resolutions: t.Dict[int, int] = {}
+        self._lingering_tendencies: t.List[t.Dict[Pitch, Weight]] = []
+
         if not self.settings.allow_upward_suspensions:
             self._upward_suspension_resolutions = ()
         elif isinstance(self.settings.allow_upward_suspensions, bool):
@@ -294,6 +307,21 @@ class TwoPartContrapuntist:
     def _resolve_suspension(self, i: int):
         yield self._suspension_resolutions[i]
 
+    # def _get_lingering_resolution_weights(
+    #     self,
+    #     cur_pitch: Pitch,
+    #     candidate_intervals: t.Iterable[ChromaticInterval],
+    # ) -> None | t.List[Weight]:
+    #     lingering_tendencies = self._lingering_tendencies[-1]
+
+    #     out = []
+
+    #     for candidate_interval in candidate_intervals:
+    #         candidate_pitch = cur_pitch + candidate_interval
+    #         out.append(lingering_tendencies.get(candidate_pitch, 0.0))
+
+    #     return out
+
     def _choose_intervals(
         self,
         cur_other_pitch: Pitch,
@@ -306,8 +334,15 @@ class TwoPartContrapuntist:
         avoid_intervals = []
         direct_intervals = []
 
+        # if voice_to_choose_for is OuterVoice.MELODY:
+        #     custom_weights = self._get_lingering_resolution_weights(
+        #         cur_pitch, intervals
+        #     )
+        # else:
+        custom_weights = None
+
         while intervals:
-            interval = self._ic(intervals)
+            interval = self._ic(intervals, custom_weights=custom_weights)
             candidate_pitch = cur_pitch + interval
 
             if next_other_pitch is not None:
@@ -514,6 +549,7 @@ class TwoPartContrapuntist:
             cur_melody_pitch,
             {next_bass_pc} if dont_double_bass_pc else set(),
         ):
+            self._lingering_tendencies.append({})
             if suspension is not None:
                 yield self._apply_suspension(score, i, *suspension)
                 # we only continue execution if the recursive calls fail
@@ -568,7 +604,12 @@ class TwoPartContrapuntist:
                     logging.debug(
                         f"{self.__class__.__name__} yielding tendency resolution pitch {pitch}"
                     )
+
                     yield pitch
+                    # self._lingering_tendencies[i + 1][
+                    #     pitch
+                    # ] = self.settings.tendency_decay_per_measure
+                    # TODO: (Malcolm 2023-07-16) somewhere we need to pop self._lingering_tendencies
 
                 # If the current tone does not have a tendency, or proceeding
                 # according to the tendency doesn't work, try the other intervals
@@ -580,6 +621,7 @@ class TwoPartContrapuntist:
                     intervals,
                     voice_to_choose_for=OuterVoice.MELODY,
                 )
+            # self._lingering_tendencies.pop()
 
     def _get_next_bass_pitch(
         self, score: _ScoreBase, i: int, next_melody_pitch: Pitch | None
@@ -739,7 +781,7 @@ class TwoPartContrapuntist:
             if len(score.structural_melody) == len(score.chords):
                 break
             next_pitches = next(self._step(score))
-            # TODO: (Malcolm 2023-07-15) not sure if this will work
+            # TODO: (Malcolm 2023-07-17) what about recursion here?
             score.structural_melody.append(next_pitches["melody"])
             score.structural_bass.append(next_pitches["bass"])
         return score

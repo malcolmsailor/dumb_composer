@@ -324,7 +324,8 @@ class _ScoreBase:
         self._chords = new_chords
         # deleting cached property self.pc_bass allows it to be regenerated next time it
         #   is needed
-        del self.pc_bass
+        if hasattr(self, "pc_bass"):
+            del self.pc_bass
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in self._chords)
         self._structural_melody_interval_getter = StructuralMelodyIntervals(
             self.scales, self.structural_melody, self.structural_bass
@@ -543,31 +544,10 @@ class PrefabScore(_ScoreBase):
         self.accompaniments_track = accompaniments_track
         self.tied_prefab_indices: t.Set[int] = set()
         self.allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
-        # In this class (for now, anyway) we compute structural bass on the
-        # fly as a cached attribute
-        # TODO: (Malcolm 2023-07-16) probably change this?
-        del self.structural_bass
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
         return "structural_bass", "structural_melody"  # type:ignore
-
-    @cached_property
-    def structural_bass(self) -> t.List[int]:
-        out = list(
-            put_in_range(
-                (chord.foot for chord in self._chords),
-                self.range_constraints.min_bass_pitch,
-                self.range_constraints.max_bass_pitch,
-            )
-        )
-        logging.debug(
-            textwrap.fill(
-                f"Initializing {self.__class__.__name__}.structural_bass: {out}",
-                subsequent_indent=" " * 4,
-            )
-        )
-        return out
 
     @property
     def prefabs_as_df(self) -> pd.DataFrame:

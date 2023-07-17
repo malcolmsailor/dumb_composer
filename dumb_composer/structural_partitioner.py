@@ -1,24 +1,18 @@
-from dataclasses import dataclass
-from functools import cached_property
 import math
-from numbers import Number
 import random
-from types import MappingProxyType
 import typing as t
+from dataclasses import dataclass
+from enum import Enum, auto
+from numbers import Number
+from types import MappingProxyType
 
-import pandas as pd
-
-
+from .shared_classes import Score, _ScoreBase
 from .time import Meter
-
 from .time_utils import (
     get_barline_times_within_duration,
     get_onset_closest_to_middle_of_duration,
 )
-from .shared_classes import _ScoreBase, Score
 from .utils.math_ import linear_arc, quadratic_arc, softmax
-
-from enum import Enum, auto
 
 
 class Shape(Enum):
@@ -75,11 +69,11 @@ class StructuralPartitioner:
     ... m9 I
     ... '''
     >>> score = Score(chord_data=rntxt)
-    >>> structural_partitioner = StructuralPartitioner() # default settings
+    >>> structural_partitioner = StructuralPartitioner()  # default settings
     >>> structural_partitioner(score)
 
     The output is random.
-    >>> [chord.token for chord in score.chords] # doctest: +SKIP
+    >>> [chord.token for chord in score.chords]  # doctest: +SKIP
     ['C:I', 'C:I', 'C:I', 'C:I', 'C:I', 'C:I', 'V6', 'V6', 'V6', 'V6', 'V6', 'I']
     """
 
@@ -89,18 +83,22 @@ class StructuralPartitioner:
         if settings is None:
             settings = StructuralPartitionerSettings()
         self.settings = settings
-        self._ts = None
+        self._ts: None | Meter = None
 
     def _linear(self):
         return linear_arc(
-            min_x=self.settings.never_split_dur_in_beats * self._ts.beat_dur,
-            max_x=self.settings.always_split_dur_in_bars * self._ts.bar_dur,
+            min_x=self.settings.never_split_dur_in_beats
+            * self._ts.beat_dur,  # type:ignore
+            max_x=self.settings.always_split_dur_in_bars
+            * self._ts.bar_dur,  # type:ignore
         )
 
     def _quadratic(self):
         return quadratic_arc(
-            min_x=self.settings.never_split_dur_in_beats * self._ts.beat_dur,
-            max_x=self.settings.always_split_dur_in_bars * self._ts.bar_dur,
+            min_x=self.settings.never_split_dur_in_beats
+            * self._ts.beat_dur,  # type:ignore
+            max_x=self.settings.always_split_dur_in_bars
+            * self._ts.bar_dur,  # type:ignore
         )
 
     def _step(
@@ -118,7 +116,7 @@ class StructuralPartitioner:
         barline_times = get_barline_times_within_duration(
             chord_onset,
             chord_release,
-            self._ts.bar_dur,
+            self._ts.bar_dur,  # type:ignore
             include_start=False,
         )
         if barline_times:
@@ -133,14 +131,19 @@ class StructuralPartitioner:
             #   the metric strength of each point in the bar, down to
             #   never_split_dur_in_beats
             # TODO debug the weights here
-            candidates = self._ts.weights_between(
-                math.ceil(self.settings.never_split_dur_in_beats) * self._ts.beat_dur,
+            candidates = self._ts.weights_between(  # type:ignore
+                (
+                    math.ceil(self.settings.never_split_dur_in_beats)
+                    * self._ts.beat_dur  # type:ignore
+                ),
                 chord_onset,
                 chord_release,
                 include_start=False,
                 out_format="dict",
             )
-            candidate_onsets, candidate_weights = zip(*candidates.items())
+            candidate_onsets, candidate_weights = zip(
+                *candidates.items()  # type:ignore
+            )
             probs = softmax(
                 candidate_weights,
                 temperature=self.settings.candidates_softmax_temperature,
@@ -161,7 +164,7 @@ class StructuralPartitioner:
         split_chords = []
         for chord in score.chords:
             splits = self._step(chord.onset, chord.release)
-            for start, stop in flatten_list(splits):
+            for start, stop in flatten_list(splits):  # type:ignore
                 new_chord = chord.copy()
                 new_chord.onset = start
                 new_chord.release = stop
@@ -169,8 +172,8 @@ class StructuralPartitioner:
         score.chords = split_chords
 
 
-if __name__ == "__main__":
-    settings = StructuralPartitionerSettings(ts="3/4")
-    sp = StructuralPartitioner(settings)
-    for x in range(0, 100):
-        print(x * 0.1, sp._linear(x * 0.1))
+# if __name__ == "__main__":
+#     settings = StructuralPartitionerSettings(ts="3/4")
+#     sp = StructuralPartitioner(settings)
+#     for x in range(0, 100):
+#         print(x * 0.1, sp._linear(x * 0.1))
