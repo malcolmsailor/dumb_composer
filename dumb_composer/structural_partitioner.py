@@ -28,12 +28,10 @@ class StructuralPartitionerSettings:
     # If we are splitting a chord that does not overlap with a barline, we get
     # the metric weights and than apply a softmax to turn this into a
     # probability distribution we can sample from. The higher the temperature,
-    # the more the probability mass is concentrated at the higher metric
-    # weights. (The temperature should always be > 0.)
+    # the more evenly the probability mass is spread out.
+    # (The temperature should always be > 0.)
     # TODO changing this doesn't seem to be having an effect
-    # TODO: (Malcolm) I think that having higher temperature concentrate the probability
-    # density is the opposite of the usual convention
-    candidates_softmax_temperature: float = 2.0
+    candidates_softmax_temperature: float = 0.5
     arc_shape: Shape = Shape.QUADRATIC
 
 

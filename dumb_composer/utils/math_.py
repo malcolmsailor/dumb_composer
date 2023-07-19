@@ -1,7 +1,8 @@
-from collections import Counter  # used by doctest
+import itertools as it
 import random
 import typing as t
-import itertools as it
+from collections import Counter  # used by doctest
+
 import numpy as np
 
 
@@ -9,8 +10,18 @@ def set_seeds(seed: int):
     random.seed(seed)
 
 
+# TODO: (Malcolm 2023-07-19) double-check temperature
 def softmax(x, temperature=1.0):
-    exp = np.exp(temperature * np.array(x))
+    """
+    >>> weights = [1 / 2, 2 / 3]
+    >>> softmax(weights)
+    array([0.45842952, 0.54157048])
+    >>> softmax(weights, temperature=5.0)
+    array([0.49166744, 0.50833256])
+    >>> softmax(weights, temperature=0.2)
+    array([0.30294072, 0.69705928])
+    """
+    exp = np.exp(np.array(x) / temperature)
     return exp / exp.sum()
 
 
@@ -80,9 +91,9 @@ def weighted_sample_wo_replacement(
     >>> [x for x in weighted_sample_wo_replacement(choices, weights)]  # doctest: +SKIP
     ['b', 'a', 'c']
     """
-    # we need to copy weights to avoid modifying them in-place.
     if not choices:
         return
+    # we need to copy weights to avoid modifying them in-place.
     weights = list(weights)
     choice_indices = list(range(len(choices)))
     index_pointers = list(range(len(choices)))

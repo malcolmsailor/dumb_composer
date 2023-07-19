@@ -260,7 +260,7 @@ def interval_finder(
 
 
 def get_relative_chord_factors(
-    chord_factor: int, chord_intervals: t.Tuple[int], scale_card: int
+    chord_factor: int, chord_intervals: t.Tuple[int, ...], scale_card: int
 ) -> t.Tuple[int]:
     """Given a chord factor expressed as a generic interval above the root,
     return a tuple of generic intervals to the other factors of the chord,

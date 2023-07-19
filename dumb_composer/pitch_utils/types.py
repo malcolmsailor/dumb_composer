@@ -20,3 +20,5 @@ VoiceAssignments = t.Tuple[int, ...]
 
 MelodicAtom = t.Tuple[Pitch | None, Pitch | None]
 RNToken = str
+
+Weight = float

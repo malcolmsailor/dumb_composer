@@ -603,8 +603,8 @@ class FourPartScore(_ScoreBase):
         ts: t.Optional[t.Union[Meter, str]] = None,
         transpose: int = 0,
         melody_track: int = 1,
-        bass_track: int = 2,
-        inner_voices_track: int = 3,
+        bass_track: int = 3,
+        inner_voices_track: int = 2,
     ):
         super().__init__(
             chord_data,

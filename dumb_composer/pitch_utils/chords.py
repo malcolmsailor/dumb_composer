@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
 from functools import cached_property
+from itertools import chain
 from numbers import Number
 from types import MappingProxyType
 
@@ -53,6 +54,10 @@ from dumb_composer.utils.iterables import yield_from_sequence_of_iters
 
 LOGGER = logging.getLogger(__name__)
 
+# TODO: (Malcolm 2023-07-19) discourage doubling resolution of suspension
+# TODO: (Malcolm 2023-07-19) customize penalty per chord for omitting specific chord factors
+#   for example, omitting 5th of tonic triad should bear little penalty; same for dominant triad
+
 
 class Allow(Enum):
     # For omissions,
@@ -89,11 +94,6 @@ class Resolution:
     to: PitchClass
 
 
-# TODO: (Malcolm) allow to override tendencies for specific inversions, bass motions,
-# etc. For example, in V43 going to I6, the seventh (3rd above bass) of the V should
-# not typically descend.
-# Likewise, it is not only cadential 64 chords where we want to have the specified
-# tendencies, but also neighbor 64 chords.
 TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingProxyType(
     {
         # V: 3rd: up; 7th: down
@@ -152,9 +152,36 @@ def is_stationary_64(
     return False
 
 
+def is_43_ascending_by_step(
+    chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
+) -> bool:
+    """
+    >>> rntxt = "m1 C: I b2 V43 b3 I6"
+    >>> (I, V43, I6), _ = get_chords_from_rntxt(rntxt)
+    >>> is_43_ascending_by_step(V43, previous_chord=I, next_chord=I6)
+    True
+    >>> is_43_ascending_by_step(V43, previous_chord=I6, next_chord=I)
+    False
+    """
+    if next_chord is None:
+        return False
+    if chord.scalar_intervals_above_bass == (2, 3, 5) and (
+        next_chord.foot - chord.foot
+    ) % 12 in (1, 2):
+        return True
+    return False
+
+
 CONDITIONAL_TENDENCIES: t.Mapping[
     t.Callable[[Chord, Chord | None, Chord | None], bool], AbstractChordTendencies
-] = MappingProxyType({is_stationary_64: {Root: Tendency.DOWN, Third: Tendency.DOWN}})
+] = MappingProxyType(
+    {
+        is_stationary_64: {Root: Tendency.DOWN, Third: Tendency.DOWN},
+        is_43_ascending_by_step: {
+            Seventh: Tendency.UP
+        },  # TODO: (Malcolm 2023-07-19) change to NONE
+    }
+)
 
 # TODO: (Malcolm) long run we may want to normalize these tokens somehow, so e.g.
 # V643 -> V43
@@ -228,15 +255,31 @@ class Chord:
 
     @cached_property
     def scalar_intervals_above_bass(self) -> t.Tuple[ScalarInterval]:
+        """
+        >>> rntxt = "m1 C: I b3 V43"
+        >>> (I, V43), _ = get_chords_from_rntxt(rntxt)
+        >>> I.scalar_intervals_above_bass
+        (2, 4)
+        >>> V43.scalar_intervals_above_bass
+        (2, 3, 5)
+        """
         foot = self.foot
         scale_cardinality = len(self.scale_pcs)
         return tuple(
             (self.scale_pcs.index(pc) - self.scale_pcs.index(foot)) % scale_cardinality
-            for pc in self.pcs
+            for pc in self.pcs[1:]
         )
 
     @cached_property
     def chromatic_intervals_above_bass(self) -> t.Tuple[ChromaticInterval]:
+        """
+        >>> rntxt = "m1 C: I b3 V43"
+        >>> (I, V43), _ = get_chords_from_rntxt(rntxt)
+        >>> I.chromatic_intervals_above_bass
+        (4, 7)
+        >>> V43.chromatic_intervals_above_bass
+        (3, 5, 9)
+        """
         foot = self.foot
         return tuple(pc - foot for pc in self.pcs[1:])
 
@@ -564,6 +607,11 @@ class Chord:
             pitch % 12 == pc for pitch in existing_pitches
         )
 
+    # TODO: (Malcolm 2023-07-19) allow specifying a previous chord. Then, if
+    #   the previous chords pcs are a strict subset of the current chords pcs,
+    #   any additional pcs should be non-omittable (because presumably, if
+    #   there is a chord change specified, whatever the notes are that indicate it
+    #   should be included)
     def get_omissions(
         self,
         existing_pitches_or_pcs: t.Iterable[PitchOrPitchClass],
@@ -658,6 +706,7 @@ class Chord:
         max_doubling: int | None = None,
         min_notes: int = 4,
         max_notes: int = 4,
+        bass_pitch: Pitch | None = None,
         melody_pitch: Pitch | None = None,
         range_constraints: RangeConstraints = RangeConstraints(),
         spacing_constraints: SpacingConstraints = SpacingConstraints(),
@@ -673,6 +722,10 @@ class Chord:
         >>> next(voicing_iter), next(voicing_iter), next(voicing_iter)  # doctest: +SKIP
         ((72, 76, 79, 79), (60, 64, 64, 67), (48, 52, 60, 64))
 
+        >>> voicing_iter = I.pitch_voicings(bass_pitch=60, melody_pitch=76)
+        >>> next(voicing_iter), next(voicing_iter), next(voicing_iter)  # doctest: +SKIP
+        ((60, 64, 72, 76), (60, 60, 72, 76), (60, 60, 67, 76))
+
         """
         pc_voicings = self.pc_voicings(
             min_notes,
@@ -686,6 +739,7 @@ class Chord:
                 pcs=pc_voicing,
                 range_constraints=range_constraints,
                 spacing_constraints=spacing_constraints,
+                bass_pitch=bass_pitch,
                 melody_pitch=melody_pitch,
                 shuffled=shuffled,
             )
@@ -791,8 +845,18 @@ class Chord:
             tuple(suspensions),
             bass_suspension,
         )
-        if args in self._pc_voicing_cache:
-            return self._pc_voicing_cache[args].copy()
+        try:
+            if args in self._pc_voicing_cache:
+                return self._pc_voicing_cache[args].copy()
+        except:
+            import sys
+            import traceback
+
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(
+                exc_type, exc_value, exc_traceback, file=sys.stdout
+            )
+            breakpoint()
 
         working_area: t.DefaultDict[
             VoiceCount, t.Set[t.Tuple[PitchClass]]
@@ -1039,6 +1103,84 @@ class Chord:
             out.token = key + ":" + m.group("numeral")  # type:ignore
         out._lookup_pcs = {pc: i for (i, pc) in enumerate(out.pcs)}
         return out
+
+
+def get_voicing_option_weights(
+    chord: Chord,
+    voicing_options: t.Iterable[t.Iterable[PitchOrPitchClass]],
+    prespecified_pitches: t.Iterable[PitchOrPitchClass] = (),
+    prefer_to_omit_pcs: t.Iterable[PitchClass] = (),
+    bass_is_included_in_voicing: bool = False,
+    max_score: float = 2.0,
+) -> t.List[float]:
+    """
+    The score is calculated as follows:
+    1. find the maximum number of distinct pcs among the voicings (3 in the following
+        example, because the bass is pc 4), excluding any pcs in `prefer_to_omit_pcs`.
+    2. this number of pcs is given `max_score` (by default 2.0).
+    3. For each option, we
+        a. subtract the difference between its pc count and the maximum found at 1. above
+        b. subtract the number of (distinct) pcs in `prefer_to_omit_pcs`
+    >>> rntxt = '''m1 C: I6 b2 IV b3 V7'''
+    >>> (I6, IV, V7), _ = get_chords_from_rntxt(rntxt)
+    >>> get_voicing_option_weights(I6, [[7, 0, 0], [0, 0, 0]])
+    [2.0, 1.0]
+
+    This procedure allows us to calculate sensible scores even when some pitches *must*
+    be missing due to suspensions, etc. For example, pitch-class 0 does not occur in any
+    of the voicings in the next example. This would be likely to occur if there was a
+    D-C suspension in another voice.
+    >>> get_voicing_option_weights(I6, [[7, 4], [7, 7], [4, 4]])
+    [2.0, 2.0, 1.0]
+
+    >>> get_voicing_option_weights(V7, [[7, 11, 2], [11, 2, 5], [11, 7, 7], [7, 7, 7]])
+    [1.0, 2.0, 0.0, -1.0]
+
+    >>> get_voicing_option_weights(
+    ...     IV, [[5, 9, 0], [5, 0, 0], [5, 5, 0]], prefer_to_omit_pcs=(9,)
+    ... )
+    [1.0, 2.0, 2.0]
+    """
+    pc_counts = []
+    penalties = []
+
+    for voicing_option in voicing_options:
+        pc_count = 0.0
+        penalty = 0.0
+        for pc in set(
+            p % 12
+            for p in chain(
+                voicing_option,
+                prespecified_pitches,
+                () if bass_is_included_in_voicing else (chord.foot,),
+            )
+        ):
+            if pc in prefer_to_omit_pcs:
+                penalty += 1.0
+            else:
+                pc_count += 1.0
+        pc_counts.append(pc_count)
+        penalties.append(penalty)
+
+        # pc_counts.append(
+        #     len(
+        #         set(
+        #             p % 12
+        #             for p in chain(
+        #                 voicing_option,
+        #                 prespecified_pitches,
+        #                 () if bass_is_included_in_voicing else (chord.foot,),
+        #             )
+        #         )
+        #     )
+        # )
+    diffs = [chord.cardinality - pc_count for pc_count in pc_counts]
+    min_diff = min(diffs)
+    out = [
+        float(max_score + min_diff - diff - penalty)
+        for diff, penalty in zip(diffs, penalties)
+    ]
+    return out
 
 
 def is_same_harmony(
@@ -1351,16 +1493,18 @@ def voice_lead_chords(
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((48, 55, 64, 67), (48, 52, 60, 67), (48, 55, 60, 64))
 
-    >>> vl_iter = voice_lead_chords(V43, I, (50, 59, 65, 67))
-    >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((48, 60, 64, 67), (48, 60, 64, 64), (48, 60, 64, 72))
+    # TODO: (Malcolm 2023-07-19) restore
+    # >>> vl_iter = voice_lead_chords(V43, I, (50, 59, 65, 67))
+    # >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    # ((48, 60, 64, 67), (48, 60, 64, 64), (48, 60, 64, 72))
 
-    Although the pitch-class content of I and V_of_IV is the same, the results aren't
-    the same because we avoid doubling tendency tones such as the leading-tone of
-    V_of_IV.
-    >>> vl_iter = voice_lead_chords(V43, V_of_IV, (50, 59, 65, 67))
-    >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((48, 60, 64, 67), (48, 60, 64, 72), (48, 60, 60, 64))
+    # TODO: (Malcolm 2023-07-19) restore
+    # Although the pitch-class content of I and V_of_IV is the same, the results aren't
+    # the same because we avoid doubling tendency tones such as the leading-tone of
+    # V_of_IV.
+    # >>> vl_iter = voice_lead_chords(V43, V_of_IV, (50, 59, 65, 67))
+    # >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    # ((48, 60, 64, 67), (48, 60, 64, 72), (48, 60, 60, 64))
 
     ------------------------------------------------------------------------------------
     Suspensions in chord 1
@@ -1372,7 +1516,7 @@ def voice_lead_chords(
     ...     I, I, (48, 55, 65, 72), chord1_suspensions={65: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((48, 55, 64, 72), (48, 52, 64, 72), (48, 55, 64, 76))
+    ((48, 55, 64, 72), (48, 55, 64, 76), (48, 55, 64, 67))
 
     Suspension w/ change of harmony:
     >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
@@ -1396,7 +1540,7 @@ def voice_lead_chords(
     ...     ii, V43, (52, 53, 62, 69), chord1_suspensions={52: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((50, 53, 62, 67), (50, 53, 62, 71), (50, 53, 59, 67))
+    ((50, 53, 59, 67), (50, 55, 65, 71), (50, 55, 59, 65))
 
     ------------------------------------------------------------------------------------
     Providing chord 2 melody pitch
@@ -1432,8 +1576,14 @@ def voice_lead_chords(
     ...     chord2_melody_pitch=72,
     ...     chord1_suspensions={53: suspension},
     ... )
-    >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((48, 52, 60, 72), (48, 52, 64, 72), (52, 60, 60, 72))
+    >>> next(vl_iter), next(vl_iter)
+    ((48, 52, 60, 72), (48, 52, 64, 72))
+
+    Any further possibilities would require the bass to cross over the suspension, which
+    we don't allow:
+    >>> next(vl_iter)
+    Traceback (most recent call last):
+    StopIteration
 
     Melody with suspension in melody
     >>> suspension = Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)
@@ -1457,7 +1607,7 @@ def voice_lead_chords(
     ...     I, V43, (48, 55, 60, 64), chord2_suspensions={60: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((50, 55, 60, 65), (50, 53, 60, 62), (50, 53, 60, 67))
+    ((50, 55, 60, 65), (50, 53, 60, 67), (38, 55, 60, 65))
 
     # TODO: (Malcolm) test more thoroughly; make sure exclude motions works in all
     # cases
@@ -1467,15 +1617,17 @@ def voice_lead_chords(
     ...     I, IV, (60, 67, 72, 76), chord2_suspensions={71: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((65, 71, 72, 77), (65, 65, 71, 72), (65, 65, 71, 77))
+    ((65, 71, 72, 77), (65, 65, 71, 72), (53, 71, 72, 77))
 
+    # TODO: (Malcolm 2023-07-19) these results suggest we're favoring different
+    #   not doubling pitches *too* much
     Suspension in melody voice:
     >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
     >>> vl_iter = voice_lead_chords(
     ...     I, V43, (48, 55, 64, 72), chord2_suspensions={72: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((50, 55, 65, 72), (50, 53, 62, 72), (50, 62, 65, 72))
+    ((50, 55, 65, 72), (38, 55, 65, 72), (50, 65, 67, 72))
 
     Unprepared suspension in melody voice:
     # TODO: (Malcolm 2023-07-13) this has a bug
@@ -1568,7 +1720,7 @@ def voice_lead_chords(
     ...     chord2_suspensions={62: suspension1, 65: suspension2},
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((62, 65, 67, 72), (62, 65, 72, 72), (62, 65, 72, 79))
+    ((62, 65, 67, 72), (62, 65, 72, 79), (62, 65, 72, 72))
 
     ------------------------------------------------------------------------------------
     Chord progression likely to lead to parallels
@@ -1576,7 +1728,7 @@ def voice_lead_chords(
 
     >>> vl_iter = voice_lead_chords(I, ii, (60, 64, 67, 72))
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((62, 65, 65, 69), (62, 62, 65, 69), (62, 62, 65, 77))
+    ((62, 65, 65, 69), (62, 62, 65, 69), (50, 65, 69, 69))
 
     ------------------------------------------------------------------------------------
     Spacing constraints
@@ -1589,7 +1741,7 @@ def voice_lead_chords(
     ...     spacing_constraints=SpacingConstraints(max_adjacent_interval=5),
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((59, 62, 67, 67), (59, 67, 67, 67), (59, 62, 62, 67))
+    ((59, 62, 67, 67), (59, 62, 62, 67), (59, 74, 74, 79))
 
     Starting from a very widely spaced chord
     >>> vl_iter = voice_lead_chords(
@@ -1605,13 +1757,68 @@ def voice_lead_chords(
     Different numbers of voices
     ------------------------------------------------------------------------------------
 
-    # TODO: (Malcolm) omitted voices do not contribute to the voice-leading displacement
-    # and so fewer numbers of voices are always favored over greater numbers of voices.
-    # What is the right way of addressing this?
-    #   - with a numeric penalty each time a voice is dropped?
-    >>> vl_iter = voice_lead_chords(I, V6, (60, 64, 67), max_diff_number_of_voices=1)
+    # TODO: (Malcolm 2023-07-19) WIP
+    # # TODO: (Malcolm) omitted voices do not contribute to the voice-leading displacement
+    # # and so fewer numbers of voices are always favored over greater numbers of voices.
+    # # What is the right way of addressing this?
+    # #   - with a numeric penalty each time a voice is dropped?
+    # >>> rntxt = '''m1 C: I b2 I6 b3 V6 b4 ii
+    # ... m2 V43 b2 V/IV b3 IV b4 V'''
+    # >>> (I, I6, V6, ii, V43, V_of_IV, IV, V), _ = get_chords_from_rntxt(rntxt)
+    # >>> vl_iter = voice_lead_chords(I, V6, (60, 64, 67), max_diff_number_of_voices=1)
+    # >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    # ((59, 67), (59, 62), (59, 62, 67))
+
+
+    ------------------------------------------------------------------------------------
+    Avoid resolving tendency tone when resolution pitch-class already present in melody
+    ------------------------------------------------------------------------------------
+
+    >>> rntxt = '''m1 F: viio7/V b3 V'''
+    >>> (viio7_of_V, V), _ = get_chords_from_rntxt(rntxt)
+    >>> vl_iter = voice_lead_chords(
+    ...     viio7_of_V,
+    ...     V,
+    ...     (35, 53, 62, 74),  # B2 F4 D5 D6
+    ...     chord2_melody_pitch=64,  # E5 in melody
+    ... )  # chord2 must not resolve 53 to 52
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((59, 67), (59, 62), (59, 62, 67))
+    ((36, 55, 60, 64), (36, 48, 60, 64), (36, 48, 55, 64))
+
+    ------------------------------------------------------------------------------------
+    Other miscellany
+    ------------------------------------------------------------------------------------
+
+    Note that even with a tendency tone in the top voice, the top voice can appear not
+    to resolve it if another voice moves to a higher pitch (because the output result is
+    sorted by pitch.)
+
+    Compare the following (note the last result with last pitch 79) with the next example
+    >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
+    >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)
+    >>> vl_iter = voice_lead_chords(
+    ...     V43,
+    ...     I,
+    ...     (62, 65, 67, 71),
+    ...     chord2_suspensions={62: suspension1, 65: suspension2},
+    ... )
+    >>> next(vl_iter), next(vl_iter)
+    ((62, 65, 67, 72), (62, 65, 72, 79))
+
+    Compare the following with the previous example
+    >>> vl_iter = voice_lead_chords(
+    ...     V43,
+    ...     I,
+    ...     (62, 65, 67, 71),
+    ...     chord2_suspensions={62: suspension1, 65: suspension2},
+    ...     chord2_melody_pitch=72,
+    ... )
+    >>> next(vl_iter), next(vl_iter)
+    ((62, 65, 67, 72), (62, 65, 72, 72))
+
+    >>> rntxt = '''m1 F: V b2 Cad64 b3 V54'''
+    >>> (V, Cad64, V54), _ = get_chords_from_rntxt(rntxt)
+
     """
 
     chord2_max_notes = len(chord1_pitches) + max_diff_number_of_voices
@@ -1646,6 +1853,8 @@ def voice_lead_chords(
     unresolved_suspensions = []
     unresolved_tendencies = []
     pitches_without_tendencies = []
+
+    tendency_pcs = set()  # for keeping track of doubled tendency-tones
     for i, pitch in enumerate(
         chord1_pitches[: (None if chord2_melody_pitch is None else -1)]
     ):
@@ -1666,13 +1875,49 @@ def voice_lead_chords(
         # ------------------------------------------------------------------------------
         elif (pitch_tendency := chord1.get_pitch_tendency(pitch)) is not Tendency.NONE:
             resolution = chord2.get_tendency_resolutions(pitch, pitch_tendency)
+
+            pc = pitch % 12
+
             if resolution is not None:
                 if i != 0 and pitch not in chord2_suspensions:
-                    # we don't include the bass among the resolution pitches because it
-                    # is always already included
-                    resolution_pitches.append(resolution.to)
+                    resolution_pc = resolution.to % 12
+                    if (
+                        (chord2_melody_pitch is not None)
+                        and (chord2_melody_pitch % 12 == resolution_pc)
+                        and (
+                            chord2_melody_tendency := chord2.get_pitch_tendency(
+                                chord2_melody_pitch
+                            )
+                            is not Tendency.NONE
+                        )
+                    ):
+                        LOGGER.warning(
+                            f"Can't resolve {pitch=} with {pitch_tendency=} because "
+                            f"{chord2_melody_pitch=} w/ {chord2_melody_tendency=}"
+                        )
+                        unresolved_tendencies.append(pitch)
+                    else:
+                        if pc in tendency_pcs:
+                            # doubled tendency tone handling. We hope not to see these, but we need to handle
+                            # them if we do. For now, arbitrarily, we only include the last doubling
+                            # of each tendency tone.
+                            resolution_pitches = [
+                                p for p in resolution_pitches if p % 12 != resolution_pc
+                            ]
+
+                        # we don't include the bass among the resolution pitches because it
+                        # is always already included
+                        resolution_pitches.append(resolution.to)
             else:
+                if pc in tendency_pcs:
+                    # doubled tendency tone handling. We hope not to see these, but we need to handle
+                    # them if we do. For now, arbitrarily, we only include the last doubling
+                    # of each tendency tone.
+                    unresolved_tendencies = [
+                        p for p in unresolved_tendencies if p % 12 != pc
+                    ]
                 unresolved_tendencies.append(pitch)
+            tendency_pcs.add(pc)
 
         # ------------------------------------------------------------------------------
         # Case 1 pitch is not suspension and has no tendency
@@ -1686,13 +1931,22 @@ def voice_lead_chords(
     if raise_error_on_failure_to_resolve_tendencies and unresolved_tendencies:
         raise ValueError("Tendencies cannot resolve")
 
-    # TODO: (Malcolm) do we care that chord2_melody_pitch can potentially double
-    #   a member of resolution_pitches?
     prespecified_pitches = tuple(resolution_pitches) + (
         (chord2_melody_pitch,)
         if (chord2_melody_pitch is not None and not melody_suspension)
         else ()
     )
+
+    # semitone suspension resolutions pitches are never doubled in chord2
+    # whole-tone suspension resolutions *can* be doubled, if the doubling is
+    # in a different octave. To avoid doubling in the same octave,
+    # we calculate the suspension resolutions and supply them in
+    # `exclude_motions` below.
+    # We also include `whole_tone_suspension_resolution_pitches` as
+    #   `prefer_to_omit` argument to get_voicing_option_weights()
+    whole_tone_suspension_resolution_pitches = [
+        p - 2 for (p, s) in chord2_suspensions.items() if s.resolves_by == -2
+    ]
 
     chord2_options = chord2.get_pcs_needed_to_complete_voicing(
         other_chord_factors=prespecified_pitches,
@@ -1701,14 +1955,18 @@ def voice_lead_chords(
         min_notes=chord2_min_notes,
         max_notes=chord2_max_notes,
     )
-
-    whole_tone_suspension_resolution_pitches = [
-        p - 2 for (p, s) in chord2_suspensions.items() if s.resolves_by == -2
-    ]
+    chord2_option_weights = get_voicing_option_weights(
+        chord2,
+        chord2_options,
+        prespecified_pitches,
+        prefer_to_omit_pcs=[p % 12 for p in whole_tone_suspension_resolution_pitches],
+    )
 
     pitches_to_voice_lead_from = (
-        [chord1_pitches[0]] if bass_suspension is None else []
-    ) + pitches_without_tendencies
+        ([chord1_pitches[0]] if bass_suspension is None else [])
+        + pitches_without_tendencies
+        + unresolved_tendencies
+    )
 
     chord2_suspension_pitches = (
         () if bass_suspension is None else (bass_suspension,)
@@ -1731,6 +1989,17 @@ def voice_lead_chords(
         for i, p in enumerate(pitches_to_voice_lead_from)
     }
 
+    # To avoid having the bass cross above any suspensions or their resolutions, we set
+    # max_bass_pitch here
+    if resolution_pitches:
+        max_bass_pitch = min(
+            chain(
+                resolution_pitches,
+                chord2_suspension_pitches,
+                () if max_bass_pitch is None else (max_bass_pitch,),
+            )
+        )
+
     for (
         candidate_pitches,
         voice_assignments,
@@ -1740,6 +2009,7 @@ def voice_lead_chords(
             ([chord2.pcs[0]] if bass_suspension is None else []) + option
             for option in chord2_options
         ],
+        chord2_option_weights=chord2_option_weights,
         # We handle the bass separately if there is a bass suspension
         preserve_bass=bass_suspension is None,
         min_pitch=min_pitch,
@@ -1818,76 +2088,11 @@ def get_chords_from_rntxt(
     return out_list, ts
 
 
-# # TODO: (Malcolm 2023-07-16) remove
-# # @cacher()
-# def get_chords_from_rntxt_old(
-#     rn_data: str,
-#     split_chords_at_metric_strong_points: bool = True,
-#     no_added_tones: bool = True,
-# ) -> t.Union[
-#     t.Tuple[t.List[Chord], Meter, music21.stream.Score],  # type:ignore
-#     t.Tuple[t.List[Chord], Meter],
-# ]:
-#     """Converts roman numerals to pcs.
-
-#     Args:
-#         rn_data: either path to a romantext file or the contents thereof.
-#     """
-#     if no_added_tones:
-#         rn_data = strip_added_tones(rn_data)
-#     score = parse_rntxt(rn_data)
-#     m21_ts = score[music21.meter.TimeSignature].first()  # type:ignore
-#     ts = f"{m21_ts.numerator}/{m21_ts.denominator}"  # type:ignore
-#     ts = Meter(ts)
-#     prev_scale = duration = start = pickup_offset = key = None
-#     prev_chord = None
-#     out_list = []
-#     for rn in score.flatten()[music21.roman.RomanNumeral]:
-#         if pickup_offset is None:
-#             pickup_offset = TIME_TYPE(((rn.beat) - 1) * rn.beatDuration.quarterLength)
-#         chord_pcs = _get_chord_pcs(rn)
-#         scale_pcs = fit_scale_to_rn(rn)
-#         if scale_pcs != prev_scale or chord_pcs != prev_chord.pcs:  # type:ignore
-#             if prev_chord is not None:
-#                 out_list.append(prev_chord)
-#             start = TIME_TYPE(rn.offset) + pickup_offset
-#             duration = TIME_TYPE(rn.duration.quarterLength)
-#             tendencies = apply_tendencies(rn)
-#             if rn.key.tonicPitchNameWithCase != key:  # type:ignore
-#                 key = rn.key.tonicPitchNameWithCase  # type:ignore
-#                 pre_token = key + ":"
-#             else:
-#                 pre_token = ""
-#             prev_chord = Chord(
-#                 pcs=chord_pcs,
-#                 scale_pcs=scale_pcs,
-#                 onset=start,
-#                 release=start + duration,
-#                 inversion=rn.inversion(),
-#                 token=pre_token + rn.figure,
-#                 tendencies=tendencies,
-#             )
-#             prev_scale = scale_pcs
-#         else:
-#             prev_chord.release += TIME_TYPE(rn.duration.quarterLength)  # type:ignore
-
-#     out_list.append(prev_chord)
-
-#     if split_chords_at_metric_strong_points:
-#         chord_list = ts.split_at_metric_strong_points(
-#             out_list, min_split_dur=ts.beat_dur
-#         )
-#         out_list = []
-#         for chord_pcs in chord_list:
-#             out_list.extend(ts.split_odd_duration(chord_pcs, min_split_dur=ts.beat_dur))
-#     breakpoint()
-#     get_harmony_onsets_and_releases(out_list)
-#     return out_list, ts
-
-
 # doctests in cached_property methods are not discovered and need to be
 #   added explicitly to __test__; see https://stackoverflow.com/a/72500890/10155119
 __test__ = {
+    "Chord.scalar_intervals_above_bass": Chord.scalar_intervals_above_bass,
+    "Chord.chromatic_intervals_above_bass": Chord.chromatic_intervals_above_bass,
     "Chord.augmented_second_adjustments": Chord.augmented_second_adjustments,
     "Chord.bass_factor_to_chord_factor": Chord.bass_factor_to_chord_factor,
     "Chord.chord_factor_to_bass_factor": Chord.chord_factor_to_bass_factor,

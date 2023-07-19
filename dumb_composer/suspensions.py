@@ -5,6 +5,7 @@ from numbers import Number
 from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
+    TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS,
 )
 from dumb_composer.pitch_utils.types import TimeStamp
 
@@ -120,7 +121,19 @@ def find_suspensions(
         if next_pc != other_pcs[0]:
             other_pcs.remove(next_pc)
         dissonant = pitch_dissonant_against_chord(current_pitch, other_pcs)
-        out.append(Suspension(interval, dissonant, interval_above_bass))
+        # TODO: (Malcolm 2023-07-18) do we want to update expected_resolution_interval
+        #   to take account of the fact that the bass may change?
+        expected_resolution_interval = (interval_above_bass + interval) % 12
+        out.append(
+            Suspension(
+                interval,
+                dissonant,
+                interval_above_bass,
+                score=TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS[
+                    expected_resolution_interval
+                ],
+            )
+        )
 
     out = []
     if next_scale_pcs is not None and current_pitch % 12 not in next_scale_pcs:

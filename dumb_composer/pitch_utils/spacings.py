@@ -471,11 +471,20 @@ def yield_spacings(
     pcs: t.Sequence[PitchClass],
     range_constraints: RangeConstraints = RangeConstraints(),
     spacing_constraints: SpacingConstraints = SpacingConstraints(),
+    bass_pitch: Pitch | None = None,
     melody_pitch: Pitch | None = None,
     shuffled: bool = False,
-):
+) -> t.Iterable[t.Tuple[Pitch]]:
     """
     This function doesn't double any pcs; the caller is responsible for that.
+
+    >>> list(
+    ...     yield_spacings((0, 0, 4, 7), bass_pitch=60)
+    ... )  # doctest: +NORMALIZE_WHITESPACE
+    [(60, 60, 64, 67), (60, 60, 67, 76), (60, 72, 76, 79), (60, 64, 72, 79),
+     (60, 64, 67, 72), (60, 76, 79, 84), (60, 67, 72, 76), (60, 67, 76, 84)]
+    >>> list(yield_spacings((0, 0, 4, 7), bass_pitch=60, melody_pitch=76))
+    [(60, 60, 67, 76), (60, 67, 72, 76)]
     """
     pcs = list(pcs)
 
@@ -485,8 +494,18 @@ def yield_spacings(
         except ValueError:
             raise ValueError("The pitch-class of `melody_pitch` must be in `pcs`")
 
+    if bass_pitch:
+        try:
+            pcs.remove(bass_pitch % 12)
+        except ValueError:
+            raise ValueError("The pitch-class of `bass_pitch` must be in `pcs`")
+
+        pitches_so_far = (bass_pitch,)
+    else:
+        pitches_so_far = ()
+
     yield from _yield_spacing_helper(
-        pitches_so_far=(),
+        pitches_so_far=pitches_so_far,
         remaining_pcs=pcs,
         range_constraints=range_constraints,
         spacing_constraints=spacing_constraints,

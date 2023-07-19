@@ -12,6 +12,8 @@ from dumb_composer.constants import DEFAULT_BASS_RANGE, DEFAULT_MEL_RANGE
 from dumb_composer.from_ml_out import get_chord_df
 from dumb_composer.pitch_utils.chords import Chord, Tendency, get_chords_from_rntxt
 from dumb_composer.pitch_utils.interval_chooser import (
+    HarmonicallyInformedIntervalChooser,
+    HarmonicallyInformedIntervalChooserSettings,
     IntervalChooser,
     IntervalChooserSettings,
 )
@@ -23,7 +25,7 @@ from dumb_composer.pitch_utils.intervals import (
 from dumb_composer.pitch_utils.pcs import PitchClass
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
-from dumb_composer.pitch_utils.types import ChromaticInterval, Pitch, TimeStamp
+from dumb_composer.pitch_utils.types import ChromaticInterval, Pitch, TimeStamp, Weight
 from dumb_composer.utils.homodf_to_mididf import homodf_to_mididf
 
 from .shared_classes import Annotation, Score, _ScoreBase
@@ -42,11 +44,8 @@ class OuterVoice(IntEnum):
     MELODY = 1
 
 
-Weight = float
-
-
 @dataclass
-class TwoPartContrapuntistSettings(IntervalChooserSettings):
+class TwoPartContrapuntistSettings(HarmonicallyInformedIntervalChooserSettings):
     forbidden_parallels: t.Sequence[int] = (7, 0)
     forbidden_antiparallels: t.Sequence[int] = (0,)
     unpreferred_direct_intervals: t.Sequence[int] = (7, 0)
@@ -63,7 +62,7 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     # To ensure that suspensions will be used wherever possible,
     #   `no_suspension_score` can be set to a large negative number (which
     #   will become zero after the softmax) or even float("-inf").
-    no_suspension_score: float = 1.0
+    no_suspension_score: float = 2.0
     allow_avoid_intervals: bool = False
     allow_steps_outside_of_range: bool = True
     range_constraints: RangeConstraints = RangeConstraints()
@@ -78,7 +77,8 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
             super().__post_init__()  # type:ignore
 
 
-# TODO: (Malcolm 2023-07-17) favor thirds or other harmonic intervals
+# TODO: (Malcolm 2023-07-17) allow suspensions that resolve in the *following* chord
+#   (perhaps only if they are sevenths and ninths?)
 
 
 class TwoPartContrapuntist:
@@ -96,7 +96,7 @@ class TwoPartContrapuntist:
         # TODO: (Malcolm 2023-07-17) and the above in turn should be influenced by the
         #   expected density of ornamentation. If we're embellishing in 16ths then
         #   each note should be free to move relatively widely.
-        self._ic = IntervalChooser(settings)
+        self._ic = HarmonicallyInformedIntervalChooser(settings)
         self._suspension_resolutions: t.Dict[int, int] = {}
         self._lingering_tendencies: t.List[t.Dict[Pitch, Weight]] = []
 
@@ -332,7 +332,9 @@ class TwoPartContrapuntist:
         voice_to_choose_for: OuterVoice,
     ):
         avoid_intervals = []
+        avoid_harmonic_intervals = []
         direct_intervals = []
+        direct_harmonic_intervals = []
 
         # if voice_to_choose_for is OuterVoice.MELODY:
         #     custom_weights = self._get_lingering_resolution_weights(
@@ -341,19 +343,36 @@ class TwoPartContrapuntist:
         # else:
         custom_weights = None
 
+        if next_other_pitch is None:
+            harmonic_intervals = None
+        else:
+            harmonic_intervals = [
+                cur_pitch + interval - next_other_pitch for interval in intervals
+            ]
+
         while intervals:
-            interval = self._ic(intervals, custom_weights=custom_weights)
+            interval_i = self._ic.get_interval_indices(
+                intervals,
+                harmonic_intervals=harmonic_intervals,
+                custom_weights=custom_weights,
+                n=1,
+            )[0]
+            interval = intervals[interval_i]
             candidate_pitch = cur_pitch + interval
 
             if next_other_pitch is not None:
+                assert harmonic_intervals is not None
+                harmonic_interval = harmonic_intervals[interval_i]
                 # Check for avoid intervals
 
                 if dont_double_other_pc and (candidate_pitch % 12) == (
                     next_other_pitch % 12
                 ):
                     # Don't double tendency tones
-                    intervals.remove(interval)
+                    intervals.pop(interval_i)
+                    harmonic_intervals.pop(interval_i)
                     avoid_intervals.append(interval)
+                    avoid_harmonic_intervals.append(harmonic_interval)
                     continue
 
                 # Check for direct intervals
@@ -376,8 +395,10 @@ class TwoPartContrapuntist:
                 ):
                     # We move unpreferred direct intervals into another list and only
                     # consider them later if we need to
-                    intervals.remove(interval)
+                    intervals.pop(interval_i)
+                    harmonic_intervals.pop(interval_i)
                     direct_intervals.append(interval)
+                    direct_harmonic_intervals.append(harmonic_interval)
                     continue
 
             # Try interval
@@ -390,7 +411,9 @@ class TwoPartContrapuntist:
         # -------------------------------------------------------------------------------
         if self.settings.allow_avoid_intervals:
             while avoid_intervals:
-                interval = self._ic(avoid_intervals)
+                interval = self._ic.get_interval_indices(
+                    avoid_intervals, avoid_harmonic_intervals, n=1
+                )[0]
                 logging.warning(f"must use avoid interval {interval}")
                 yield cur_pitch + interval
                 avoid_intervals.remove(interval)
@@ -399,7 +422,9 @@ class TwoPartContrapuntist:
         # Try direct intervals
         # -------------------------------------------------------------------------------
         while direct_intervals:
-            interval = self._ic(direct_intervals)
+            interval = self._ic.get_interval_indices(
+                direct_intervals, direct_harmonic_intervals, n=1
+            )[0]
             logging.warning(f"must use direct interval {interval}")
             yield cur_pitch + interval
             direct_intervals.remove(interval)
@@ -627,7 +652,6 @@ class TwoPartContrapuntist:
                     yield {"bass": bass_pitch, "melody": melody_pitch}
         else:
             for melody_pitch in self._melody_step(score):
-                print(f"{melody_pitch=}")
                 for bass_pitch in self._bass_step(score, melody_pitch):
                     yield {"bass": bass_pitch, "melody": melody_pitch}
 

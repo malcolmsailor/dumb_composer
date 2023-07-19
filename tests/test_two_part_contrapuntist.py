@@ -1,13 +1,18 @@
 import os
 import random
+from collections import Counter, defaultdict
+from typing import Iterable
 
+import pandas as pd
 import pytest
 from midi_to_notes import df_to_midi
 
 import dumb_composer.two_part_contrapuntist as mod
+from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 from dumb_composer.shared_classes import PrefabScore
 from dumb_composer.utils.recursion import DeadEnd
 from tests.test_helpers import TEST_OUT_DIR
+from tests.test_utils.shell_plot import print_bar
 
 
 @pytest.mark.parametrize(
@@ -24,23 +29,37 @@ def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches, do_firs
     settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
     tpc = mod.TwoPartContrapuntist(settings)
     score = PrefabScore(chord_data=rntxt)
-    print(f"{rntxt=} {structural_melody_pitches=}")
     for melody_pitch in structural_melody_pitches:
-        print(f"first{melody_pitch=}")
         score.structural_bass.clear()
         score.structural_bass.append(score.chords[0].foot + 24)
         score.structural_melody.clear()
         score.structural_melody.append(melody_pitch)
-        print(f"{score.structural_bass=} {score.structural_melody=}")
         try:
             for pitches in tpc._step(score):
                 assert pitches["melody"] % 12 != pitches["bass"] % 12
-                print(f"{pitches=}")
         except DeadEnd:
             pass
 
 
-def test_two_part_contrapuntist():
+def update_counts(score, counts: defaultdict[str, Counter]):
+    paired_list = list(zip(score.structural_bass, score.structural_melody))
+    for (prev_bass, prev_mel), (bass, mel) in zip(
+        [(None, None)] + paired_list[:-1], paired_list
+    ):
+        if prev_bass is not None:
+            bass_mel_interval = bass - prev_bass
+            counts["bass_mel_interval"][bass_mel_interval] += 1
+        if prev_mel is not None:
+            melody_mel_interval = mel - prev_mel
+            counts["melody_mel_interval"][melody_mel_interval] += 1
+        counts["unreduced_harmonic_interval"][mel - bass] += 1
+        counts["reduced_harmonic_interval"][reduce_compound_interval(mel - bass)] += 1
+
+
+# @pytest.mark.parametrize("time_sig", [(4, 4), (3, 4)])
+# @pytest.mark.parametrize("do_first", (mod.OuterVoice.BASS, mod.OuterVoice.MELODY))
+def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
+    numer, denom = time_sig
     rn_format = """Time signature: {}
     m1 Bb: I
     m2 F: ii
@@ -57,20 +76,42 @@ def test_two_part_contrapuntist():
     m13 V42
     m14 I6
     """
-    time_sigs = [(4, 4), (3, 4)]
-    for numer, denom in time_sigs:
-        tpc = mod.TwoPartContrapuntist()
-        random.seed(42)
-        ts = f"{numer}/{denom}"
-        rn_temp = rn_format.format(ts)
+    dfs = []
+    ts = f"{numer}/{denom}"
+    rn_temp = rn_format.format(ts)
+    settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
+    counts = defaultdict(Counter)
+    for seed in range(42, 42 + 10):
+        tpc = mod.TwoPartContrapuntist(settings)
+        random.seed(seed)
         score = tpc(rn_temp)
+        update_counts(score, counts)
         out_df = tpc.get_mididf_from_score(score)
-        mid_path = os.path.join(
-            TEST_OUT_DIR,
-            f"two_part_contrapuntist_ts={ts.replace('/', '-')}.mid",
+        dfs.append(out_df)
+
+    time_adjustment = 0
+    for df in dfs:
+        df["onset"] += time_adjustment
+        df["release"] += time_adjustment
+        time_adjustment = df["release"].max() + numer
+    do_first_str = "bass" if do_first is mod.OuterVoice.BASS else "melody"
+    mid_path = os.path.join(
+        TEST_OUT_DIR,
+        f"two_part_contrapuntist_ts={ts.replace('/', '-')}_do-first={do_first_str}.mid",
+    )
+    out_df = pd.concat(dfs, axis=0)
+    print(f"writing {mid_path}")
+    # print(counts)
+    for title, counter in counts.items():
+        print(counter)
+        print_bar(
+            name=f"{title}: {ts=} {do_first=}",
+            counter=counter,
+            horizontal=True,
+            sort_by_key=True,
+            char_height=65,
         )
-        print(f"writing {mid_path}")
-        df_to_midi(out_df, mid_path, ts=(numer, denom))
+    df_to_midi(out_df, mid_path, ts=(numer, denom))
 
 
 @pytest.mark.skip(reason="missing torch import at cabin")

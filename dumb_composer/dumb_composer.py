@@ -380,16 +380,18 @@ class FourPartComposer:
                 min_notes=4,
                 max_notes=4,
                 melody_pitch=score.structural_melody[0],
+                bass_pitch=score.structural_bass[0],
                 range_constraints=self.settings.range_constraints,
                 spacing_constraints=self.settings.spacing_constraints,
                 shuffled=True,
             ):
                 LOGGER.debug(f"Pitch voicing: {pitch_voicing}")
-                yield pitch_voicing[:-1]
+                yield pitch_voicing[1:-1]
         else:
             chord1 = score.chords[i - 1]
             chord2 = score.chords[i]
             chord2_melody_pitch = score.structural_melody[i]
+            chord2_bass_pitch = score.structural_bass[i]
             if i - 1 in score.melody_suspensions:
                 chord1_suspensions = {
                     score.structural_melody[i - 1]: score.melody_suspensions[i - 1]
@@ -410,8 +412,11 @@ class FourPartComposer:
                 chord1_suspensions=chord1_suspensions,
                 chord2_melody_pitch=chord2_melody_pitch,
                 chord2_suspensions=chord2_suspensions,
+                # TODO: (Malcolm 2023-07-18) hack for setting bass pitch
+                min_bass_pitch=chord2_bass_pitch,
+                max_bass_pitch=chord2_bass_pitch,
             ):
-                yield voicing[:-1]
+                yield voicing[1:-1]
         raise DeadEnd()
 
     def _recurse(self, i: int, score: FourPartScore) -> None:
@@ -427,14 +432,19 @@ class FourPartComposer:
             LOGGER.debug(f"{self.__class__.__name__}._recurse: {i} final step")
             return self._final_step(i, score)
 
-        for mel_pitch in self.two_part_contrapuntist._step(score):
-            with append_attempt(score.structural_melody, mel_pitch):
-                LOGGER.debug(f"append attempt {mel_pitch} to structural melody")
+        for pitches in self.two_part_contrapuntist._step(score):
+            with append_attempt(
+                (score.structural_bass, score.structural_melody),
+                (pitches["bass"], pitches["melody"]),
+            ):
+                LOGGER.debug(f"append attempt {pitches}")
+                # TODO: (Malcolm 2023-07-19) favor voicings containing tendency tones
+                # TODO: (Malcolm 2023-07-19) favor complete voicings
                 for chord in self._voice_lead_chords(i, score):
                     LOGGER.debug(f"append attempt {chord} to bass/inner voices")
                     with append_attempt(
-                        (score.structural_bass, score.inner_voices),
-                        (chord[0], chord[1:]),
+                        (score.inner_voices),
+                        (chord),
                     ):
                         return self._recurse(i + 1, score)
 
@@ -450,6 +460,8 @@ class FourPartComposer:
         print("Reading score... ", end="", flush=True)
         score = FourPartScore(chord_data, range_constraints, transpose=transpose)
         print("done.")
+        # TODO: (Malcolm 2023-07-19) weight structural partitioner to split long chords
+        #   more than short ones
         self.structural_partitioner(score)
 
         try:

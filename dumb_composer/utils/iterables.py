@@ -1,6 +1,6 @@
 import itertools
 import random
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any, Iterable, Sequence
 
 
 def _flatten_iterables_sub(x: Any | Iterable[Any]) -> list[Any]:
@@ -53,7 +53,9 @@ def yield_from_sequence_of_iters(
     >>> list(yield_from_sequence_of_iters([iter2, iter1, iter3]))
     [3, 0, 4, 1, 5, 2, 6]
 
-    >>> list(yield_from_sequence_of_iters([iter1, iter2], shuffle=True))  # doctest: +SKIP
+    >>> list(
+    ...     yield_from_sequence_of_iters([iter1, iter2], shuffle=True)
+    ... )  # doctest: +SKIP
     [3, 4, 0, 1, 2, 5, 6]
     """
     iter_list = list(iter(i) for i in iter_seq)

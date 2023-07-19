@@ -1,7 +1,7 @@
 import re
-from collections import Counter
 import sys
-from typing import Iterable, Optional, Callable, Sequence, Union
+from collections import Counter
+from typing import Callable, Iterable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -34,8 +34,15 @@ HORIZONTAL_CHARS = (
 
 
 def _get_bar(bar_prop, char_height, bar_width, horizontal=False):
+    """
+    >>> _get_bar(0.017857142857142856, char_height=5, bar_width=1, horizontal=True)
+    ['▏', ' ', ' ', ' ', ' ']
+    """
     ref_chars = HORIZONTAL_CHARS if horizontal else VERTICAL_CHARS
-    assert 0 <= bar_prop <= 1
+
+    # Check the bar_prop is valid
+    assert 0.0 <= bar_prop <= 1.0
+
     height = bar_prop * char_height
     full_chars, frac = divmod(height, 1)
     full_chars = int(full_chars)
@@ -57,16 +64,26 @@ def print_histogram(
     bins=None,
     range=None,
     name="",
+    horizontal=False,
     file=sys.stdout,
 ):
     if bins is None:
         bins = char_width
-    counts, bin_edges = np.histogram(
-        array_like, bins=np.array(bins), range=range
-    )
+    counts, bin_edges = np.histogram(array_like, bins=np.array(bins), range=range)
     counter = Counter({edge: count for edge, count in zip(bin_edges, counts)})
     print(counter)
-    print_bar(name, counter, char_height, file=file)
+    print_bar(name, counter, char_height, file=file, horizontal=horizontal)
+
+
+LOREM_IPSUM = (  # for doc-tests
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod "
+    "tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim "
+    "veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex "
+    "ea commodo consequat. Duis aute irure dolor in reprehenderit in "
+    "voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur "
+    "sint occaecat cupidatat non proident, sunt in culpa qui officia "
+    "deserunt mollit anim id est laborum."
+)
 
 
 def print_bar(
@@ -78,16 +95,85 @@ def print_bar(
     max_bar_width=None,
     horizontal=False,
     file=sys.stdout,
-    sort=False,
+    sort_by_count=False,
+    sort_by_key=False,
 ):
-    if sort:
-        counter = Counter(
-            {name: count for name, count in counter.most_common()}
-        )
+    """
+    >>> data = Counter(LOREM_IPSUM)
+    >>> print_bar(  # doctest: +NORMALIZE_WHITESPACE
+    ...     "Demo 1", data, file=None
+    ... )  # the default file `sys.stdout` makes the output not captured by the doctest
+    Demo 1 barplot (most common value is ' ': 0.153):
+         █
+         █▁
+     ▁ ▆ ██     ▃▁
+     █▅█▂██ ▃█▃▄██ ▁▆
+    ▁██████▆██████▂██▂▂▃▂▁▂▂▁▁▂▁
+
+    >>> print_bar(
+    ...     "Demo 2", data, bar_width=2, file=None
+    ... )  # doctest: +NORMALIZE_WHITESPACE
+    Demo 2 barplot (most common value is ' ': 0.153):
+              ██
+              ██▁▁
+      ▁▁  ▆▆  ████          ▃▃▁▁
+      ██▅▅██▂▂████  ▃▃██▃▃▄▄████  ▁▁▆▆
+    ▁▁████████████▆▆████████████▂▂████▂▂▂▂▃▃▂▂▁▁▂▂▂▂▁▁▁▁▂▂▁▁
+
+    >>> print_bar(
+    ...     "Demo 3", data, sort_by_count=True, file=None
+    ... )  # doctest: +NORMALIZE_WHITESPACE
+    Demo 3 barplot (most common value is ' ': 0.153):
+    █
+    █▁
+    ██▆▃▁▁
+    ███████▆▅▄▃▃▂▁
+    ██████████████▆▃▂▂▂▂▂▂▂▁▁▁▁▁
+    >>> print_bar(
+    ...     "Demo 4", data, horizontal=True, char_height=65, sort_by_key=True, file=None
+    ... )  # doctest: +NORMALIZE_WHITESPACE
+    Demo 4 barplot (most common value is ' ': 0.153):
+      █████████████████████████████████████████████████████████████████
+    , ███▉
+    . ███▉
+    D █
+    E █
+    L █
+    U █
+    a ███████████████████████████▊
+    b ██▉
+    c ███████████████▎
+    d █████████████████▎
+    e ███████████████████████████████████▍
+    f ██▉
+    g ██▉
+    h █
+    i ████████████████████████████████████████▏
+    l ████████████████████▏
+    m ████████████████▎
+    n ███████████████████████
+    o ███████████████████████████▊
+    p ██████████▌
+    q ████▊
+    r █████████████████████
+    s █████████████████▎
+    t ██████████████████████████████▋
+    u ██████████████████████████▊
+    v ██▉
+    x ██▉
+
+    """
+    if sort_by_count:
+        counter = Counter({name: count for name, count in counter.most_common()})
+    if sort_by_key:
+        counter = Counter({name: counter[name] for name in sorted(counter.keys())})
 
     most_common_name, most_common_count = counter.most_common(1)[0]
     most_common_freq = most_common_count / sum(counter.values())
-    if bar_width is None:
+    if horizontal:
+        assert bar_width in (1, None)
+        bar_width = 1
+    elif bar_width is None:
         if len(counter) < min_width:
             bar_width = int(round(min_width / len(counter)))
             if max_bar_width is not None:
@@ -100,7 +186,7 @@ def print_bar(
     lines = bars if horizontal else _concat_bars(bars)
     print(
         f"{name} barplot (most common value is "
-        f"'{most_common_name}': {most_common_freq}):",
+        f"'{most_common_name}': {most_common_freq:.3f}):",
         file=file,
     )
     if not horizontal:
@@ -146,8 +232,8 @@ def df_to_bar(
 ################################################################################
 
 
-if __name__ == "__main__":
-    data = np.random.poisson(10, 100)
-    counter = Counter(data)
-    print_bar("Test vertical plot", counter)
-    print_bar("Test horizontal plot", counter, char_height=20, horizontal=True)
+# if __name__ == "__main__":
+#     data = np.random.poisson(10, 100)
+#     counter = Counter(data)
+#     print_bar("Test vertical plot", counter)
+#     print_bar("Test horizontal plot", counter, char_height=20, horizontal=True)
