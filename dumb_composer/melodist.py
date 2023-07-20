@@ -1,25 +1,22 @@
-from dataclasses import dataclass
-from functools import partial
-import random
-from numbers import Number
 import math
+import random
 import typing as t
 import warnings
+from dataclasses import dataclass
+from functools import partial
+from numbers import Number
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt, Chord
-from dumb_composer.pitch_utils.put_in_range import put_in_range
-from dumb_composer.pitch_utils.intervals import interval_finder
-
-from dumb_composer.shared_classes import Note
-
+from dumb_composer.pitch_utils.chords import Chord, get_chords_from_rntxt
 from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
 )
-
+from dumb_composer.pitch_utils.intervals import interval_finder
+from dumb_composer.pitch_utils.put_in_range import put_in_range
+from dumb_composer.shared_classes import Note
 
 # TODO move this elsewhere
 # some ideas for "musically informed data augmentation":
@@ -76,7 +73,7 @@ class Melodist:
     def _recurse(
         self,
         chord_data: t.Union[str, pd.DataFrame],
-        rhythm: t.Sequence[Number], # TODO: (Malcolm) fix type annot
+        rhythm: t.Sequence[Number],  # TODO: (Malcolm) fix type annot
         _melody: t.Optional[t.List[Note]] = None,
         _melody_i: int = 0,
         _n_since_chord_tone: int = 2**31,
@@ -152,7 +149,7 @@ class Melodist:
                 If Pandas DataFrame, must have "onset" and "release" columns.
         """
         if isinstance(chord_data, str):
-            chord_data, _ = get_chords_from_rntxt(chord_data)
+            chord_data = get_chords_from_rntxt(chord_data)
         if not isinstance(rhythm, pd.DataFrame):
             rhythm = pd.DataFrame(rhythm, columns=["onset", "release"])
         # we use numeric indexing above so we need to make sure the indexes

@@ -9,6 +9,7 @@ from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
 from dumb_composer.patterns import PatternMaker
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
+from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
 from dumb_composer.shared_classes import Annotation, Chord, Note, PrefabScore
 from dumb_composer.time import Meter
 
@@ -220,7 +221,8 @@ class DumbAccompanist:
             raise ValueError("either chord_data or score must not be None")
         if score is None:
             if isinstance(chord_data, str):
-                chord_data, ts = get_chords_from_rntxt(chord_data)  # type:ignore
+                ts = get_ts_from_rntxt(chord_data)
+                chord_data = get_chords_from_rntxt(chord_data)
             score = PrefabScore(chord_data, ts=ts)  # type:ignore
 
         assert ts is not None

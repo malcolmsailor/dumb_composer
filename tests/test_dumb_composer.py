@@ -68,8 +68,6 @@ def test_prefab_composer(quick, pytestconfig):
 
 def test_four_part_composer(time_sig=(4, 4)):
     numer, denom = time_sig
-    # TODO: (Malcolm 2023-07-18) V43/IV should not permit omitting seventh
-    # TODO: (Malcolm 2023-07-18) V7/IV should not permit omitting seventh? (or should it?)
     # TODO: (Malcolm 2023-07-18) pedal points in bass?
     rn_format = """Time signature: {}
     m1 Bb: I

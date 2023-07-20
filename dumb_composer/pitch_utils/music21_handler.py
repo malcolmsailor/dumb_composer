@@ -1,11 +1,10 @@
 """Because of the way @cacher works it is advantageous to put music21's
 (slow) reading of romanText files into a separate module.
 """
-from io import StringIO
 import os
+from io import StringIO
 
 import music21
-
 from cache_lib import cacher
 
 ################################################################################
@@ -20,7 +19,7 @@ def rn_transpose(self, value, *, inPlace=False):
     Overrides :meth:`~music21.harmony.Harmony.transpose` so that `key`
     attribute is transposed as well.
 
-    >>> rn = music21.roman.RomanNumeral('I', 'C')
+    >>> rn = music21.roman.RomanNumeral("I", "C")
     >>> rn
     <music21.roman.RomanNumeral I in C major>
     >>> rn.transpose(4)
@@ -29,26 +28,23 @@ def rn_transpose(self, value, *, inPlace=False):
     >>> rn
     <music21.roman.RomanNumeral I in A- major>
     """
-    post = super(music21.roman.RomanNumeral, self).transpose(
-        value, inPlace=inPlace
-    )
+    post = super(music21.roman.RomanNumeral, self).transpose(value, inPlace=inPlace)
     if not inPlace:
-        post.key = self.key.transpose(value, inPlace=False)
+        post.key = self.key.transpose(value, inPlace=False)  # type:ignore
         return post
     else:
         self.key = self.key.transpose(value, inPlace=False)
         return None
 
 
-music21.roman.RomanNumeral.transpose = rn_transpose
+music21.roman.RomanNumeral.transpose = rn_transpose  # type:ignore
 
-import typing as t
 import copy
-from music21 import roman
-from music21 import stream
-from music21 import key
-from music21.romanText.translate import RomanTextTranslateException
+import typing as t
+
+from music21 import key, roman, stream
 from music21.romanText import rtObjects
+from music21.romanText.translate import RomanTextTranslateException
 
 
 def _copySingleMeasure(rtTagged, p, kCurrent):
@@ -70,7 +66,7 @@ def _copySingleMeasure(rtTagged, p, kCurrent):
         )
     # TODO: ignoring repeat letters
     target = targetNumber[0]
-    for mPast in p.getElementsByClass(stream.Measure):
+    for mPast in p.getElementsByClass(stream.Measure):  # type:ignore
         if mPast.number == target:
             try:
                 m = copy.deepcopy(mPast)
@@ -95,9 +91,7 @@ def _copySingleMeasure(rtTagged, p, kCurrent):
                 else:
                     rnPast.key = kCurrent
                 if rnPast.secondaryRomanNumeral is not None:
-                    newRN = roman.RomanNumeral(
-                        rnPast.figure, copy.deepcopy(kCurrent)
-                    )
+                    newRN = roman.RomanNumeral(rnPast.figure, copy.deepcopy(kCurrent))
                     newRN.duration = copy.deepcopy(rnPast.duration)
                     newRN.lyrics = copy.deepcopy(rnPast.lyrics)
                     m.replace(rnPast, newRN)
@@ -108,7 +102,7 @@ def _copySingleMeasure(rtTagged, p, kCurrent):
 
 def _copyMultipleMeasures(
     rtMeasure: rtObjects.RTMeasure,
-    p: stream.Part,
+    p: stream.Part,  # type:ignore
     kCurrent: t.Optional[key.Key],
 ):
     """
@@ -144,7 +138,7 @@ def _copyMultipleMeasures(
         )
 
     measures = []
-    for mPast in p.getElementsByClass(stream.Measure):
+    for mPast in p.getElementsByClass(stream.Measure):  # type:ignore
         if mPast.number in range(targetStart, targetEnd + 1):
             try:
                 m = copy.deepcopy(mPast)
@@ -168,15 +162,13 @@ def _copyMultipleMeasures(
                         "attempting to copy a measure but no past key definitions are found"
                     )
                 if rnPast.editorial.get("followsKeyChange"):
-                    kCurrent = rnPast.key
+                    kCurrent = rnPast.key  # type:ignore
                 elif rnPast.pivotChord is not None:
-                    kCurrent = rnPast.pivotChord.key
+                    kCurrent = rnPast.pivotChord.key  # type:ignore
                 else:
                     rnPast.key = kCurrent
                 if rnPast.secondaryRomanNumeral is not None:
-                    newRN = roman.RomanNumeral(
-                        rnPast.figure, copy.deepcopy(kCurrent)
-                    )
+                    newRN = roman.RomanNumeral(rnPast.figure, copy.deepcopy(kCurrent))
                     newRN.duration = copy.deepcopy(rnPast.duration)
                     newRN.lyrics = copy.deepcopy(rnPast.lyrics)
                     m.replace(rnPast, newRN)
@@ -210,11 +202,11 @@ def read_music21_cache(cache_path):
 
 
 @cacher(write_cache_f=write_music21_cache, read_cache_f=read_music21_cache)
-def parse_rntxt(rn_data: str) -> music21.stream.Score:
+def parse_rntxt(rn_data: str) -> music21.stream.Score:  # type:ignore
     # forceSource=True disables music21's caching, which we want to do because
     #   music21 doesn't update cache after music21 itself is changed.
     return music21.converter.parse(
-        rn_data, format="romanText", forceSource=True
+        rn_data, format="romanText", forceSource=True  # type:ignore
     )
 
 
@@ -222,5 +214,12 @@ def parse_rntxt(rn_data: str) -> music21.stream.Score:
 def transpose_and_write_rntxt(rntxt: str, transpose: int):
     score = parse_rntxt(rntxt)
     text_stream = StringIO()
-    score.transpose(transpose).write("romanText", text_stream)
+    score.transpose(transpose).write("romanText", text_stream)  # type:ignore
     return text_stream.getvalue()
+
+
+def get_ts_from_rntxt(rn_data: str) -> str:
+    score = parse_rntxt(rn_data)
+    m21_ts = score[music21.meter.TimeSignature].first()  # type:ignore
+    ts_str = f"{m21_ts.numerator}/{m21_ts.denominator}"  # type:ignore
+    return ts_str

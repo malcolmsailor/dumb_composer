@@ -12,7 +12,7 @@ from dumb_composer.constants import TIME_TYPE
     "rntxt, chord1_pitches", [("m1 C: I b3 V65", (48, 60, 64, 67))]
 )
 def test_voice_lead_chords(rntxt, chord1_pitches):
-    (chord1, chord2), _ = chords.get_chords_from_rntxt(rntxt)  # type:ignore
+    chord1, chord2 = chords.get_chords_from_rntxt(rntxt)
     for result in chords.voice_lead_chords(chord1, chord2, chord1_pitches):
         print(result)
 
@@ -31,7 +31,7 @@ def test_voice_lead_chords(rntxt, chord1_pitches):
     ],
 )
 def test_get_chords_from_rntxt_fit_scale(rntxt, expected_pcs, expected_scale_pcs):
-    out_list, _ = chords.get_chords_from_rntxt(rntxt)  # type:ignore
+    out_list = chords.get_chords_from_rntxt(rntxt)
     chord = out_list[0]
     assert expected_pcs == chord.pcs
     assert expected_scale_pcs == chord.scale_pcs
@@ -46,7 +46,7 @@ def test_get_chords_from_rntxt_fit_scale(rntxt, expected_pcs, expected_scale_pcs
     ],
 )
 def test_get_chords_from_rntxt_split_chords(rntxt, expected_onsets):
-    out_list, _ = chords.get_chords_from_rntxt(  # type:ignore
+    out_list = chords.get_chords_from_rntxt(
         rntxt, split_chords_at_metric_strong_points=True
     )
     for chord in out_list:

@@ -18,6 +18,7 @@ from dumb_composer.pitch_utils.chords import (
     get_chords_from_rntxt,
     is_same_harmony,
 )
+from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
 from dumb_composer.pitch_utils.spacings import RangeConstraints
 from dumb_composer.pitch_utils.types import Pitch, PitchClass, TimeStamp
 from dumb_composer.suspensions import Suspension
@@ -283,7 +284,8 @@ class _ScoreBase:
     ):
         if isinstance(chord_data, str):
             logging.debug(f"reading chords from {chord_data}")
-            chord_data, ts = get_chords_from_rntxt(chord_data)  # type:ignore
+            ts = get_ts_from_rntxt(chord_data)
+            chord_data = get_chords_from_rntxt(chord_data)
         elif ts is None:
             raise ValueError(f"`ts` must be supplied if `chord_data` is not a string")
         if isinstance(ts, str):
