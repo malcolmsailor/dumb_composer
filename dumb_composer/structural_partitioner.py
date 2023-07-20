@@ -1,6 +1,7 @@
 import math
 import random
 import typing as t
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto
 from numbers import Number
@@ -102,10 +103,6 @@ class StructuralPartitioner:
     def _step(
         self, chord_onset: Number, chord_release: Number
     ) -> t.Union[t.Tuple[Number, Number], t.List]:
-        # TODO for now, we just split once. That means a two-bar chord is
-        # guaranteed to be split into two one-bar chords, but these
-        # one-bar chords will *not* be split further. Whereas each original
-        # one-bar chord has a ~50% chance of being split. That seems wrong.
         chord_dur = chord_release - chord_onset  # type:ignore
         split = random.random() < self._arc(chord_dur)
         if not split:
@@ -153,25 +150,42 @@ class StructuralPartitioner:
         ]
 
     def __call__(self, score: _ScoreBase):
-        """Updates score in place.
-
-        TODO it would be good to preserve the original "score.chords" somehow.
-        """
+        """Updates score in place, stores original chords in score.misc."""
         self._ts = score.ts
         self._arc = getattr(self, self.arcs[self.settings.arc_shape])()
-        split_chords = []
-        for chord in score.chords:
-            splits = self._step(chord.onset, chord.release)
-            for start, stop in flatten_list(splits):  # type:ignore
-                new_chord = chord.copy()
-                new_chord.onset = start
-                new_chord.release = stop
-                split_chords.append(new_chord)
-        score.chords = split_chords
 
+        smallest_duration_already_processed = 2**31
+        chords = list(score.chords)
 
-# if __name__ == "__main__":
-#     settings = StructuralPartitionerSettings(ts="3/4")
-#     sp = StructuralPartitioner(settings)
-#     for x in range(0, 100):
-#         print(x * 0.1, sp._linear(x * 0.1))
+        # We split chords one duration at a time, from longest to shortest.
+        # The reason is because chords that are the product of a split
+        # should themselves be eligible to be split, but these chords
+        # don't exist until we've split the longer chords.
+
+        while True:
+            chord_durs = {chord.release - chord.onset for chord in chords}
+            eligible_durations = [
+                chord_dur
+                for chord_dur in chord_durs
+                if chord_dur < smallest_duration_already_processed
+            ]
+            if not eligible_durations:
+                break
+            new_chords = []
+            duration_to_process = max(eligible_durations)
+            for chord in chords:
+                if chord.release - chord.onset == duration_to_process:
+                    splits = self._step(chord.onset, chord.release)
+                    for start, stop in flatten_list(splits):  # type:ignore
+                        new_chord = chord.copy()
+                        new_chord.onset = start
+                        new_chord.release = stop
+                        new_chords.append(new_chord)
+                else:
+                    new_chords.append(chord)
+
+            smallest_duration_already_processed = duration_to_process
+            chords = new_chords
+
+        score.misc["original_chords"] = score.chords
+        score.chords = chords

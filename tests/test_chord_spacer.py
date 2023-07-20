@@ -1,19 +1,20 @@
 from dataclasses import asdict
+
+import pytest
+
 from dumb_composer.chord_spacer import (
     NoSpacings,
     SimpleSpacer,
     SpacingConstraints,
     validate_spacing,
 )
-import pytest
-
 from dumb_composer.shared_classes import PrefabScore
 
 
-# TODO: (Malcolm) implement accounting for voice-leading
-@pytest.mark.skip(
-    reason="voice-leading doesn't take account of these constraints which causes the test to fail"
-)
+# # TODO: (Malcolm) implement accounting for voice-leading
+# @pytest.mark.skip(
+#     reason="voice-leading doesn't take account of these constraints which causes the test to fail"
+# )
 @pytest.mark.parametrize("rntxt", ("m1 D: I b2 viio65/ii b3 iiø65 b4 I6",))
 @pytest.mark.parametrize("max_adjacent_interval", (12, 5))
 @pytest.mark.parametrize("control_bass_interval", (True, False))
@@ -29,10 +30,10 @@ def test_apply_spacing_constraints(
     chord_spacer = SimpleSpacer()
     score = PrefabScore(chord_data=rntxt)
     spacing_constraints = SpacingConstraints(
-        max_adjacent_interval,
-        max_total_interval,
-        control_bass_interval,
-        max_bass_interval,
+        max_adjacent_interval=max_adjacent_interval,
+        max_total_interval=max_total_interval,
+        control_bass_interval=control_bass_interval,
+        max_bass_interval=max_bass_interval,
     )
     for chord in score.chords:
         try:
@@ -41,9 +42,16 @@ def test_apply_spacing_constraints(
                 chord.get_omissions((), ()),
                 spacing_constraints=spacing_constraints,
             ):
-                assert validate_spacing(spacing, **asdict(spacing_constraints))
+                assert validate_spacing(spacing, spacing_constraints)
         except NoSpacings:
             pass
+        # TODO: (Malcolm 2023-07-20) by default, the chord_spacer voice-leads
+        #   chords following the first one. However, this causes the spacing
+        #   constraints to be invalidated. To allow this test to work, we
+        #   manually set _prev_pitches to None here so that each
+        #   chord is spaced anew. However, I should look into validating
+        #   voice-led spacings somehow.
+        chord_spacer._prev_pitches = None
 
 
 # from mspell import Speller

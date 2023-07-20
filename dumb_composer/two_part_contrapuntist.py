@@ -4,6 +4,7 @@ import sys
 import typing as t
 from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
+from itertools import chain, repeat
 from numbers import Number
 
 import pandas as pd
@@ -37,6 +38,8 @@ from .utils.recursion import DeadEnd
 
 # TODO don't permit suspension resolutions to tendency tones (I think I may have
 # done this, double check)
+
+# TODO: (Malcolm 2023-07-19) rename "cur" "next", etc.
 
 
 class OuterVoice(IntEnum):
@@ -135,6 +138,7 @@ class TwoPartContrapuntist:
         self,
         score: _ScoreBase,
         next_chord: Chord,
+        next_next_chord: Chord | None,
         cur_melody_pitch: int,
         pcs_not_to_double: t.Container[PitchClass],
     ):
@@ -144,37 +148,77 @@ class TwoPartContrapuntist:
             score.ts,
             max_weight_diff=self.settings.max_suspension_weight_diff,
             max_suspension_dur=self.settings.max_suspension_dur,
+            include_stop=next_next_chord is not None,
         )
         if not suspension_release_times:
             yield None
             return
 
-        eligible_pcs = [pc for pc in next_chord.pcs if pc not in pcs_not_to_double]
+        if (
+            next_next_chord is not None
+            and next_next_chord.onset in suspension_release_times
+        ):
+            next_next_chord_suspension_release_time = next_next_chord.onset
+            suspension_release_times.remove(next_next_chord.onset)
+            next_next_eligible_pcs = [
+                pc for pc in next_next_chord.pcs if pc not in pcs_not_to_double
+            ]
+            next_next_chord_suspensions = find_suspensions(
+                cur_melody_pitch,
+                next_next_eligible_pcs,
+                next_scale_pcs=next_next_chord.scale_pcs,
+                resolve_up_by=self._upward_suspension_resolutions,
+            )
+        else:
+            next_next_chord_suspension_release_time = None
+            next_next_chord_suspensions = []
 
-        suspensions = find_suspensions(
-            # TODO providing next_scale_pcs prohibits "chromatic" suspensions
-            #   (see the definition of find_suspensions()) but in the long
-            #   run I'm not sure whether this is indeed something we want to
-            #   do.
-            cur_melody_pitch,
-            eligible_pcs,
-            next_scale_pcs=next_chord.scale_pcs,
-            resolve_up_by=self._upward_suspension_resolutions,
-        )
-        if not suspensions:
+        if suspension_release_times:
+            eligible_pcs = [pc for pc in next_chord.pcs if pc not in pcs_not_to_double]
+
+            suspensions = find_suspensions(
+                # TODO providing next_scale_pcs prohibits "chromatic" suspensions
+                #   (see the definition of find_suspensions()) but in the long
+                #   run I'm not sure whether this is indeed something we want to
+                #   do.
+                cur_melody_pitch,
+                eligible_pcs,
+                next_scale_pcs=next_chord.scale_pcs,
+                resolve_up_by=self._upward_suspension_resolutions,
+            )
+        else:
+            suspensions = []
+
+        if not suspensions and not next_next_chord_suspensions:
             yield None
             return
+
+        # TODO: (Malcolm 2023-07-19) refactor this mess
         weights = softmax(
-            [s.score for s in suspensions] + [self.settings.no_suspension_score]
+            [s.score for s in suspensions]
+            + [self.settings.no_suspension_score]
+            + [s.score for s in next_next_chord_suspensions]
         )
-        for suspension in weighted_sample_wo_replacement(suspensions + [None], weights):
+        for suspension, release_times in weighted_sample_wo_replacement(
+            (
+                list(zip(suspensions, repeat(suspension_release_times)))
+                + [(None, None)]
+                + list(
+                    zip(
+                        next_next_chord_suspensions,
+                        repeat([next_next_chord_suspension_release_time]),
+                    )
+                )
+            ),
+            weights,
+        ):
             if suspension is None:
                 yield None
             else:
                 # TODO suspension_release_times weights
                 # TODO we only try a single release time for each suspension; should
                 # we be more comprehensive?
-                suspension_release = random.choices(suspension_release_times, k=1)[0]
+                suspension_release = random.choices(release_times, k=1)[0]
                 yield suspension, suspension_release
 
     def _apply_suspension(
@@ -185,7 +229,16 @@ class TwoPartContrapuntist:
         suspension_release: TimeStamp,
     ) -> int:
         assert i + 1 not in self._suspension_resolutions
-        score.split_ith_chord_at(i, suspension_release)
+
+        if suspension_release < score.chords[i].release:
+            # If the suspension resolves during the current chord, we need to split
+            #   the current chord to permit that
+            score.split_ith_chord_at(i, suspension_release)
+        else:
+            # Otherwise, make sure the suspension resolves at the onset of the
+            #   following chord
+            assert suspension_release == score.chords[i + 1].onset
+
         suspended_pitch = score.structural_melody[i - 1]
         self._suspension_resolutions[i + 1] = suspended_pitch + suspension.resolves_by
         assert i not in score.melody_suspensions
@@ -198,7 +251,8 @@ class TwoPartContrapuntist:
 
     def _undo_suspension(self, score: _ScoreBase, i: int) -> None:
         assert i + 1 in self._suspension_resolutions
-        score.merge_ith_chords(i)
+        if score.chords[i] == score.chords[i + 1]:
+            score.merge_ith_chords(i)
         del self._suspension_resolutions[i + 1]
         score.melody_suspensions.pop(i)  # raises KeyError if not present
         if self.settings.annotate_suspensions:
@@ -411,23 +465,23 @@ class TwoPartContrapuntist:
         # -------------------------------------------------------------------------------
         if self.settings.allow_avoid_intervals:
             while avoid_intervals:
-                interval = self._ic.get_interval_indices(
+                interval_i = self._ic.get_interval_indices(
                     avoid_intervals, avoid_harmonic_intervals, n=1
                 )[0]
+                interval = avoid_intervals.pop(interval_i)
                 logging.warning(f"must use avoid interval {interval}")
                 yield cur_pitch + interval
-                avoid_intervals.remove(interval)
 
         # -------------------------------------------------------------------------------
         # Try direct intervals
         # -------------------------------------------------------------------------------
         while direct_intervals:
-            interval = self._ic.get_interval_indices(
+            interval_i = self._ic.get_interval_indices(
                 direct_intervals, direct_harmonic_intervals, n=1
             )[0]
+            interval = direct_intervals.pop(interval_i)
             logging.warning(f"must use direct interval {interval}")
             yield cur_pitch + interval
-            direct_intervals.remove(interval)
 
     def _get_next_melody_pitch(
         self, score: _ScoreBase, i: int, next_bass_pitch: Pitch | None
@@ -435,6 +489,8 @@ class TwoPartContrapuntist:
         cur_bass_pitch = score.structural_bass[i - 1]
         next_bass_pc = score.pc_bass[i]
         next_chord = score.chords[i]
+        # next_next_chord is used for suspensions
+        next_next_chord = score.chords[i + 1] if (i + 1) < len(score.chords) else None
         cur_melody_pitch = score.structural_melody[i - 1]
         dont_double_bass_pc = (
             next_chord.get_pitch_tendency(next_bass_pc) is not Tendency.NONE
@@ -443,6 +499,7 @@ class TwoPartContrapuntist:
         for suspension in self._choose_suspension(
             score,
             next_chord,
+            next_next_chord,
             cur_melody_pitch,
             {next_bass_pc} if dont_double_bass_pc else set(),
         ):

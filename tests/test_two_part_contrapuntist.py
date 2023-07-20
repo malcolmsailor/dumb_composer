@@ -56,11 +56,13 @@ def update_counts(score, counts: defaultdict[str, Counter]):
         counts["reduced_harmonic_interval"][reduce_compound_interval(mel - bass)] += 1
 
 
+# TODO: (Malcolm 2023-07-19) restore test params
 # @pytest.mark.parametrize("time_sig", [(4, 4), (3, 4)])
 # @pytest.mark.parametrize("do_first", (mod.OuterVoice.BASS, mod.OuterVoice.MELODY))
 def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
     numer, denom = time_sig
-    rn_format = """Time signature: {}
+    ts = f"{numer}/{denom}"
+    rntxt = """Time signature: {ts}
     m1 Bb: I
     m2 F: ii
     m3 I64
@@ -77,14 +79,13 @@ def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
     m14 I6
     """
     dfs = []
-    ts = f"{numer}/{denom}"
-    rn_temp = rn_format.format(ts)
+
     settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
     counts = defaultdict(Counter)
     for seed in range(42, 42 + 10):
         tpc = mod.TwoPartContrapuntist(settings)
         random.seed(seed)
-        score = tpc(rn_temp)
+        score = tpc(rntxt)
         update_counts(score, counts)
         out_df = tpc.get_mididf_from_score(score)
         dfs.append(out_df)
@@ -101,7 +102,7 @@ def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
     )
     out_df = pd.concat(dfs, axis=0)
     print(f"writing {mid_path}")
-    # print(counts)
+
     for title, counter in counts.items():
         print(counter)
         print_bar(

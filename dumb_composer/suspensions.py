@@ -153,8 +153,19 @@ def find_suspension_release_times(
     meter: Meter,
     max_weight_diff: t.Optional[int] = None,
     max_suspension_dur: t.Union[str, Number] = "bar",
+    include_stop: bool = False,
 ) -> t.List[TimeStamp]:
     """Returns a list of times at which suspension releases could occur.
+
+    By default, the times are exclusive of `stop`:
+    >>> find_suspension_release_times(0.0, 4.0, Meter("4/4"), max_weight_diff=2)
+    [Fraction(2, 1), Fraction(1, 1)]
+
+    However, this behavior can be changed with the `include_stop` argument:
+    >>> find_suspension_release_times(
+    ...     0.0, 4.0, Meter("4/4"), max_weight_diff=2, include_stop=True
+    ... )
+    [Fraction(4, 1), Fraction(2, 1), Fraction(1, 1)]
 
     # TODO behavior is inconsistent between 9/8 and 3/4. FIX!
     >>> find_suspension_release_times(0.0, 4.5, Meter("9/8"), max_weight_diff=2)
@@ -180,7 +191,11 @@ def find_suspension_release_times(
         # print(start, stop)
         try:
             res_onset, res_weight = meter.get_onset_of_greatest_weight_between(
-                start, stop, include_start=False, return_first=False
+                start,
+                stop,
+                include_start=False,
+                return_first=False,
+                include_stop=include_stop,
             )
         except MeterError:
             break

@@ -4,7 +4,7 @@ import math
 import random
 import typing as t
 from collections import Counter  # used by doctests
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 import matplotlib.pyplot as plt
@@ -181,9 +181,9 @@ class IntervalChooser:
 
 @dataclass
 class HarmonicallyInformedIntervalChooserSettings(IntervalChooserSettings):
-    harmonic_interval_weights: t.Mapping[
-        ChromaticInterval, Weight
-    ] = TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS
+    harmonic_interval_weights: t.Mapping[ChromaticInterval, Weight] = field(
+        default_factory=lambda: TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS.copy()
+    )
 
 
 class HarmonicallyInformedIntervalChooser(IntervalChooser):

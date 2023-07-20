@@ -299,6 +299,7 @@ class _ScoreBase:
         self.structural_melody: t.List[Pitch] = []
         self.melody_suspensions: t.Dict[int, Suspension] = {}
         self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
+        self.misc: dict[str, t.Any] = {}
 
         self._structural_melody_interval_getter = StructuralMelodyIntervals(
             self.scales, self.structural_melody, self.structural_bass
@@ -394,6 +395,9 @@ class _ScoreBase:
         self._scale_getter.insert_scale_pcs(i + 1, new_chord.scale_pcs)
 
     def merge_ith_chords(self, i: int, check_correctness: bool = True) -> None:
+        """
+        Merge score.chords[i] and score.chords[i + 1]
+        """
         # just in case pc_bass has not been computed yet, we need
         #   to compute it now:
         self.pc_bass

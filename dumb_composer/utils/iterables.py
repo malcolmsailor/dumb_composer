@@ -34,6 +34,10 @@ def shuffled_cartesian_product(*args, repeat=1) -> Iterable[Any]:
     [('C', 'y'), ('B', 'x'), ('B', 'y'), ('A', 'y'), ('A', 'x'), ('C', 'x'),
     ('D', 'y'), ('D', 'x')]
 
+    >>> list(shuffled_cartesian_product("A"))
+    [('A',)]
+    >>> list(shuffled_cartesian_product())
+    [()]
     """
     out = list(itertools.product(*args, repeat=repeat))
     random.shuffle(out)

@@ -1141,6 +1141,8 @@ def get_voicing_option_weights(
     ... )
     [1.0, 2.0, 2.0]
     """
+    if not voicing_options:
+        return []
     pc_counts = []
     penalties = []
 
@@ -1162,18 +1164,6 @@ def get_voicing_option_weights(
         pc_counts.append(pc_count)
         penalties.append(penalty)
 
-        # pc_counts.append(
-        #     len(
-        #         set(
-        #             p % 12
-        #             for p in chain(
-        #                 voicing_option,
-        #                 prespecified_pitches,
-        #                 () if bass_is_included_in_voicing else (chord.foot,),
-        #             )
-        #         )
-        #     )
-        # )
     diffs = [chord.cardinality - pc_count for pc_count in pc_counts]
     min_diff = min(diffs)
     out = [
