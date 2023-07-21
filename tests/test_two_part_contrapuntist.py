@@ -11,8 +11,8 @@ import dumb_composer.two_part_contrapuntist as mod
 from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 from dumb_composer.shared_classes import PrefabScore, Score
 from dumb_composer.utils.recursion import DeadEnd
+from dumb_composer.utils.shell_plot import print_bar
 from tests.test_helpers import TEST_OUT_DIR
-from tests.test_utils.shell_plot import print_bar
 
 
 @pytest.mark.parametrize(

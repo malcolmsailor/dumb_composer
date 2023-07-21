@@ -1,33 +1,161 @@
 """Provides a class, IntervalChooser, that chooses small intervals more often than 
 larger intervals."""
+import logging
 import math
 import random
 import typing as t
-from collections import Counter  # used by doctests
+from abc import abstractmethod
+from collections import Counter, defaultdict  # used by doctests
 from dataclasses import dataclass, field
-from types import MappingProxyType
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dumb_composer.constants import (
-    DISSONANCE_WEIGHT,
-    IMPERFECT_CONSONANCE_WEIGHT,
-    OCTAVE_UNISON_WEIGHT,
-    PERFECT_CONSONANCE_WEIGHT,
-    TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS,
-)
-from dumb_composer.pitch_utils.intervals import reduce_compound_interval
+from dumb_composer.constants import TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS
 from dumb_composer.pitch_utils.types import ChromaticInterval, Weight
 from dumb_composer.utils.math_ import softmax
+from dumb_composer.utils.shell_plot import print_bar  # used by doctests
 
 NonnegativeFloat = float
 
-# TODO: (Malcolm 2023-07-14) update so that we can also weight intervals arbitrarily
+# TODO: (Malcolm 2023-07-21) perhaps combine the approach of giving a score proportional
+#   to size *and* an arbitrary score
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class IntervalChooserSettings:
+class _IntervalChooserBaseSettings:
+    weight_harmonic_intervals: bool = False
+    harmonic_interval_weights: dict[ChromaticInterval, Weight] | None = field(
+        default_factory=lambda: TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS.copy()
+    )
+
+    def __post_init__(self):
+        if not self.weight_harmonic_intervals:
+            self.harmonic_interval_weights = None
+
+
+class _IntervalChooserBase:
+    def __init__(self, settings: _IntervalChooserBaseSettings):
+        self._weights_memo = {}
+        harmonic_interval_weights = settings.harmonic_interval_weights
+        if harmonic_interval_weights is None:
+            self._harmonic_interval_weights = None
+        else:
+            softmaxed_weights = softmax(list(harmonic_interval_weights.values()))
+            self._harmonic_interval_weights = {
+                k: v
+                for k, v in zip(harmonic_interval_weights.keys(), softmaxed_weights)
+            }
+
+    @abstractmethod
+    def _get_melodic_interval_weight(self, interval) -> float:
+        raise NotImplementedError
+
+    def _get_melodic_interval_weights(self, intervals: t.Tuple[int]):
+        if intervals in self._weights_memo:
+            interval_weights = self._weights_memo[intervals]
+        else:
+            interval_weights = [
+                self._get_melodic_interval_weight(interval) for interval in intervals
+            ]
+            weight_sum = sum(interval_weights)
+            if weight_sum == 0:
+                interval_weights = [1.0 / len(intervals) for _ in intervals]
+            else:
+                interval_weights = [x / weight_sum for x in interval_weights]
+            self._weights_memo[intervals] = interval_weights
+        return interval_weights
+
+    @staticmethod
+    def _make_weighted_choice(
+        intervals, *weights: t.Sequence[Weight] | None, n: int = 1
+    ):
+        """
+        We take the product of each weight in weights. This seems to be better than the
+        sum because with the sum, if one weight is very low but the other is high, the
+        result is high, and so we can end up choosing items that should be disfavored.
+        """
+        filtered_weights = [w for w in weights if w is not None]
+        if len(filtered_weights) > 1:
+            consolidated_weights = [math.prod(ws) for ws in zip(*filtered_weights)]
+
+        else:
+            consolidated_weights = filtered_weights[0]
+
+        return random.choices(intervals, weights=consolidated_weights, k=n)
+
+    def get_interval_indices(
+        self,
+        melodic_intervals: t.Sequence[int],
+        harmonic_intervals: t.Sequence[int] | None,
+        n: int = 1,
+        custom_weights: t.Sequence[float] | None = None,
+    ) -> t.List[int]:
+        melodic_intervals = tuple(melodic_intervals)
+        melodic_interval_weights = self._get_melodic_interval_weights(melodic_intervals)
+        if harmonic_intervals is None:
+            harmonic_interval_weights = None
+        elif self._harmonic_interval_weights is not None:
+            harmonic_interval_weights = [
+                self._harmonic_interval_weights[h % 12] for h in harmonic_intervals
+            ]
+        else:
+            LOGGER.warning(
+                f"{harmonic_intervals=} but {self._harmonic_interval_weights=}"
+            )
+            harmonic_interval_weights = None
+
+        return self._make_weighted_choice(
+            list(range(len(melodic_intervals))),
+            melodic_interval_weights,
+            harmonic_interval_weights,
+            custom_weights,
+            n=n,
+        )
+
+    def choose_intervals(
+        self,
+        intervals: t.Sequence[int],
+        *,
+        harmonic_intervals: t.Sequence[int] | None = None,
+        n: int = 1,
+        custom_weights: t.Sequence[float] | None = None,
+    ) -> t.List[int]:
+        """
+        For now we are just summing `custom_weights` with `interval_weights`.
+        The latter are normalized so they always sum to 1.
+        """
+        indices = self.get_interval_indices(
+            intervals, harmonic_intervals, n, custom_weights
+        )
+        return [intervals[i] for i in indices]
+        # intervals = tuple(intervals)
+
+        # interval_weights = self._get_melodic_interval_weights(intervals)
+
+        # return self._make_weighted_choice(
+        #     intervals, interval_weights, custom_weights, n=n
+        # )
+
+    def __call__(
+        self,
+        intervals: t.Sequence[int],
+        *,
+        harmonic_intervals: t.Sequence[int] | None = None,
+        custom_weights: t.Sequence[float] | None = None,
+    ) -> int:
+        return self.choose_intervals(
+            intervals,
+            harmonic_intervals=harmonic_intervals,
+            n=1,
+            custom_weights=custom_weights,
+        )[0]
+
+
+@dataclass
+class IntervalChooserSettings(_IntervalChooserBaseSettings):
     """
     smaller_mel_interval_concentration: float >= 0; like the lambda parameter to an
         exponential distribution. However, the intervals aren't drawn from a real
@@ -49,7 +177,7 @@ class IntervalChooserSettings:
     unison_weighted_as: int = 0
 
 
-class IntervalChooser:
+class IntervalChooser(_IntervalChooserBase):
     """
 
     ------------------------------------------------------------------------------------
@@ -99,7 +227,7 @@ class IntervalChooser:
     def __init__(self, settings: t.Optional[IntervalChooserSettings] = None):
         if settings is None:
             settings = IntervalChooserSettings()
-        self._weights_memo = {}
+        super().__init__(settings)
         self._smaller_mel_interval_concentration = (
             settings.smaller_mel_interval_concentration
         )
@@ -116,7 +244,7 @@ class IntervalChooser:
         )
         return ax
 
-    def _get_melodic_interval_weight(self, interval):
+    def _get_melodic_interval_weight(self, interval) -> float:
         # Exponential distribution is lambda * exp(-lambda * x)
         # However, scaling by lambda is just done to normalize the distribution
         # so it integrates to 1. For a number of reasons, this isn't necessary here.
@@ -125,137 +253,112 @@ class IntervalChooser:
             * (self._unison_weighted_as if interval == 0 else abs(interval))
         )
 
-    def _get_melodic_interval_weights(self, intervals: t.Tuple[int]):
-        if intervals in self._weights_memo:
-            interval_weights = self._weights_memo[intervals]
-        else:
-            interval_weights = [
-                self._get_melodic_interval_weight(interval) for interval in intervals
-            ]
-            weight_sum = sum(interval_weights)
-            if weight_sum == 0:
-                interval_weights = [1.0 / len(intervals) for _ in intervals]
-            else:
-                interval_weights = [x / weight_sum for x in interval_weights]
-            self._weights_memo[intervals] = interval_weights
-        return interval_weights
-
-    @staticmethod
-    def _make_weighted_choice(
-        intervals, *weights: t.Sequence[Weight] | None, n: int = 1
-    ):
-        filtered_weights = [w for w in weights if w is not None]
-        if len(filtered_weights) > 1:
-            consolidated_weights = [sum(ws) for ws in zip(*filtered_weights)]
-        else:
-            consolidated_weights = filtered_weights[0]
-
-        return random.choices(intervals, weights=consolidated_weights, k=n)
-
-    def choose_intervals(
-        self,
-        intervals: t.Sequence[int],
-        n: int = 1,
-        custom_weights: t.Sequence[float] | None = None,
-    ) -> t.List[int]:
-        """
-        For now we are just summing `custom_weights` with `interval_weights`.
-        The latter are normalized so they always sum to 1.
-        """
-
-        intervals = tuple(intervals)
-
-        interval_weights = self._get_melodic_interval_weights(intervals)
-
-        return self._make_weighted_choice(
-            intervals, interval_weights, custom_weights, n=n
-        )
-
-    def __call__(
-        self,
-        intervals: t.Sequence[int],
-        custom_weights: t.Sequence[float] | None = None,
-    ) -> int:
-        return self.choose_intervals(intervals, n=1, custom_weights=custom_weights)[0]
-
 
 @dataclass
-class HarmonicallyInformedIntervalChooserSettings(IntervalChooserSettings):
-    harmonic_interval_weights: t.Mapping[ChromaticInterval, Weight] = field(
-        default_factory=lambda: TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS.copy()
+class IntervalChooser2Settings(_IntervalChooserBaseSettings):
+    """
+    By default, negative intervals receive the same weight as positive intervals. (This
+    occurs in the post-init function.)
+    >>> IntervalChooser2Settings(interval_weights={3: 0.75, 4: 1.0}).interval_weights
+    {3: 0.75, 4: 1.0, -3: 0.75, -4: 1.0}
+
+    However, we can override this behavior by explicitly providing negative intervals:
+    >>> IntervalChooser2Settings(
+    ...     interval_weights={3: 0.75, 4: 1.0, -3: 1.5}
+    ... ).interval_weights
+    {3: 0.75, 4: 1.0, -3: 1.5, -4: 1.0}
+    """
+
+    interval_weights: dict[ChromaticInterval, float] = field(
+        default_factory=lambda: {
+            0: 4.0,
+            1: 6.0,
+            2: 6.0,
+            3: 4.5,
+            4: 4.0,
+            5: 2.0,
+            6: 0.5,
+            7: 1.5,
+            8: 0.5,
+            -8: 0.25,
+            9: 0.25,
+            -9: 0.1,
+            10: 0.1,
+            -10: 0.01,
+            11: 0.01,
+            -11: 0.005,
+            12: 0.5,
+            -12: 0.25,
+        }
     )
 
+    # default_weight is applied to any interval not in interval_weights
+    default_weight: float = 0.01
 
-class HarmonicallyInformedIntervalChooser(IntervalChooser):
-    def __init__(
-        self, settings: HarmonicallyInformedIntervalChooserSettings | None = None
-    ):
+    def __post_init__(self):
+        super().__post_init__()
+        for interval, weight in list(self.interval_weights.items()):
+            if interval > 0 and -1 * interval not in self.interval_weights:
+                self.interval_weights[-1 * interval] = weight
+
+
+class IntervalChooser2(_IntervalChooserBase):
+    """
+    >>> ic = IntervalChooser2()
+    >>> intervals = list(range(-12, 13))
+
+    To get a single interval, call an instance directly
+    >>> ic(intervals)  # doctest: +SKIP
+    1
+
+    To get a list of intervals use `choose_intervals()`
+    >>> intervals = ic.choose_intervals(intervals, n=10000)
+    >>> intervals  # doctest: +SKIP
+    [0, -1, -1, -6, -1, 3, 1, -5, 1, -3, -1, ...
+    >>> counts = Counter(intervals)
+    >>> print_bar(
+    ...     "Intervals",
+    ...     counts,
+    ...     horizontal=True,
+    ...     char_height=65,
+    ...     sort_by_key=True,
+    ...     file=None,
+    ... )  # doctest: +SKIP
+    -12 ██▋
+    -11 ▏
+    -10 ▏
+     -9 █
+     -8 ██▌
+     -7 ███████████████▎
+     -6 ████▌
+     -5 ████████████████████▋
+     -4 ███████████████████████████████████████▎
+     -3 █████████████████████████████████████████████████▊
+     -2 ██████████████████████████████████████████████████████████████▉
+     -1 ██████████████████████████████████████████████████████████▊
+      0 ███████████████████████████████████████▍
+      1 █████████████████████████████████████████████████████████████████
+      2 ██████████████████████████████████████████████████████████▉
+      3 ██████████████████████████████████████████████▎
+      4 ██████████████████████████████████████▎
+      5 ████████████████████▎
+      6 █████▏
+      7 ██████████████▏
+      8 █████▏
+      9 ██▍
+     10 █▏
+     11 ▏
+     12 █████
+
+    """
+
+    def __init__(self, settings: IntervalChooser2Settings | None = None):
         if settings is None:
-            settings = HarmonicallyInformedIntervalChooserSettings()
+            settings = IntervalChooser2Settings()
         super().__init__(settings)
-        softmaxed_weights = softmax(list(settings.harmonic_interval_weights.values()))
-        self._harmonic_interval_weights = {
-            k: v
-            for k, v in zip(
-                settings.harmonic_interval_weights.keys(), softmaxed_weights
-            )
-        }
-
-    def get_interval_indices(
-        self,
-        melodic_intervals: t.Sequence[int],
-        harmonic_intervals: t.Sequence[int] | None,
-        n: int = 1,
-        custom_weights: t.Sequence[float] | None = None,
-    ) -> t.List[int]:
-        melodic_intervals = tuple(melodic_intervals)
-        melodic_interval_weights = self._get_melodic_interval_weights(melodic_intervals)
-        if harmonic_intervals is None:
-            harmonic_interval_weights = None
-        else:
-            harmonic_interval_weights = [
-                self._harmonic_interval_weights[h % 12] for h in harmonic_intervals
-            ]
-
-        return self._make_weighted_choice(
-            list(range(len(melodic_intervals))),
-            melodic_interval_weights,
-            harmonic_interval_weights,
-            custom_weights,
-            n=n,
+        self._interval_weights = defaultdict(
+            lambda: settings.default_weight, settings.interval_weights
         )
 
-    def choose_intervals(
-        self,
-        melodic_intervals: t.Sequence[int],
-        harmonic_intervals: t.Sequence[int] | None,
-        n: int = 1,
-        custom_weights: t.Sequence[float] | None = None,
-    ) -> t.List[int]:
-        indices = self.get_interval_indices(
-            melodic_intervals, harmonic_intervals, n, custom_weights
-        )
-        return [melodic_intervals[i] for i in indices]
-
-    def __call__(
-        self,
-        melodic_intervals: t.Sequence[int],
-        harmonic_intervals: t.Sequence[int] | None,
-        custom_weights: t.Sequence[float] | None = None,
-    ) -> int:
-        return self.choose_intervals(
-            melodic_intervals,
-            harmonic_intervals=harmonic_intervals,
-            n=1,
-            custom_weights=custom_weights,
-        )[0]
-
-
-# if __name__ == "__main__":
-#     lambdas = [2**i for i in range(-5, 2)]
-#     fig, ax = plt.subplots()
-#     for lda in lambdas:
-#         ic = IntervalChooser(smaller_mel_interval_concentration=lda)
-#         ic.plot_weights(ax=ax)
-#     plt.legend()
-#     plt.show()
+    def _get_melodic_interval_weight(self, interval) -> float:
+        return self._interval_weights[interval]

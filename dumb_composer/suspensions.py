@@ -416,6 +416,9 @@ def find_suspension_release_times(
 ) -> t.List[TimeStamp]:
     """Returns a list of times at which suspension releases could occur.
 
+    The returned list is in reverse sorted order (i.e., the latest release is first,
+    the earliest release is last).
+
     By default, the times are exclusive of `stop`:
     >>> find_suspension_release_times(0.0, 4.0, Meter("4/4"), max_weight_diff=2)
     [Fraction(2, 1), Fraction(1, 1)]
@@ -445,9 +448,8 @@ def find_suspension_release_times(
     if max_suspension_dur == "bar":
         max_suspension_dur = meter.bar_dur
     diss_onset, diss_weight = start, meter.weight(start)
-    # print(diss_onset, diss_weight)
+
     while True:
-        # print(start, stop)
         try:
             res_onset, res_weight = meter.get_onset_of_greatest_weight_between(
                 start,
@@ -458,7 +460,7 @@ def find_suspension_release_times(
             )
         except MeterError:
             break
-        # print(res_onset, res_weight)
+
         if max_weight_diff is not None and diss_weight - res_weight > max_weight_diff:
             break
         if (
@@ -468,7 +470,7 @@ def find_suspension_release_times(
             out.append(res_onset)
         if res_weight == meter.min_weight:
             break
-        # print(stop)
+
         stop, _ = meter.get_onset_of_greatest_weight_between(
             start, stop, include_start=False, return_first=meter.is_compound
         )
