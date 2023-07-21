@@ -251,6 +251,13 @@ class TwoPartContrapuntist:
         assert self._i + 1 in self._suspension_resolutions[voice]
         del self._suspension_resolutions[voice][self._i + 1]
 
+    def suspension_in_other_voice(self, voice: OuterVoice) -> bool:
+        if voice is OuterVoice.MELODY:
+            return self.bass_suspension is not None
+        if voice is OuterVoice.BASS:
+            return self.melody_suspension is not None
+        raise ValueError()
+
     @property
     def has_melody_suspension(self) -> bool:
         return self._i in self._score.melody_suspensions
@@ -261,6 +268,12 @@ class TwoPartContrapuntist:
 
     def has_suspension_resolution(self, voice: OuterVoice) -> bool:
         return self._i in self._suspension_resolutions[voice]
+
+    @property
+    def melody_suspension(self) -> Suspension | None:
+        if self._i not in self._score.melody_suspensions:
+            return None
+        return self._score.melody_suspensions[self._i]
 
     @property
     def bass_suspension(self) -> Suspension | None:
@@ -545,7 +558,8 @@ class TwoPartContrapuntist:
         return suspended_pitch
 
     def _undo_suspension(self, voice: OuterVoice = OuterVoice.MELODY) -> None:
-        self.merge_current_chords_if_they_were_previously_split()
+        if not self.suspension_in_other_voice(voice):
+            self.merge_current_chords_if_they_were_previously_split()
         self.remove_suspension_resolution(voice)
         self.remove_suspension(voice)
         if self.settings.annotate_suspensions:

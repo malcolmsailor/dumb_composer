@@ -88,7 +88,7 @@ def test_four_part_composer(time_sig=(4, 4)):
     """
     dfs = []
     settings = FourPartComposerSettings()
-    for seed in range(43, 43 + 10):
+    for seed in range(42, 42 + 10):
         fpc = FourPartComposer(settings)
         random.seed(seed)
         out_df = fpc(rn_txt)

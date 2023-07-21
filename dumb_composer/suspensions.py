@@ -5,6 +5,7 @@ from numbers import Number
 from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
+    TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS,
 )
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt  # used in doctests
 from dumb_composer.pitch_utils.chords import Chord
@@ -215,104 +216,23 @@ def find_suspensions(
             if enforce_dissonant and not dissonant:
                 continue
 
+            expected_resolution_interval = reduce_compound_interval(
+                (src_pitch + resolution_interval) - resolution_chord.foot
+            )
+            # TODO: (Malcolm 2023-07-21) do we want to revise weights here? 5 is maybe
+            #   a little high?
+            score = TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS[expected_resolution_interval]
+
             out.append(
                 Suspension(
                     resolves_by=resolution_interval,
                     dissonant=dissonant,
                     interval_above_bass=interval_above_bass,
+                    score=score,
                 )
             )
 
     return out
-
-
-# def find_suspensions_old(
-#     src_pitch: Pitch,
-#     dst_chord_pcs: t.Sequence[PitchClass],
-#     dst_scale_pcs: t.Optional[t.Sequence[PitchClass]] = None,
-#     resolve_down_by: t.Tuple[ChromaticInterval, ...] = (-1, -2),
-#     resolve_up_by: t.Tuple[ChromaticInterval, ...] = (1,),
-# ) -> t.List[Suspension]:
-#     """
-#     >>> find_suspensions(60, (7, 11, 2))
-#     [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)]
-
-#     We return a list because there can be more than one possible suspension.
-
-#     >>> for s in find_suspensions(71, (5, 9, 0)):
-#     ...     print(s)
-#     ...
-#     Suspension(resolves_by=-2, dissonant=True, interval_above_bass=6)
-#     Suspension(resolves_by=1, dissonant=True, interval_above_bass=6)
-
-#     If the current pitch is already in the next chord, it can't be a suspension.
-
-#     >>> find_suspensions(67, (2, 5, 7, 11))
-#     []
-
-#     But the function isn't clever enough to recognize that the next chord can be
-#     interpreted as an incomplete V7 chord:
-
-#     >>> find_suspensions(67, (2, 5, 11))
-#     [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=5)]
-
-#     Determining whether a suspension is dissonant is tricky. Here are some
-#     special cases.
-
-#     >>> find_suspensions(69, (0, 4, 7))
-#     [Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)]
-
-#     >>> find_suspensions(67, (0, 5, 9))
-#     [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=7)]
-
-#     >>> find_suspensions(65, (2, 4, 7, 10))
-#     [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)]
-
-#     We assume that the pitch to which the suspension resolves will not be
-#     sounding during the suspension *unless* the pitch is in the bass.
-
-#     >>> find_suspensions(62, (0, 5, 9))[0].dissonant
-#     True
-
-#     We can disable "chromatic" suspensions (i.e., suspensions that belong to the
-#     chord/scale of the preparation but not to the chord/scale of the suspension)
-#     by providing the `scale_pcs` argument; if this argument is not None, the
-#     `src_pitch` has to belong to the scale.
-#     >>> find_suspensions(69, (0, 4, 7), (0, 2, 3, 5, 7, 8, 11))
-#     []
-#     """
-
-#     # TODO: (Malcolm 2023-07-20) update so takes intermediate_chord_pcs
-#     def _append(src_pitch, interval, dst_pc):
-#         interval_above_bass = (src_pitch - dst_chord_pcs[0]) % 12
-#         other_pcs = list(dst_chord_pcs)
-#         if dst_pc != other_pcs[0]:
-#             other_pcs.remove(dst_pc)
-#         dissonant = pitch_dissonant_against_chord(src_pitch, other_pcs)
-#         # TODO: (Malcolm 2023-07-18) do we want to update expected_resolution_interval
-#         #   to take account of the fact that the bass may change?
-#         expected_resolution_interval = (interval_above_bass + interval) % 12
-#         out.append(
-#             Suspension(
-#                 interval,
-#                 dissonant,
-#                 interval_above_bass,
-#                 score=TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS[
-#                     expected_resolution_interval
-#                 ],
-#             )
-#         )
-
-#     out = []
-#     if dst_scale_pcs is not None and src_pitch % 12 not in dst_scale_pcs:
-#         return out
-#     dst_chord_set = set(dst_chord_pcs)
-#     if src_pitch % 12 in dst_chord_set:
-#         return out
-#     for interval in resolve_down_by + resolve_up_by:
-#         if (dst_pc := (src_pitch + interval) % 12) in dst_chord_set:
-#             _append(src_pitch, interval, dst_pc)
-#     return out
 
 
 def find_bass_suspension(
@@ -394,14 +314,32 @@ def find_bass_suspension(
     )
     if enforce_dissonant and not dissonant:
         return []
+
+    expected_resolution_interval = reduce_compound_interval(
+        (src_pitch + resolution_interval) - resolution_chord.foot
+    )
+    # TODO: (Malcolm 2023-07-21) suspension weights per-chord type (e.g., specify
+    #   that a bass suspension on a 6/3 chord is good)
+    # TODO: (Malcolm 2023-07-21) do we want to revise weights here? 5 is maybe
+    #   a little high?
+    score = TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS[expected_resolution_interval]
+
     if resolution_chord == suspension_chord:
-        return [Suspension(resolution_interval, dissonant, interval_above_bass=0)]
+        return [
+            Suspension(
+                resolution_interval, dissonant, interval_above_bass=0, score=score
+            )
+        ]
 
     intermediate_interval = smallest_pitch_class_interval(
         src_pitch, suspension_chord.foot
     )
     if intermediate_interval in resolve_by:
-        return [Suspension(resolution_interval, dissonant, interval_above_bass=0)]
+        return [
+            Suspension(
+                resolution_interval, dissonant, interval_above_bass=0, score=score
+            )
+        ]
 
     return []
 

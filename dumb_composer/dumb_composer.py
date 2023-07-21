@@ -8,10 +8,16 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from dumb_composer.chord_spacer import NoSpacings, SimpleSpacer, SimpleSpacerSettings
 from dumb_composer.constants import (
     DEFAULT_BASS_RANGE,
     DEFAULT_TENOR_ACCOMP_RANGE,
     DEFAULT_TENOR_MEL_RANGE,
+)
+from dumb_composer.dumb_accompanist import (
+    AccompAnnots,
+    DumbAccompanist,
+    DumbAccompanistSettings,
 )
 from dumb_composer.pitch_utils.chords import Chord
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
@@ -22,18 +28,18 @@ from dumb_composer.pitch_utils.types import Pitch
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
+from dumb_composer.shared_classes import FourPartScore, Note, PrefabScore
+from dumb_composer.structural_partitioner import (
+    StructuralPartitioner,
+    StructuralPartitionerSettings,
+)
+from dumb_composer.time import Meter
 from dumb_composer.two_part_contrapuntist import (
     TwoPartContrapuntist,
     TwoPartContrapuntistSettings,
 )
-
-from .chord_spacer import NoSpacings, SimpleSpacer, SimpleSpacerSettings
-from .dumb_accompanist import AccompAnnots, DumbAccompanist, DumbAccompanistSettings
-from .shared_classes import FourPartScore, Note, PrefabScore
-from .structural_partitioner import StructuralPartitioner, StructuralPartitionerSettings
-from .time import Meter
-from .utils.display import Spinner
-from .utils.recursion import DeadEnd, RecursionFailed, append_attempt
+from dumb_composer.utils.display import Spinner
+from dumb_composer.utils.recursion import DeadEnd, RecursionFailed, append_attempt
 
 LOGGER = logging.getLogger(__name__)
 # TODO: (Malcolm 2023-07-13) update
