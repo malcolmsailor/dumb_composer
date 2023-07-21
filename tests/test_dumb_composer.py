@@ -68,8 +68,9 @@ def test_prefab_composer(quick, pytestconfig):
 
 def test_four_part_composer(time_sig=(4, 4)):
     numer, denom = time_sig
+    ts = f"{numer}/{denom}"
     # TODO: (Malcolm 2023-07-18) pedal points in bass?
-    rn_format = """Time signature: {}
+    rn_txt = f"""Time signature: {ts}
     m1 Bb: I
     m2 V7/IV
     m3 IV64
@@ -86,15 +87,11 @@ def test_four_part_composer(time_sig=(4, 4)):
     m13 I
     """
     dfs = []
-    ts = f"{numer}/{denom}"
-    rn_temp = rn_format.format(ts)
     settings = FourPartComposerSettings()
-    for seed in range(42, 42 + 10):
+    for seed in range(43, 43 + 10):
         fpc = FourPartComposer(settings)
         random.seed(seed)
-        out_df = fpc(rn_temp)
-        # update_counts(score, counts)
-        # out_df = tpc.get_mididf_from_score(score)
+        out_df = fpc(rn_txt)
 
         dfs.append(out_df)
 

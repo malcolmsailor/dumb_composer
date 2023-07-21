@@ -481,6 +481,9 @@ class SimpleSpacer:
             spacings = list(it.product(*accomp_options))
         random.shuffle(spacings)
         for spacing in spacings:
+            if not spacing:
+                # We don't want to yield empty spacings
+                continue
             # put pitches in ascending order
             spacing = tuple(sorted(spacing))
             # we skip spacings that do not validate. It would be more efficient not to

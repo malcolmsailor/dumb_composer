@@ -9,7 +9,7 @@ from midi_to_notes import df_to_midi
 
 import dumb_composer.two_part_contrapuntist as mod
 from dumb_composer.pitch_utils.intervals import reduce_compound_interval
-from dumb_composer.shared_classes import PrefabScore
+from dumb_composer.shared_classes import PrefabScore, Score
 from dumb_composer.utils.recursion import DeadEnd
 from tests.test_helpers import TEST_OUT_DIR
 from tests.test_utils.shell_plot import print_bar
@@ -23,19 +23,17 @@ from tests.test_utils.shell_plot import print_bar
         ("m1 F: V7 b3 #viio7/vi", [60, 64, 67, 70]),
     ),
 )
-@pytest.mark.parametrize("do_first", (mod.OuterVoice.MELODY,))
+@pytest.mark.parametrize("do_first", (mod.OuterVoice.BASS, mod.OuterVoice.MELODY))
 def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches, do_first):
     random.seed(42)
     settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
-    tpc = mod.TwoPartContrapuntist(settings)
-    score = PrefabScore(chord_data=rntxt)
     for melody_pitch in structural_melody_pitches:
-        score.structural_bass.clear()
-        score.structural_bass.append(score.chords[0].foot + 24)
-        score.structural_melody.clear()
-        score.structural_melody.append(melody_pitch)
+        tpc = mod.TwoPartContrapuntist(chord_data=rntxt, settings=settings)
+        # We hack the score so that it starts with the intended pitch
+        tpc._score.structural_bass.append(tpc._score.chords[0].foot + 24)
+        tpc._score.structural_melody.append(melody_pitch)
         try:
-            for pitches in tpc._step(score):
+            for pitches in tpc._step():
                 assert pitches["melody"] % 12 != pitches["bass"] % 12
         except DeadEnd:
             pass
@@ -52,17 +50,15 @@ def update_counts(score, counts: defaultdict[str, Counter]):
         if prev_mel is not None:
             melody_mel_interval = mel - prev_mel
             counts["melody_mel_interval"][melody_mel_interval] += 1
-        counts["unreduced_harmonic_interval"][mel - bass] += 1
         counts["reduced_harmonic_interval"][reduce_compound_interval(mel - bass)] += 1
 
 
-# TODO: (Malcolm 2023-07-19) restore test params
-# @pytest.mark.parametrize("time_sig", [(4, 4), (3, 4)])
-# @pytest.mark.parametrize("do_first", (mod.OuterVoice.BASS, mod.OuterVoice.MELODY))
-def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
+@pytest.mark.parametrize("time_sig", [(4, 4), (3, 4)])
+@pytest.mark.parametrize("do_first", (mod.OuterVoice.MELODY, mod.OuterVoice.BASS))
+def test_two_part_contrapuntist(time_sig, do_first):
     numer, denom = time_sig
     ts = f"{numer}/{denom}"
-    rntxt = """Time signature: {ts}
+    rn_txt = """Time signature: {ts}
     m1 Bb: I
     m2 F: ii
     m3 I64
@@ -77,15 +73,22 @@ def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
     m12 V43
     m13 V42
     m14 I6
+    m15 viio6
+    m16 I
+    m17 V6
+    m18 viio6/V
+    m18 V
     """
+
     dfs = []
 
     settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
     counts = defaultdict(Counter)
+
     for seed in range(42, 42 + 10):
-        tpc = mod.TwoPartContrapuntist(settings)
+        tpc = mod.TwoPartContrapuntist(chord_data=rn_txt, settings=settings)
         random.seed(seed)
-        score = tpc(rntxt)
+        score = tpc(rn_txt)
         update_counts(score, counts)
         out_df = tpc.get_mididf_from_score(score)
         dfs.append(out_df)
@@ -117,7 +120,7 @@ def test_two_part_contrapuntist(time_sig=(4, 4), do_first=mod.OuterVoice.BASS):
 
 @pytest.mark.skip(reason="missing torch import at cabin")
 def test_two_part_contrapuntist_from_ml_out():
-    tpc = mod.TwoPartContrapuntist()
+    tpc = mod.TwoPartContrapuntist()  # type:ignore
     test_seqs = """<START> address<1> rn<I> figure<53> tonic<0M> address<0.5> key<7M> rn<ii> figure<53> tonic<0M> address<1> rn<I> figure<64> tonic<0M> address<0.5> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<53> tonic<0M> address<0.5> rn<ii> figure<6> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<0.25> rn<I> figure<53> tonic<0M> address<0.5> rn<I> figure<64> tonic<0M> address<1.25> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<53> tonic<0M> address<0.5> rn<V> figure<43> tonic<0M> address<1.25> rn<V> figure<42> tonic<0M> address<1> rn<I> figure<6> tonic<0M> address<0.5> rn<V> figure<42> tonic<0M> <PAD>
     <START> address<1> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<53> tonic<0M> address<1> rn<I> figure<53> tonic<0M> address<1> rn<vi> figure<53> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> address<1> rn<V> figure<7> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<53> tonic<0M> address<0.5> rn<I> figure<6> tonic<0M> address<1> rn<I> figure<64> tonic<0M> address<1> rn<I> figure<64> tonic<0M> address<1> rn<I> figure<64> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<53> tonic<0M> <PAD>
     <START> address<1> key<2m> rn<V> figure<7> tonic<0m> address<1> rn<V> figure<7> tonic<0m> address<0.5> rn<viio> figure<7> tonic<7M> address<1> rn<V> figure<43> tonic<0m> address<1> rn<V> figure<7> tonic<0m> address<1> rn<V> figure<7> tonic<0m> address<1> key<0M> rn<V> figure<7> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<64> tonic<0M> address<1> rn<I> figure<64> tonic<0M> address<1> rn<V> figure<7> tonic<0M> address<1> rn<I> figure<64> tonic<0M> <PAD> <PAD> <PAD> <PAD>
@@ -137,7 +140,3 @@ def test_two_part_contrapuntist_from_ml_out():
         )
         print(f"writing {mid_path}")
         df_to_midi(out_df, mid_path)
-
-
-if __name__ == "__main__":
-    test_two_part_contrapuntist()

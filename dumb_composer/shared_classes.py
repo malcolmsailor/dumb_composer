@@ -300,6 +300,7 @@ class _ScoreBase:
         self.structural_bass: t.List[Pitch] = []
         self.structural_melody: t.List[Pitch] = []
         self.melody_suspensions: t.Dict[int, Suspension] = {}
+        self.bass_suspensions: t.Dict[int, Suspension] = {}
         self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
         self.misc: dict[str, t.Any] = {}
 

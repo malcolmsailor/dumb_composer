@@ -8,6 +8,7 @@ from dumb_composer.pitch_utils.types import (
     Interval,
     Pitch,
     PitchClass,
+    PitchOrPitchClass,
 )
 
 
@@ -67,6 +68,27 @@ def reduce_compound_interval(
     if interval != 0:
         return n_steps_per_octave
     return 0
+
+
+def smallest_pitch_class_interval(
+    pitch_or_pc_1: PitchOrPitchClass,
+    pitch_or_pc_2: PitchOrPitchClass,
+    n_steps_per_octave: int = 12,
+) -> Interval:
+    """
+    >>> smallest_pitch_class_interval(48, 50)
+    2
+    >>> smallest_pitch_class_interval(50, 48)
+    -2
+
+    We can miss pitches and pitch-classes
+    >>> smallest_pitch_class_interval(8, 66)
+    -2
+    """
+    interval = (pitch_or_pc_2 - pitch_or_pc_1) % n_steps_per_octave
+    if interval > (n_steps_per_octave / 2):
+        interval -= n_steps_per_octave
+    return interval
 
 
 class IntervalQuerier:

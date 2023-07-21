@@ -1,6 +1,10 @@
 import itertools
 import random
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Iterator, Sequence, TypeVar
+
+from dumb_composer.utils.math_ import softmax
+
+T = TypeVar("T")
 
 
 def _flatten_iterables_sub(x: Any | Iterable[Any]) -> list[Any]:
@@ -45,8 +49,8 @@ def shuffled_cartesian_product(*args, repeat=1) -> Iterable[Any]:
 
 
 def yield_from_sequence_of_iters(
-    iter_seq: Sequence[Iterable[Any]], shuffle: bool = False
-):
+    iter_seq: Sequence[Iterable[T]], shuffle: bool = False
+) -> Iterator[T]:
     """
     >>> iter1 = range(3)
     >>> iter2 = range(3, 7)
@@ -81,3 +85,37 @@ def yield_from_sequence_of_iters(
                     to_pop.append(i)
             for i in reversed(to_pop):
                 iter_list.pop(i)
+
+
+def yield_sample_from_sequence_of_iters(
+    iter_seq: Sequence[Iterable[T]],
+    weights: Sequence[float],
+    apply_softmax: bool = True,
+) -> Iterator[T]:
+    """
+    >>> seq1 = [1, 2, 3]
+    >>> seq2 = "abcd"
+    >>> weights = [5.0, 1.0]
+    >>> list(
+    ...     yield_sample_from_sequence_of_iters([seq1, seq2], weights=weights)
+    ... )  # doctest: +SKIP
+    [1, 2, 3, 'a', 'b', 'c', 'd']
+    >>> weights = [1.0, 1.0]
+    >>> list(
+    ...     yield_sample_from_sequence_of_iters([seq1, seq2], weights=weights)
+    ... )  # doctest: +SKIP
+    ['a', 1, 2, 3, 'b', 'c', 'd']
+    """
+    if apply_softmax:
+        weights = softmax(weights)
+
+    weights = list(weights)
+    iter_list = list(iter(i) for i in iter_seq)
+
+    while iter_list:
+        choice_i = random.choices(range(len(iter_list)), weights=weights, k=1)[0]
+        try:
+            yield next(iter_list[choice_i])
+        except StopIteration:
+            iter_list.pop(choice_i)
+            weights.pop(choice_i)

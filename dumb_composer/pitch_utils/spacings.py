@@ -31,6 +31,21 @@ class RangeConstraints:
             max_pitch if max_melody_pitch is None else max_melody_pitch
         )
 
+    def __eq__(self, other):
+        if not isinstance(other, RangeConstraints):
+            return False
+
+        return all(
+            [
+                self.min_pitch == other.min_pitch,
+                self.max_pitch == other.max_pitch,
+                self.min_bass_pitch == other.min_bass_pitch,
+                self.max_bass_pitch == other.max_bass_pitch,
+                self.min_melody_pitch == other.min_melody_pitch,
+                self.max_melody_pitch == other.max_melody_pitch,
+            ]
+        )
+
 
 @dataclass
 class SpacingConstraints:

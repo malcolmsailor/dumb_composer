@@ -9,15 +9,6 @@ from dumb_composer.constants import TIME_TYPE
 
 
 @pytest.mark.parametrize(
-    "rntxt, chord1_pitches", [("m1 C: I b3 V65", (48, 60, 64, 67))]
-)
-def test_voice_lead_chords(rntxt, chord1_pitches):
-    chord1, chord2 = chords.get_chords_from_rntxt(rntxt)
-    for result in chords.voice_lead_chords(chord1, chord2, chord1_pitches):
-        print(result)
-
-
-@pytest.mark.parametrize(
     "rntxt, expected_pcs, expected_scale_pcs",
     [
         ("m1 C: V7/V", (2, 6, 9, 0), (7, 9, 11, 0, 2, 4, 6)),

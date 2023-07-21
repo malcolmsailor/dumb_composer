@@ -13,12 +13,13 @@ from dumb_composer.constants import (
     DEFAULT_TENOR_ACCOMP_RANGE,
     DEFAULT_TENOR_MEL_RANGE,
 )
-from dumb_composer.pitch_utils.chords import Chord, voice_lead_chords
+from dumb_composer.pitch_utils.chords import Chord
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.ranges import Ranger
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import Pitch
+from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
 from dumb_composer.two_part_contrapuntist import (
@@ -100,7 +101,7 @@ class PrefabComposer:
         if settings is None:
             settings = PrefabComposerSettings()
         self.structural_partitioner = StructuralPartitioner(settings)
-        self.two_part_contrapuntist = TwoPartContrapuntist(settings)
+        self._two_part_contrapuntist: None | TwoPartContrapuntist = None
         self.prefab_applier = PrefabApplier(settings)
         self.dumb_accompanist = DumbAccompanist(settings)
         self.settings = settings
@@ -171,11 +172,13 @@ class PrefabComposer:
             f"{score.chords[i].onset=} "
             f"{score.pc_bass[i]=}"
         )
+
+        assert self._two_part_contrapuntist is not None
         # There should be two outcomes to the recursive stack:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
         #       context manager handles popping from the list
-        for pitches in self.two_part_contrapuntist._step(score):
+        for pitches in self._two_part_contrapuntist._step():
             try:
                 with append_attempt(
                     (score.structural_bass, score.structural_melody),
@@ -267,19 +270,24 @@ class PrefabComposer:
             If a list, should be the output of the get_chords_from_rntxt
             function or similar."""
         self._n_recurse_calls = 0
-        # TODO: (Malcolm 2023-07-14) remove range arguments in favor of range constraints?
         range_constraints = RangeConstraints(
             min_bass_pitch=None if bass_range is None else bass_range[0],
             max_bass_pitch=None if bass_range is None else bass_range[1],
             min_melody_pitch=None if mel_range is None else mel_range[0],
             max_melody_pitch=None if mel_range is None else mel_range[1],
         )
+        # TODO: (Malcolm 2023-07-20) we shouldn't be setting range_constraints here
+        self.settings.range_constraints = range_constraints
         bass_range, mel_range = self._get_ranges(bass_range, mel_range)
+
         print("Reading score... ", end="", flush=True)
         score = PrefabScore(chord_data, range_constraints, transpose=transpose)
         print("done.")
         self.structural_partitioner(score)
         self.dumb_accompanist.init_new_piece(score.ts)
+        self._two_part_contrapuntist = TwoPartContrapuntist(
+            score=score, settings=self.settings
+        )
         if self.settings.accompaniment_annotations is AccompAnnots.NONE:
             self._dumb_accompanist_target = score.accompaniments
         else:
@@ -313,6 +321,7 @@ class PrefabComposer:
             )
         if self.settings.top_down_tie_prob is not None:
             self._apply_top_down_ties(score)
+        self._two_part_contrapuntist = None
         if return_ts:
             # TODO: (Malcolm 2023-07-13) update type annotation?
             return (  # type:ignore
@@ -347,7 +356,7 @@ class FourPartComposer:
     # TODO: (Malcolm) create a common base class for this and `PrefabComposer`
     def __init__(self, settings: FourPartComposerSettings = FourPartComposerSettings()):
         self.structural_partitioner = StructuralPartitioner(settings)
-        self.two_part_contrapuntist = TwoPartContrapuntist(settings)
+        self._two_part_contrapuntist: None | TwoPartContrapuntist = None
         self.settings = settings
         logging.debug(
             textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
@@ -392,6 +401,10 @@ class FourPartComposer:
             chord2 = score.chords[i]
             chord2_melody_pitch = score.structural_melody[i]
             chord2_bass_pitch = score.structural_bass[i]
+
+            # ---------------------------------------------------------------------------
+            # melody suspensions
+            # ---------------------------------------------------------------------------
             if i - 1 in score.melody_suspensions:
                 chord1_suspensions = {
                     score.structural_melody[i - 1]: score.melody_suspensions[i - 1]
@@ -402,6 +415,19 @@ class FourPartComposer:
                 chord2_suspensions = {chord2_melody_pitch: score.melody_suspensions[i]}
             else:
                 chord2_suspensions = None
+
+            # ---------------------------------------------------------------------------
+            # bass suspensions
+            # ---------------------------------------------------------------------------
+
+            if i - 1 in score.bass_suspensions:
+                chord1_suspensions[
+                    score.structural_bass[i - 1]
+                ] = score.bass_suspensions[i - 1]
+            if i in score.bass_suspensions:
+                if chord2_suspensions is None:
+                    chord2_suspensions = {}
+                chord2_suspensions[chord2_bass_pitch] = score.bass_suspensions[i]
 
             for voicing in voice_lead_chords(
                 chord1,
@@ -432,14 +458,14 @@ class FourPartComposer:
             LOGGER.debug(f"{self.__class__.__name__}._recurse: {i} final step")
             return self._final_step(i, score)
 
-        for pitches in self.two_part_contrapuntist._step(score):
+        assert self._two_part_contrapuntist is not None
+
+        for pitches in self._two_part_contrapuntist._step():
             with append_attempt(
                 (score.structural_bass, score.structural_melody),
                 (pitches["bass"], pitches["melody"]),
             ):
                 LOGGER.debug(f"append attempt {pitches}")
-                # TODO: (Malcolm 2023-07-19) favor voicings containing tendency tones
-                # TODO: (Malcolm 2023-07-19) favor complete voicings
                 for chord in self._voice_lead_chords(i, score):
                     LOGGER.debug(f"append attempt {chord} to bass/inner voices")
                     with append_attempt(
@@ -460,12 +486,14 @@ class FourPartComposer:
         print("Reading score... ", end="", flush=True)
         score = FourPartScore(chord_data, range_constraints, transpose=transpose)
         print("done.")
-        # TODO: (Malcolm 2023-07-19) weight structural partitioner to split long chords
-        #   more than short ones
         self.structural_partitioner(score)
+        self._two_part_contrapuntist = TwoPartContrapuntist(
+            score=score, settings=self.settings
+        )
 
         try:
             self._recurse(0, score)
         except DeadEnd:
             raise RecursionFailed("Reached a terminal dead end")
+        self._two_part_contrapuntist = None
         return score.get_df(["structural_melody", "inner_voices", "structural_bass"])
