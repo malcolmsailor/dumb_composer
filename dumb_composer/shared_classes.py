@@ -6,6 +6,7 @@ import textwrap
 import typing as t
 from abc import abstractmethod
 from collections import defaultdict, deque
+from enum import Enum
 from functools import cached_property
 from numbers import Number
 
@@ -28,6 +29,11 @@ from .pitch_utils.put_in_range import put_in_range
 from .pitch_utils.scale import Scale, ScaleDict
 from .time import Meter
 from .utils.df_helpers import sort_note_df
+
+
+class InnerVoice(Enum):
+    TENOR = 2
+    ALTO = 3
 
 
 class Annotation(pd.Series):
@@ -621,8 +627,11 @@ class FourPartScore(_ScoreBase):
             melody_track=melody_track,
             bass_track=bass_track,
         )
-        self.inner_voices: t.List[t.Tuple[Pitch]] = []
+        self.inner_voices: t.List[t.Tuple[Pitch, Pitch]] = []
         self.inner_voices_track = inner_voices_track
+        self.inner_voice_suspensions: defaultdict[
+            InnerVoice, dict[int, Suspension]
+        ] = defaultdict(lambda: {})
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:

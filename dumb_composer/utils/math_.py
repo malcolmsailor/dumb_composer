@@ -5,6 +5,8 @@ from collections import Counter  # used by doctest
 
 import numpy as np
 
+T = t.TypeVar("T")
+
 
 def set_seeds(seed: int):
     random.seed(seed)
@@ -79,8 +81,8 @@ def _swap(seq: t.List[t.Any], i: int, j: int) -> None:
 
 
 def weighted_sample_wo_replacement(
-    choices: t.Sequence[t.Any], weights: t.Sequence[float]
-) -> t.Iterator[t.Any]:
+    choices: t.Sequence[T], weights: t.Sequence[float]
+) -> t.Iterator[T]:
     """
     There is probably a faster algorithm for this...
 

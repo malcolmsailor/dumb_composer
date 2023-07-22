@@ -1,5 +1,6 @@
 import typing as t
 from dataclasses import dataclass, field
+from itertools import chain, combinations
 from numbers import Number
 
 from dumb_composer.constants import (
@@ -55,8 +56,75 @@ def pitch_dissonant_against_chord(pitch: int, chord_pcs: t.Sequence[int]) -> boo
     return False
 
 
+def validate_intervals_among_suspensions(
+    suspension_pitches: t.Iterable[Pitch],
+    bass_suspension_pitch: Pitch | None = None,
+    whitelisted_intervals: t.Container[ChromaticInterval] = frozenset({3, 4, 8, 9}),
+    secondary_whitelisted_intervals: t.Container[ChromaticInterval] = frozenset({5, 6}),
+) -> bool:
+    """
+    Validates the intervals between simultaneous suspensions.
+
+    The default settings are as follows:
+        - imperfect consonances are always OK
+        - perfect/augmented 4ths are OK *if* there is also at least one imperfect
+          consonance
+
+    Note: since we're only considering chromatic intervals some enharmonic equivalents
+    will sneak through (e.g., diminished 7ths, diminished 4ths).
+
+    >>> validate_intervals_among_suspensions((60,), bass_suspension_pitch=48)
+    False
+    >>> validate_intervals_among_suspensions((48, 60))
+    False
+    >>> validate_intervals_among_suspensions((55, 60))
+    False
+    >>> validate_intervals_among_suspensions((55, 60, 64))
+    True
+    >>> validate_intervals_among_suspensions((60, 64), bass_suspension_pitch=48)
+    False
+    >>> validate_intervals_among_suspensions((55, 61, 64))
+    True
+
+    ------------------------------------------------------------------------------------
+    Special cases
+    ------------------------------------------------------------------------------------
+
+    >>> validate_intervals_among_suspensions((60,))
+    True
+    >>> validate_intervals_among_suspensions((), bass_suspension_pitch=48)
+    True
+    >>> validate_intervals_among_suspensions(())
+    True
+
+    """
+    if bass_suspension_pitch is not None:
+        for pitch in suspension_pitches:
+            interval = (pitch - bass_suspension_pitch) % 12
+            if interval not in whitelisted_intervals:
+                return False
+
+    has_whitelisted_interval = False
+    has_secondary_interval = False
+    for pair_of_pitches in combinations(suspension_pitches, r=2):
+        low_pitch, high_pitch = sorted(pair_of_pitches)
+        interval = (high_pitch - low_pitch) % 12
+        if interval in whitelisted_intervals:
+            has_whitelisted_interval = True
+        elif interval in secondary_whitelisted_intervals:
+            has_secondary_interval = True
+        else:
+            return False
+
+    if has_secondary_interval and not has_whitelisted_interval:
+        return False
+
+    return True
+
+
 @dataclass
 class Suspension:
+    pitch: Pitch
     resolves_by: int
     dissonant: bool
     interval_above_bass: int
@@ -75,6 +143,8 @@ def find_suspensions(
     resolve_up_by: t.Tuple[ChromaticInterval, ...] = (),
     enforce_dissonant: bool = False,
     suspension_must_belong_to_scale_of_suspension_chord: bool = True,
+    other_suspended_nonbass_pitches: tuple[Pitch, ...] = (),
+    other_suspended_bass_pitch: Pitch | None = None,
 ) -> list[Suspension]:
     """
     >>> rntxt = '''m1 C: IV b2 V b3 V43 b4 viio6
@@ -82,15 +152,15 @@ def find_suspensions(
     >>> IV, V, V43, viio6, I, IV64, V65, ii42 = get_chords_from_rntxt(rntxt)
 
     >>> find_suspensions(60, suspension_chord=V)
-    [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)]
+    [Suspension(pitch=60, resolves_by=-1, dissonant=True, interval_above_bass=5)]
 
     We return a list because there can be more than one possible suspension.
 
     >>> for s in find_suspensions(71, suspension_chord=IV, resolve_up_by=(1,)):
     ...     print(s)
     ...
-    Suspension(resolves_by=-2, dissonant=True, interval_above_bass=6)
-    Suspension(resolves_by=1, dissonant=True, interval_above_bass=6)
+    Suspension(pitch=71, resolves_by=-2, dissonant=True, interval_above_bass=6)
+    Suspension(pitch=71, resolves_by=1, dissonant=True, interval_above_bass=6)
 
     If the current pitch is already in the next chord, it can't be a suspension.
 
@@ -101,19 +171,19 @@ def find_suspensions(
     interpreted as an incomplete V7 chord:
 
     >>> find_suspensions(67, suspension_chord=viio6)
-    [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=5)]
+    [Suspension(pitch=67, resolves_by=-2, dissonant=True, interval_above_bass=5)]
 
     Determining whether a suspension is dissonant is tricky. Here are some
     special cases.
 
     >>> find_suspensions(69, suspension_chord=I)
-    [Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)]
+    [Suspension(pitch=69, resolves_by=-2, dissonant=False, interval_above_bass=9)]
 
     >>> find_suspensions(67, suspension_chord=IV64)
-    [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=7)]
+    [Suspension(pitch=67, resolves_by=-2, dissonant=True, interval_above_bass=7)]
 
     >>> find_suspensions(65, suspension_chord=ii42)
-    [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)]
+    [Suspension(pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=3)]
 
     We assume that the pitch to which the suspension resolves will not be
     sounding during the suspension *unless* the pitch is in the bass.
@@ -133,7 +203,7 @@ def find_suspensions(
     ...     suspension_chord=ii42,
     ...     suspension_must_belong_to_scale_of_suspension_chord=False,
     ... )
-    [Suspension(resolves_by=-1, dissonant=False, interval_above_bass=9)]
+    [Suspension(pitch=71, resolves_by=-1, dissonant=False, interval_above_bass=9)]
 
     ------------------------------------------------------------------------------------
     Avoid tones
@@ -145,11 +215,11 @@ def find_suspensions(
 
 
     >>> find_suspensions(72, suspension_chord=V)
-    [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)]
+    [Suspension(pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=5)]
     >>> find_suspensions(72, suspension_chord=V, suspension_chord_pcs_to_avoid={11})
     []
     >>> find_suspensions(72, suspension_chord=V, suspension_chord_pcs_to_avoid={10})
-    [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)]
+    [Suspension(pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=5)]
     >>> find_suspensions(72, suspension_chord=V65, suspension_chord_pcs_to_avoid={11})
     []
 
@@ -168,6 +238,12 @@ def find_suspensions(
                 "`resolution_chord_pcs_to_avoid` should be empty if `resolution_chord` is None"
             )
         resolution_chord_pcs_to_avoid = suspension_chord_pcs_to_avoid
+
+    if not validate_intervals_among_suspensions(
+        suspension_pitches=chain((src_pitch,), other_suspended_nonbass_pitches),
+        bass_suspension_pitch=other_suspended_bass_pitch,
+    ):
+        return []
 
     if (
         suspension_must_belong_to_scale_of_suspension_chord
@@ -225,6 +301,7 @@ def find_suspensions(
 
             out.append(
                 Suspension(
+                    pitch=src_pitch,
                     resolves_by=resolution_interval,
                     dissonant=dissonant,
                     interval_above_bass=interval_above_bass,
@@ -243,6 +320,7 @@ def find_bass_suspension(
     resolve_up_by: t.Tuple[ChromaticInterval, ...] = (),
     enforce_dissonant: bool = True,
     suspension_must_belong_to_scale_of_suspension_chord: bool = True,
+    other_suspended_pitches: tuple[Pitch, ...] = (),  # TODO: (Malcolm 2023-07-22)
 ) -> list[Suspension]:
     """
     The returned list contains at most 1 element but we return a list for a consistent
@@ -258,7 +336,7 @@ def find_bass_suspension(
 
     If we add an intermediate chord, however, a suspension is possible:
     >>> find_bass_suspension(src_pitch=48, suspension_chord=ii6, resolution_chord=V42)
-    [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)]
+    [Suspension(pitch=48, resolves_by=-2, dissonant=True, interval_above_bass=0)]
 
     We can also obtain a suspension even when the pitch of resolution is not in the
     intermediate chord, provided a valid suspension resolution in the same direction
@@ -266,18 +344,18 @@ def find_bass_suspension(
     >>> find_bass_suspension(
     ...     src_pitch=48, suspension_chord=V6_of_V, resolution_chord=V42
     ... )
-    [Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)]
+    [Suspension(pitch=48, resolves_by=-2, dissonant=True, interval_above_bass=0)]
     >>> find_bass_suspension(
     ...     src_pitch=48, suspension_chord=ii6, resolution_chord=V6_of_V
     ... )
-    [Suspension(resolves_by=-1, dissonant=True, interval_above_bass=0)]
+    [Suspension(pitch=48, resolves_by=-1, dissonant=True, interval_above_bass=0)]
 
     However, if there is no pitch of resolution in the same direction in the
     intermediate chord, there is no suspension:
     >>> find_bass_suspension(src_pitch=48, suspension_chord=I, resolution_chord=ii6)
     []
     >>> find_bass_suspension(src_pitch=52, suspension_chord=vi6, resolve_up_by=(1,))
-    [Suspension(resolves_by=1, dissonant=True, interval_above_bass=0)]
+    [Suspension(pitch=52, resolves_by=1, dissonant=True, interval_above_bass=0)]
     >>> find_bass_suspension(
     ...     src_pitch=52,
     ...     suspension_chord=B_major,
@@ -288,6 +366,11 @@ def find_bass_suspension(
     """
     if resolution_chord is None:
         resolution_chord = suspension_chord
+
+    if not validate_intervals_among_suspensions(
+        suspension_pitches=other_suspended_pitches, bass_suspension_pitch=src_pitch
+    ):
+        return []
 
     if (
         suspension_must_belong_to_scale_of_suspension_chord
@@ -327,7 +410,11 @@ def find_bass_suspension(
     if resolution_chord == suspension_chord:
         return [
             Suspension(
-                resolution_interval, dissonant, interval_above_bass=0, score=score
+                src_pitch,
+                resolution_interval,
+                dissonant,
+                interval_above_bass=0,
+                score=score,
             )
         ]
 
@@ -337,7 +424,11 @@ def find_bass_suspension(
     if intermediate_interval in resolve_by:
         return [
             Suspension(
-                resolution_interval, dissonant, interval_above_bass=0, score=score
+                src_pitch,
+                resolution_interval,
+                dissonant,
+                interval_above_bass=0,
+                score=score,
             )
         ]
 
@@ -408,10 +499,30 @@ def find_suspension_release_times(
             out.append(res_onset)
         if res_weight == meter.min_weight:
             break
-
-        stop, _ = meter.get_onset_of_greatest_weight_between(
-            start, stop, include_start=False, return_first=meter.is_compound
-        )
+        try:
+            stop, _ = meter.get_onset_of_greatest_weight_between(
+                start, stop, include_start=False, return_first=meter.is_compound
+            )
+        except MeterError:
+            # TODO: (Malcolm 2023-07-21) this occurs when the division gets too small.
+            # we should avoid such outcomes though.
+            break
     # TODO suspensions releases should have a "score" that indicates
     #   how likely they are to be employed.
     return out
+
+
+def validate_suspension_resolution(
+    resolution_pitch: Pitch,
+    other_pitches: t.Sequence[Pitch],
+    resolution_chord: Chord,
+) -> bool:
+    """
+    For now, this function checks whether resolution pitch is a tendency tone and if
+    so, makes sure that it doesn't occur in other pitches.
+    """
+    # TODO: (Malcolm 2023-07-22) think about other conditions that should apply
+    if resolution_chord.get_pitch_tendency(resolution_pitch) is not None:
+        if resolution_pitch % 12 in {p % 12 for p in other_pitches}:
+            return False
+    return True

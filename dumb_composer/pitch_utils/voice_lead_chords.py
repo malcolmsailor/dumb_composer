@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import typing as t
+from collections import Counter
 from itertools import chain
 from types import MappingProxyType
 
@@ -25,7 +26,9 @@ def voice_lead_chords(
     chord2: Chord,
     chord1_pitches: t.Sequence[Pitch],
     chord1_suspensions: t.Mapping[Pitch, Suspension] = MappingProxyType({}),
+    chord2_bass_pitch: Pitch | None = None,
     chord2_melody_pitch: Pitch | None = None,
+    chord2_included_pitches: t.Sequence[Pitch] | None = None,
     chord2_suspensions: t.Dict[Pitch, Suspension] | None = None,
     min_pitch: t.Optional[int] = None,
     max_pitch: t.Optional[int] = None,
@@ -36,6 +39,26 @@ def voice_lead_chords(
     spacing_constraints: SpacingConstraints = SpacingConstraints(),
 ) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
+
+    # TODO: (Malcolm 2023-07-22) is this example working as intended?
+    # >>> rntxt = '''m1 F: vi b3 viio7/V'''
+    # >>> vi, viio7_of_V = get_chords_from_rntxt(rntxt)
+    # >>> suspension1 = Suspension(
+    # ...     pitch=64, resolves_by=-2, dissonant=True, interval_above_bass=2
+    # ... )
+    # >>> suspension2 = Suspension(
+    # ...     pitch=58, resolves_by=-2, dissonant=False, interval_above_bass=8
+    # ... )
+    # >>> vl_iter = voice_lead_chords(
+    # ...     vi,
+    # ...     viio7_of_V,
+    # ...     (50, 53, 58, 64),
+    # ...     chord1_suspensions={64: suspension1, 58: suspension2},
+    # ...     chord2_bass_pitch=47,
+    # ...     chord2_included_pitches=(56,),
+    # ...     chord2_melody_pitch=62,
+    # ... )
+    # >>> next(vl_iter)
 
     >>> rntxt = '''m1 C: I b2 I6 b3 V6 b4 ii
     ... m2 V43 b2 V/IV b3 IV b4 V'''
@@ -86,7 +109,9 @@ def voice_lead_chords(
     ------------------------------------------------------------------------------------
 
     Suspension w/ repetition of same harmony:
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)
+    >>> suspension = Suspension(
+    ...     pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=5
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I, I, (48, 55, 65, 72), chord1_suspensions={65: suspension}
     ... )
@@ -94,7 +119,9 @@ def voice_lead_chords(
     ((48, 55, 64, 72), (48, 55, 64, 76), (48, 55, 64, 67))
 
     Suspension w/ change of harmony:
-    >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
+    >>> suspension = Suspension(
+    ...     pitch=62, resolves_by=-2, dissonant=True, interval_above_bass=10
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I6, IV, (52, 62, 67, 72), chord1_suspensions={62: suspension}
     ... )
@@ -102,7 +129,9 @@ def voice_lead_chords(
     ((53, 60, 69, 72), (53, 60, 69, 69), (53, 60, 65, 69))
 
     Suspension in bass w/ repetition of same harmony:
-    >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
+    >>> suspension = Suspension(
+    ...     pitch=50, resolves_by=-2, dissonant=True, interval_above_bass=0
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I, I, (50, 55, 64, 67), chord1_suspensions={50: suspension}
     ... )
@@ -110,12 +139,16 @@ def voice_lead_chords(
     ((48, 55, 64, 67), (48, 55, 64, 64), (48, 52, 64, 67))
 
     Suspension in bass w/ change of harmony:
-    >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
+    >>> suspension = Suspension(
+    ...     pitch=52, resolves_by=-2, dissonant=True, interval_above_bass=0
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     ii, V43, (52, 53, 62, 69), chord1_suspensions={52: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((50, 53, 59, 67), (50, 55, 65, 71), (50, 55, 59, 65))
+
+    # TODO: (Malcolm 2023-07-22) chord1 suspensions in inner voices
 
     ------------------------------------------------------------------------------------
     Providing chord 2 melody pitch
@@ -131,7 +164,9 @@ def voice_lead_chords(
     StopIteration
 
     Melody with suspension in bass
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=0)
+    >>> suspension = Suspension(
+    ...     pitch=48, resolves_by=-1, dissonant=True, interval_above_bass=0
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     V6,
     ...     V6,
@@ -143,7 +178,9 @@ def voice_lead_chords(
     ((47, 50, 55, 67), (47, 50, 62, 67), (47, 62, 62, 67))
 
     Melody with suspension in inner part
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=5)
+    >>> suspension = Suspension(
+    ...     pitch=53, resolves_by=-1, dissonant=True, interval_above_bass=5
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I,
     ...     I,
@@ -161,7 +198,9 @@ def voice_lead_chords(
     StopIteration
 
     Melody with suspension in melody
-    >>> suspension = Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)
+    >>> suspension = Suspension(
+    ...     pitch=69, resolves_by=-2, dissonant=False, interval_above_bass=9
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I,
     ...     V6,
@@ -176,16 +215,23 @@ def voice_lead_chords(
     Suspensions in chord 2
     ------------------------------------------------------------------------------------
 
+    # TODO: (Malcolm 2023-07-21) the melody crosses "under" the suspension voice here.
+    # I should see about preventing that (although I believe I'm always providing
+    # the melody pitch)
     Suspension in inner voice:
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
+    >>> suspension = Suspension(
+    ...     pitch=60, resolves_by=-1, dissonant=True, interval_above_bass=10
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I, V43, (48, 55, 60, 64), chord2_suspensions={60: suspension}
     ... )
-    >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((50, 55, 60, 65), (50, 53, 60, 67), (38, 55, 60, 65))
+    >>> next(vl_iter), next(vl_iter), next(vl_iter), next(vl_iter)
+    ((50, 55, 60, 65), (50, 53, 60, 67), (38, 55, 60, 65), (50, 53, 55, 60))
 
     Unprepared suspension in inner voice:
-    >>> suspension = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=6)
+    >>> suspension = Suspension(
+    ...     pitch=71, resolves_by=-2, dissonant=True, interval_above_bass=6
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I, IV, (60, 67, 72, 76), chord2_suspensions={71: suspension}
     ... )
@@ -195,7 +241,9 @@ def voice_lead_chords(
     # TODO: (Malcolm 2023-07-19) these results suggest we're favoring different
     #   not doubling pitches *too* much
     Suspension in melody voice:
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
+    >>> suspension = Suspension(
+    ...     pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=10
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I, V43, (48, 55, 64, 72), chord2_suspensions={72: suspension}
     ... )
@@ -203,7 +251,9 @@ def voice_lead_chords(
     ((50, 55, 65, 72), (38, 55, 65, 72), (50, 65, 67, 72))
 
     Unprepared suspension in melody voice:
-    >>> suspension = Suspension(resolves_by=-2, dissonant=False, interval_above_bass=9)
+    >>> suspension = Suspension(
+    ...     pitch=64, resolves_by=-2, dissonant=False, interval_above_bass=9
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I,
     ...     V,
@@ -216,7 +266,9 @@ def voice_lead_chords(
 
 
     Suspension overlapping with melody voice:
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
+    >>> suspension = Suspension(
+    ...     pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=10
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I,
     ...     V,
@@ -230,7 +282,9 @@ def voice_lead_chords(
     Suspension in melody voice whose preparation is unison w/ another voice:
     >>> rntxt = "m1 F: viio64 b3 viio6/ii"
     >>> viio64, viio6_of_ii = get_chords_from_rntxt(rntxt)
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
+    >>> suspension = Suspension(
+    ...     pitch=67, resolves_by=-1, dissonant=True, interval_above_bass=10
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     viio64,
     ...     viio6_of_ii,
@@ -242,7 +296,9 @@ def voice_lead_chords(
     ((45, 57, 60, 67), (57, 57, 60, 67), (45, 48, 57, 67))
 
     Unprepared suspension overlapping with melody voice:
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=10)
+    >>> suspension = Suspension(
+    ...     pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=10
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I,
     ...     V,
@@ -254,16 +310,36 @@ def voice_lead_chords(
     ((43, 67, 72, 74), (55, 67, 72, 74), (43, 62, 72, 74))
 
     Suspension in bass voice:
-    >>> suspension = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=0)
+    >>> suspension = Suspension(
+    ...     pitch=48, resolves_by=-1, dissonant=True, interval_above_bass=0
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     I, V6, (48, 55, 64, 72), chord2_suspensions={48: suspension}
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((48, 55, 62, 74), (48, 55, 67, 74), (48, 55, 62, 67))
 
+    If we actually specify the bass, it shouldn't make any difference in this case:
+    >>> suspension = Suspension(
+    ...     pitch=48, resolves_by=-1, dissonant=True, interval_above_bass=0
+    ... )
+    >>> vl_iter = voice_lead_chords(
+    ...     I,
+    ...     V6,
+    ...     (48, 55, 64, 72),
+    ...     chord2_bass_pitch=48,
+    ...     chord2_suspensions={48: suspension},
+    ... )
+    >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    ((48, 55, 62, 74), (48, 55, 67, 74), (48, 55, 62, 67))
+
     Multiple inner suspensions:
-    >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
-    >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=1)
+    >>> suspension1 = Suspension(
+    ...     pitch=62, resolves_by=-2, dissonant=True, interval_above_bass=10
+    ... )
+    >>> suspension2 = Suspension(
+    ...     pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=1
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     V43,
     ...     I6,
@@ -279,8 +355,12 @@ def voice_lead_chords(
     StopIteration
 
     Melody suspension w/ inner suspension:
-    >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=10)
-    >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=1)
+    >>> suspension1 = Suspension(
+    ...     pitch=62, resolves_by=-2, dissonant=True, interval_above_bass=10
+    ... )
+    >>> suspension2 = Suspension(
+    ...     pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=1
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     V43,
     ...     I6,
@@ -291,8 +371,12 @@ def voice_lead_chords(
     ((52, 55, 62, 65), (40, 55, 62, 65))
 
     Bass suspension w/ melody suspension:
-    >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
-    >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)
+    >>> suspension1 = Suspension(
+    ...     pitch=62, resolves_by=-2, dissonant=True, interval_above_bass=0
+    ... )
+    >>> suspension2 = Suspension(
+    ...     pitch=77, resolves_by=-1, dissonant=True, interval_above_bass=3
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     V43,
     ...     I,
@@ -303,8 +387,12 @@ def voice_lead_chords(
     ((62, 67, 72, 77), (62, 72, 72, 77))
 
     Bass suspension w/ inner suspension:
-    >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
-    >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)
+    >>> suspension1 = Suspension(
+    ...     pitch=62, resolves_by=-2, dissonant=True, interval_above_bass=0
+    ... )
+    >>> suspension2 = Suspension(
+    ...     pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=3
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     V43,
     ...     I,
@@ -313,6 +401,20 @@ def voice_lead_chords(
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((62, 65, 67, 72), (62, 65, 72, 79), (62, 65, 72, 72))
+
+    Suspension whose preparation is doubled pitch in chord1:
+    >>> suspension = Suspension(
+    ...     pitch=60, resolves_by=-1, dissonant=True, interval_above_bass=5
+    ... )
+    >>> vl_iter = voice_lead_chords(
+    ...     I6,
+    ...     V,
+    ...     (52, 60, 60, 67),
+    ...     chord2_suspensions={60: suspension},
+    ...     chord2_melody_pitch=67,
+    ... )
+    >>> next(vl_iter), next(vl_iter)
+    ((55, 60, 62, 67), (43, 60, 62, 67))
 
     ------------------------------------------------------------------------------------
     Chord progression likely to lead to parallels
@@ -360,6 +462,49 @@ def voice_lead_chords(
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((59, 62, 67, 67), (59, 62, 67), (59, 62, 67, 74))
 
+    ------------------------------------------------------------------------------------
+    Prespecifying included pitches
+    ------------------------------------------------------------------------------------
+
+    Specifying melody + one inner pitch
+    >>> vl_iter = voice_lead_chords(
+    ...     I6,
+    ...     V,
+    ...     (52, 55, 60, 67),
+    ...     chord2_melody_pitch=71,
+    ...     chord2_included_pitches=(62,),
+    ... )
+    >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    ((55, 55, 62, 71), (55, 62, 62, 71), (43, 55, 62, 71))
+
+    If we don't specify a melody but specify an included pitch, the included pitch
+    may be in the melody or not:
+    >>> vl_iter = voice_lead_chords(
+    ...     I6, V, (52, 55, 60, 67), chord2_included_pitches=(67,)
+    ... )
+    >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    ((55, 62, 67, 71), (55, 59, 62, 67), (43, 62, 67, 71))
+
+    # TODO: (Malcolm 2023-07-21) test this w/ specifying bass suspensions
+    Specifying bass pitch:
+    >>> vl_iter = voice_lead_chords(I6, V, (52, 55, 60, 67), chord2_bass_pitch=43)
+    >>> next(vl_iter), next(vl_iter), next(vl_iter)
+    ((43, 59, 62, 67), (43, 55, 62, 71), (43, 55, 59, 62))
+
+    Fully specifying the output chord (there's no reason to do this):
+    >>> vl_iter = voice_lead_chords(
+    ...     I6,
+    ...     V,
+    ...     (52, 55, 60, 67),
+    ...     chord2_melody_pitch=71,
+    ...     chord2_bass_pitch=43,
+    ...     chord2_included_pitches=(55, 62),
+    ... )
+    >>> next(vl_iter)
+    (43, 55, 62, 71)
+    >>> next(vl_iter)
+    Traceback (most recent call last):
+    StopIteration
 
     ------------------------------------------------------------------------------------
     Avoid resolving tendency tone when resolution pitch-class already present in melody
@@ -385,8 +530,12 @@ def voice_lead_chords(
     sorted by pitch.)
 
     Compare the following (note the last result with last pitch 79) with the next example
-    >>> suspension1 = Suspension(resolves_by=-2, dissonant=True, interval_above_bass=0)
-    >>> suspension2 = Suspension(resolves_by=-1, dissonant=True, interval_above_bass=3)
+    >>> suspension1 = Suspension(
+    ...     pitch=62, resolves_by=-2, dissonant=True, interval_above_bass=0
+    ... )
+    >>> suspension2 = Suspension(
+    ...     pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=3
+    ... )
     >>> vl_iter = voice_lead_chords(
     ...     V43,
     ...     I,
@@ -449,6 +598,14 @@ def voice_lead_chords(
     unresolved_tendencies = []
     pitches_without_tendencies = []
 
+    # TODO: (Malcolm 2023-07-21) explain w/ comment
+    # TODO: (Malcolm 2023-07-21) restore
+    chord2_suspension_pitches_doubled_in_chord1 = Counter(
+        p for p in chord1_pitches if p in chord2_suspensions
+    )
+    for p in chord2_suspension_pitches_doubled_in_chord1:
+        chord2_suspension_pitches_doubled_in_chord1[p] -= 1
+
     tendency_pcs = set()  # for keeping track of doubled tendency-tones
     for i, pitch in enumerate(
         chord1_pitches[: (None if chord2_melody_pitch is None else -1)]
@@ -459,7 +616,10 @@ def voice_lead_chords(
         if pitch in chord1_suspensions:
             resolution_pitch = pitch + chord1_suspensions[pitch].resolves_by
             if resolution_pitch % 12 in chord2.pcs:
-                if i != 0 and pitch not in chord2_suspensions:
+                if i != 0 and (
+                    pitch not in chord2_suspensions
+                    or chord2_suspension_pitches_doubled_in_chord1[pitch]
+                ):
                     # we don't include the bass among the resolution pitches because it
                     # is always already included
                     resolution_pitches.append(resolution_pitch)
@@ -474,7 +634,10 @@ def voice_lead_chords(
             pc = pitch % 12
 
             if resolution is not None:
-                if i != 0 and pitch not in chord2_suspensions:
+                if i != 0 and (
+                    pitch not in chord2_suspensions
+                    or chord2_suspension_pitches_doubled_in_chord1[pitch]
+                ):
                     resolution_pc = resolution.to % 12
                     if (chord2_melody_pitch is not None) and (
                         (
@@ -542,23 +705,32 @@ def voice_lead_chords(
         # ------------------------------------------------------------------------------
         else:
             if i != 0 and (
-                (pitch not in chord2_suspensions)
+                (
+                    pitch not in chord2_suspensions
+                    or chord2_suspension_pitches_doubled_in_chord1[pitch]
+                )
                 or
                 # If the pitch *is* in chord2_suspensions but it is a doubling a suspension
                 #   in the melody, we need to add it to pitches_without_tendencies
                 (pitch == chord2_melody_pitch)
             ):
                 pitches_without_tendencies.append(pitch)
+        if chord2_suspension_pitches_doubled_in_chord1[pitch]:
+            chord2_suspension_pitches_doubled_in_chord1[pitch] -= 1
 
     if unresolved_suspensions:
         raise ValueError("Suspensions cannot resolve")
     if raise_error_on_failure_to_resolve_tendencies and unresolved_tendencies:
         raise ValueError("Tendencies cannot resolve")
 
-    prespecified_pitches = tuple(resolution_pitches) + (
-        (chord2_melody_pitch,)
-        if (chord2_melody_pitch is not None and not melody_suspension)
-        else ()
+    prespecified_pitches = (
+        tuple(resolution_pitches)
+        + (
+            (chord2_melody_pitch,)
+            if (chord2_melody_pitch is not None and not melody_suspension)
+            else ()
+        )
+        + tuple(chord2_included_pitches if chord2_included_pitches is not None else ())
     )
 
     # semitone suspension resolutions pitches are never doubled in chord2
@@ -613,9 +785,16 @@ def voice_lead_chords(
         for i, p in enumerate(pitches_to_voice_lead_from)
     }
 
+    # Hack to set chord2 bass pitch:
+    if chord2_bass_pitch is not None:
+        # TODO: (Malcolm 2023-07-21) assertion that takes account of suspensions
+        # assert chord2_bass_pitch % 12
+        min_bass_pitch = chord2_bass_pitch
+        max_bass_pitch = chord2_bass_pitch
+
     # To avoid having the bass cross above any suspensions or their resolutions, we set
     # max_bass_pitch here
-    if resolution_pitches:
+    elif resolution_pitches:
         max_bass_pitch = min(
             chain(
                 resolution_pitches,
@@ -637,6 +816,7 @@ def voice_lead_chords(
         chord2_option_weights=chord2_option_weights,
         # We handle the bass separately if there is a bass suspension
         preserve_bass=bass_suspension is None,
+        avoid_bass_crossing=bass_suspension is None,
         min_pitch=min_pitch,
         max_pitch=max_pitch,
         min_bass_pitch=min_bass_pitch,

@@ -88,7 +88,7 @@ def test_two_part_contrapuntist(time_sig, do_first):
     for seed in range(42, 42 + 10):
         tpc = mod.TwoPartContrapuntist(chord_data=rn_txt, settings=settings)
         random.seed(seed)
-        score = tpc(rn_txt)
+        score = tpc()
         update_counts(score, counts)
         out_df = tpc.get_mididf_from_score(score)
         dfs.append(out_df)

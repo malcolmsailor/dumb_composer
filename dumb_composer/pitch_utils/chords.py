@@ -455,35 +455,88 @@ class Chord:
                 )
                 self.tendencies = dict(self.tendencies) | tendencies
 
+    def get_pcs_that_cannot_be_added_to_existing_voicing(
+        self,
+        existing_voices: t.Iterable[PitchOrPitchClass] = (),
+        suspensions: t.Iterable[PitchOrPitchClass] = (),
+    ) -> tuple[PitchClass]:
+        """
+        Note: `suspensions` need to be also present in
+        `existing_voices_not_including_bass`.
+        >>> rntxt = "m1 C: V7 b2 V65 b3 V42 b4 V43"
+        >>> V7, V65, V42, V43 = get_chords_from_rntxt(rntxt)
+
+        >>> V7.get_pcs_that_cannot_be_added_to_existing_voicing((7,))
+        ()
+
+        >>> V7.get_pcs_that_cannot_be_added_to_existing_voicing((7, 11, 2))
+        (11,)
+
+        >>> V65.get_pcs_that_cannot_be_added_to_existing_voicing((11,))
+        (11,)
+
+        >>> V42.get_pcs_that_cannot_be_added_to_existing_voicing((5, 11))
+        (5, 11)
+
+        The items in `suspensions` can be duplicated in `existing_voices` but do not
+        need to be.
+        >>> V42.get_pcs_that_cannot_be_added_to_existing_voicing((5,), suspensions=(0,))
+        (5, 11)
+        >>> V42.get_pcs_that_cannot_be_added_to_existing_voicing(
+        ...     (5, 0), suspensions=(0,)
+        ... )
+        (5, 11)
+
+        >>> V65.get_pcs_that_cannot_be_added_to_existing_voicing(
+        ...     (48, 62), suspensions=(48,)
+        ... )
+        (11,)
+        >>> V43.get_pcs_that_cannot_be_added_to_existing_voicing(
+        ...     (51, 53), suspensions=(51,)
+        ... )
+        (2, 5)
+        """
+        if suspensions:
+            existing_voices = set(existing_voices) | set(suspensions)
+        omissions = self.get_omissions(existing_voices, suspensions=suspensions)
+        return tuple(
+            pc for pc, omission in zip(self.pcs, omissions) if omission is Allow.ONLY
+        )
+
     def get_pcs_that_can_be_added_to_existing_voicing(
         self,
-        existing_voices_not_including_bass: t.Iterable[PitchOrPitchClass] = (),
+        existing_voices: t.Iterable[PitchOrPitchClass] = (),
         suspensions: t.Iterable[PitchOrPitchClass] = (),
     ) -> t.Tuple[PitchClass]:
         """
-        `suspensions` need to be also present in `existing_voices_not_including_bass`.
         >>> rntxt = "m1 C: V7 b2 V65 b3 V42"
         >>> V7, V65, V42 = get_chords_from_rntxt(rntxt)
 
-        >>> V7.get_pcs_that_can_be_added_to_existing_voicing()
+        >>> V7.get_pcs_that_can_be_added_to_existing_voicing((7,))
         (7, 11, 2, 5)
 
-        >>> V7.get_pcs_that_can_be_added_to_existing_voicing((11, 2))
+        >>> V7.get_pcs_that_can_be_added_to_existing_voicing((55, 67))
+        (7, 11, 2, 5)
+
+        >>> V7.get_pcs_that_can_be_added_to_existing_voicing((7, 11, 2))
         (7, 2, 5)
 
-        >>> V65.get_pcs_that_can_be_added_to_existing_voicing()
+        >>> V65.get_pcs_that_can_be_added_to_existing_voicing((11,))
         (2, 5, 7)
 
-        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((11,))
+        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((5, 11))
         (7, 2)
 
-        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((0,), suspensions=(0,))
+        The items in `suspensions` can be duplicated in `existing_voices` but do not
+        need to be.
+        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((5,), suspensions=(0,))
+        (7, 2)
+        >>> V42.get_pcs_that_can_be_added_to_existing_voicing((5, 0), suspensions=(0,))
         (7, 2)
         """
-        omissions = self.get_omissions(
-            (self.foot,) + tuple(existing_voices_not_including_bass),
-            suspensions=suspensions,
-        )
+        if suspensions:
+            existing_voices = set(existing_voices) | set(suspensions)
+        omissions = self.get_omissions(existing_voices, suspensions=suspensions)
         return tuple(
             pc
             for pc, omission in zip(self.pcs, omissions)
