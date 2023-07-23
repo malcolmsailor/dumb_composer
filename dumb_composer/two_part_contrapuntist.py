@@ -175,9 +175,8 @@ class TwoPartContrapuntist:
         return self._score.chords[self.i]
 
     @property
-    def prev_chord(self) -> Chord | None:
-        if self.i <= 0:
-            return None
+    def prev_chord(self) -> Chord:
+        assert self.i > 0
         return self._score.chords[self.i - 1]
 
     @property
@@ -414,6 +413,7 @@ class TwoPartContrapuntist:
 
             next_chord_suspensions = find_suspensions(
                 self.prev_melody_pitch,
+                preparation_chord=self.prev_chord,
                 suspension_chord=self.current_chord,
                 resolution_chord=self.next_chord,
                 resolve_up_by=self._upward_suspension_resolutions_melody,
@@ -429,6 +429,7 @@ class TwoPartContrapuntist:
             # MELODY_ONLY
             suspensions = find_suspensions(
                 self.prev_melody_pitch,
+                preparation_chord=self.prev_chord,
                 suspension_chord=self.current_chord,
                 suspension_chord_pcs_to_avoid=suspension_chord_pcs_to_avoid,
                 resolve_up_by=self._upward_suspension_resolutions_melody,
@@ -517,6 +518,7 @@ class TwoPartContrapuntist:
             # BASS ONLY
             next_chord_suspensions = find_bass_suspension(
                 src_pitch=self.prev_bass_pitch,
+                preparation_chord=self.prev_chord,
                 suspension_chord=self.current_chord,
                 resolution_chord=self.next_chord,
                 resolve_up_by=self._upward_suspension_resolutions_bass,
@@ -530,6 +532,7 @@ class TwoPartContrapuntist:
             # BASS ONLY
             suspensions = find_bass_suspension(
                 src_pitch=self.prev_bass_pitch,
+                preparation_chord=self.prev_chord,
                 suspension_chord=self.current_chord,
                 resolve_up_by=self._upward_suspension_resolutions_bass,
                 other_suspended_pitches=other_suspension_pitches,
@@ -613,7 +616,6 @@ class TwoPartContrapuntist:
     def _get_tendency(
         self, intervals: t.List[int], bass_has_tendency: bool
     ) -> t.Iterable[int]:
-        assert self.prev_chord is not None
         tendency = self.prev_chord.get_pitch_tendency(self.prev_melody_pitch)
         if tendency is Tendency.NONE or self.prev_chord == self.current_chord:
             return

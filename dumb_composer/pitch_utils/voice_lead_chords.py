@@ -37,6 +37,8 @@ def voice_lead_chords(
     raise_error_on_failure_to_resolve_tendencies: bool = False,
     max_diff_number_of_voices: int = 0,
     spacing_constraints: SpacingConstraints = SpacingConstraints(),
+    # TODO: (Malcolm 2023-07-22) document
+    normalize_voice_assignments: bool = True,
 ) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
 
@@ -561,6 +563,9 @@ def voice_lead_chords(
 
     """
 
+    if normalize_voice_assignments is False:
+        raise NotImplementedError("# TODO: (Malcolm 2023-07-22) ")
+
     chord2_max_notes = len(chord1_pitches) + max_diff_number_of_voices
     chord2_min_notes = len(chord1_pitches) - max_diff_number_of_voices
 
@@ -569,11 +574,8 @@ def voice_lead_chords(
     bass_suspension = None
     melody_suspension = False
     if chord2_suspensions:
-        # TODO: should this be an argument? attribute of each suspension? should it
-        #   just be removed, and up to the caller to prepare?
-        enforce_preparations = False
-        if enforce_preparations:  # TODO: (Malcolm)
-            assert all(p in chord1_pitches for p in chord2_suspensions)
+        # if enforce_preparations:
+        #   assert all(p in chord1_pitches for p in chord2_suspensions)
 
         for pitch, suspension in chord2_suspensions.items():
             if suspension.interval_above_bass == 0:
@@ -598,8 +600,6 @@ def voice_lead_chords(
     unresolved_tendencies = []
     pitches_without_tendencies = []
 
-    # TODO: (Malcolm 2023-07-21) explain w/ comment
-    # TODO: (Malcolm 2023-07-21) restore
     chord2_suspension_pitches_doubled_in_chord1 = Counter(
         p for p in chord1_pitches if p in chord2_suspensions
     )
@@ -822,6 +822,7 @@ def voice_lead_chords(
         min_bass_pitch=min_bass_pitch,
         max_bass_pitch=max_bass_pitch,
         exclude_motions=exclude_motions,
+        ignore_voice_assignments=normalize_voice_assignments,
     ):
         output = tuple(
             sorted(candidate_pitches + prespecified_pitches + chord2_suspension_pitches)

@@ -586,12 +586,7 @@ class Chord:
                 return Resolution(by=interval, to=pitch + interval)
         return None
 
-    def get_pitch_tendency(
-        self,
-        pitch: Pitch,
-        previous_chord: Chord | None = None,
-        next_chord: Chord | None = None,
-    ) -> Tendency:
+    def get_pitch_tendency(self, pitch: Pitch) -> Tendency:
         """
         >>> rntxt = '''m1 C: V7 b2 viio6 b3 Cad64'''
         >>> V7, viio6, Cad64 = get_chords_from_rntxt(rntxt)
@@ -605,9 +600,9 @@ class Chord:
         >>> rntxt = '''m1 C: I b2 IV64 b3 V6/ii b4 V64
         ... m2 I6'''
         >>> I, IV64, V6_of_ii, V64, I6 = get_chords_from_rntxt(rntxt)
-        >>> IV64.get_pitch_tendency(69, previous_chord=I, next_chord=V6_of_ii)
+        >>> IV64.get_pitch_tendency(69)
         <Tendency.DOWN: 3>
-        >>> V64.get_pitch_tendency(67, previous_chord=V6_of_ii, next_chord=I6)
+        >>> V64.get_pitch_tendency(67)
         <Tendency.NONE: 1>
         """
         bass_factor = self._lookup_pcs[pitch % 12]
@@ -783,7 +778,7 @@ class Chord:
         range_constraints: RangeConstraints = RangeConstraints(),
         spacing_constraints: SpacingConstraints = SpacingConstraints(),
         shuffled: bool = True,
-    ) -> t.Iterable[t.Tuple[Pitch]]:
+    ) -> t.Iterable[t.Tuple[Pitch, ...]]:
         """
         This doesn't allow specifying suspensions, etc., because it's only intended
         to get an initial chord spacing.

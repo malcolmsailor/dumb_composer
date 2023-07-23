@@ -604,9 +604,10 @@ class FourPartScore(_ScoreBase):
     (41, 74)
 
     Let's add inner parts:
-    >>> score.inner_voices.extend([[55, 64], [57, 65], [55, 62], [55, 77]])
-    >>> score.get_existing_pitches(0)
-    (36, 55, 64, 72)
+    >>> score.inner_voices[InnerVoice.TENOR].extend([55, 57, 55, 55])
+    >>> score.inner_voices[InnerVoice.ALTO].extend([64, 65, 62, 77])
+    >>> score.get_existing_pitches(0)  # TODO: (Malcolm 2023-07-22) sort?
+    (36, 72, 55, 64)
     """
 
     def __init__(
@@ -627,11 +628,38 @@ class FourPartScore(_ScoreBase):
             melody_track=melody_track,
             bass_track=bass_track,
         )
-        self.inner_voices: t.List[t.Tuple[Pitch, Pitch]] = []
+        # self.inner_voices: t.List[t.Tuple[Pitch, Pitch]] = []
+        self.inner_voices: defaultdict[InnerVoice, list[Pitch]] = defaultdict(list)
         self.inner_voices_track = inner_voices_track
         self.inner_voice_suspensions: defaultdict[
             InnerVoice, dict[int, Suspension]
         ] = defaultdict(lambda: {})
+
+    def get_existing_pitches(
+        self,
+        idx: int,
+        attr_names: t.Sequence[str] | None = None,
+    ) -> t.Tuple[Pitch]:
+        if attr_names is None:
+            attr_names = self.default_existing_pitch_attr_names
+
+        # Quite a hacky solution
+        if "inner_voices" in attr_names:
+            attr_names = [
+                attr_name for attr_name in attr_names if attr_name != "inner_voices"
+            ]
+            inner_voices_pitches = [
+                inner_voice_pitches[idx]
+                for inner_voice_pitches in self.inner_voices.values()
+            ]
+        else:
+            inner_voices_pitches = []
+
+        return tuple(
+            flatten_iterables(
+                [super().get_existing_pitches(idx, attr_names), inner_voices_pitches]
+            )
+        )
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
@@ -640,7 +668,8 @@ class FourPartScore(_ScoreBase):
     @property
     def inner_voices_as_df(self) -> pd.DataFrame:
         notes = []
-        for chord_i, inner_voices in enumerate(self.inner_voices):
+        for chord_i, inner_voices in enumerate(zip(*self.inner_voices.values())):
+            # TODO: (Malcolm 2023-07-22) verify
             for pitch in inner_voices:
                 notes.append(
                     Note(  # type:ignore

@@ -40,13 +40,18 @@ from dumb_composer.utils.recursion import DeadEnd, RecursionFailed, append_attem
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-SuspensionCombo = tuple[tuple[InnerVoice, Suspension], ...]
+SuspensionCombo = dict[InnerVoice, Suspension]
 
 # TODO: (Malcolm 2023-07-22) suspensions less likely when the preparation is an
 #   ascending tendency tone
 # TODO: (Malcolm 2023-07-22) don't move melody to suspension resolution in inner voice
 # TODO: (Malcolm 2023-07-22) I think we generally don't want 9--8 suspensions in
 #   inner voices except in certain special circumstances
+
+
+class InnerVoicesResult(t.TypedDict):
+    tenor: Pitch
+    alto: Pitch
 
 
 @dataclass
@@ -108,7 +113,8 @@ class FourPartWorker(TwoPartContrapuntist):
         return (
             len(self._score.structural_melody)
             == len(self._score.structural_bass)
-            == len(self._score.inner_voices)
+            == len(self._score.inner_voices[InnerVoice.TENOR])
+            == len(self._score.inner_voices[InnerVoice.ALTO])
         )
 
     @property
@@ -118,14 +124,23 @@ class FourPartWorker(TwoPartContrapuntist):
     @property
     def prev_pitches(self) -> tuple[Pitch]:
         assert self.i > 0
-        return self._score.get_existing_pitches(
-            self.i - 1, ("structural_bass", "inner_voices", "structural_melody")
+        return tuple(
+            sorted(
+                self._score.get_existing_pitches(
+                    self.i - 1, ("structural_bass", "inner_voices", "structural_melody")
+                )
+            )
         )
 
     @property
     def prev_inner_voices(self) -> tuple[Pitch, Pitch]:
         assert self.i > 0
-        return self._score.inner_voices[self.i - 1]
+        # TODO: (Malcolm 2023-07-22) do we still want to use this property after
+        #   refactoring score?
+        return (
+            self._score.inner_voices[InnerVoice.TENOR][self.i - 1],
+            self._score.inner_voices[InnerVoice.ALTO][self.i - 1],
+        )
 
     def prev_pitch(self, voice: InnerVoice) -> Pitch:
         voice_i = self._inner_voice_to_index[voice]
@@ -205,7 +220,7 @@ class FourPartWorker(TwoPartContrapuntist):
         prev_pitch_1, prev_pitch_2 = self.prev_inner_voices
         if (prev_pitch_1 - prev_pitch_2) % 12 == 0:
             return [
-                ((voice, suspension),)
+                {voice: suspension}
                 for voice in suspensions_per_inner_voice
                 for suspension in suspensions_per_inner_voice[voice]
             ]
@@ -214,27 +229,28 @@ class FourPartWorker(TwoPartContrapuntist):
         # In fact, I'm not at all sure that a one-voice-at-a-time approach wouldn't be
         # better.
         if InnerVoice.TENOR in suspensions_per_inner_voice:
-            tenor_suspensions: list[tuple[InnerVoice, Suspension]] = [
-                (InnerVoice.TENOR, suspension)
+            tenor_suspensions: list[SuspensionCombo] = [
+                {InnerVoice.TENOR: suspension}
                 for suspension in suspensions_per_inner_voice[InnerVoice.TENOR]
             ]
         else:
             tenor_suspensions = []
 
         if InnerVoice.ALTO in suspensions_per_inner_voice:
-            alto_suspensions: list[tuple[InnerVoice, Suspension]] = [
-                (InnerVoice.ALTO, suspension)
+            alto_suspensions: list[SuspensionCombo] = [
+                {InnerVoice.ALTO: suspension}
                 for suspension in suspensions_per_inner_voice[InnerVoice.ALTO]
             ]
         else:
             alto_suspensions = []
 
-        both_voice_suspensions = list(it.product(tenor_suspensions, alto_suspensions))
-        return (
-            [(combo,) for combo in tenor_suspensions]
-            + [(combo,) for combo in alto_suspensions]
-            + both_voice_suspensions
-        )
+        both_voice_suspensions = [
+            tenor_suspension | alto_suspension
+            for tenor_suspension, alto_suspension in it.product(
+                tenor_suspensions, alto_suspensions
+            )
+        ]
+        return tenor_suspensions + alto_suspensions + both_voice_suspensions
 
     def _get_valid_suspension_combinations(
         self, suspensions_per_inner_voice: dict[InnerVoice, list[Suspension]]
@@ -258,7 +274,7 @@ class FourPartWorker(TwoPartContrapuntist):
         out = []
         for combo in all_suspension_combos:
             if validate_intervals_among_suspensions(
-                suspended_pitches + tuple(s.pitch for _, s in combo),
+                suspended_pitches + tuple(s.pitch for s in combo.values()),
                 bass_suspension_pitch=suspended_bass_pitch,
             ):
                 out.append(combo)
@@ -337,6 +353,7 @@ class FourPartWorker(TwoPartContrapuntist):
                 #   always ruled out.
                 next_chord_suspensions[inner_voice] = find_suspensions(
                     prev_pitch,
+                    preparation_chord=self.prev_chord,
                     suspension_chord=self.current_chord,
                     resolution_chord=self.next_chord,
                     resolve_up_by=self._upward_suspension_resolutions_inner_voices,
@@ -364,6 +381,7 @@ class FourPartWorker(TwoPartContrapuntist):
                 #   always ruled out.
                 suspensions[inner_voice] = find_suspensions(
                     prev_pitch,
+                    preparation_chord=self.prev_chord,
                     suspension_chord=self.current_chord,
                     suspension_chord_pcs_to_avoid=suspension_chord_pcs_to_avoid,
                     resolve_up_by=self._upward_suspension_resolutions_inner_voices,
@@ -383,11 +401,11 @@ class FourPartWorker(TwoPartContrapuntist):
 
         scores = (
             [
-                mean([s.score for _, s in suspension_combo])
+                mean([s.score for s in suspension_combo.values()])
                 for suspension_combo in suspension_combos
             ]
             + [
-                mean([s.score for _, s in suspension_combo])
+                mean([s.score for s in suspension_combo.values()])
                 for suspension_combo in next_chord_suspension_combos
             ]
             + [self.settings.no_suspension_score]
@@ -427,9 +445,9 @@ class FourPartWorker(TwoPartContrapuntist):
 
     def _apply_suspension_combo(
         self,
-        suspension_combo: t.Iterable[tuple[InnerVoice, Suspension]],
+        suspension_combo: SuspensionCombo,
         suspension_release: TimeStamp,
-    ) -> list[Pitch]:
+    ):
         LOGGER.debug(f"applying {suspension_combo=} at {self.i=}")
         if suspension_release < self.current_chord.release:
             # If the suspension resolves during the current chord, we need to split
@@ -443,7 +461,7 @@ class FourPartWorker(TwoPartContrapuntist):
                 and suspension_release == self.next_chord.onset
             )
         suspended_pitches = []
-        for inner_voice, suspension in suspension_combo:
+        for inner_voice, suspension in suspension_combo.items():
             suspended_pitch = self.prev_pitch(inner_voice)
             self.add_suspension_resolution(
                 inner_voice, suspended_pitch + suspension.resolves_by
@@ -452,13 +470,10 @@ class FourPartWorker(TwoPartContrapuntist):
             if self.settings.annotate_suspensions:
                 raise NotImplementedError("TODO")
             suspended_pitches.append(suspended_pitch)
-        return suspended_pitches
 
-    def _undo_suspension_combo(
-        self, suspension_combo: t.Iterable[tuple[InnerVoice, Suspension]]
-    ):
+    def _undo_suspension_combo(self, suspension_combo: SuspensionCombo):
         LOGGER.debug(f"undoing {suspension_combo=} at {self.i=}")
-        for inner_voice, _ in suspension_combo:
+        for inner_voice in suspension_combo:
             self.remove_suspension_resolution(inner_voice)
             self.remove_suspension(inner_voice)
             if self.settings.annotate_suspensions:
@@ -471,17 +486,17 @@ class FourPartWorker(TwoPartContrapuntist):
         self,
         melody_pitch: Pitch,
         bass_pitch: Pitch,
-        tenor_resolves: bool = False,
-        alto_resolves: bool = False,
-    ) -> t.Iterator[tuple[Pitch, Pitch]]:
+        tenor_resolution_pitch: Pitch | None = None,
+        alto_resolution_pitch: Pitch | None = None,
+    ) -> t.Iterator[InnerVoicesResult]:
         # -------------------------------------------------------------------------------
         # Calculate free inner voices
         # -------------------------------------------------------------------------------
-        if tenor_resolves and alto_resolves:
+        if tenor_resolution_pitch is not None and alto_resolution_pitch is not None:
             raise ValueError("No free inner voices")
-        elif tenor_resolves:
+        elif tenor_resolution_pitch is not None:
             free_inner_voices = (InnerVoice.ALTO,)
-        elif alto_resolves:
+        elif alto_resolution_pitch is not None:
             free_inner_voices = (InnerVoice.TENOR,)
         else:
             free_inner_voices = (InnerVoice.TENOR, InnerVoice.ALTO)
@@ -517,26 +532,59 @@ class FourPartWorker(TwoPartContrapuntist):
             if prev_suspension is not None:
                 chord1_suspensions[prev_suspension.pitch] = prev_suspension
 
+        def _result_from_voicing(
+            voicing: tuple[Pitch, ...], suspension_combo: SuspensionCombo | None = None
+        ) -> InnerVoicesResult:
+            if suspension_combo is not None:
+                assert len(suspension_combo) == 1
+                suspension_voice = list(suspension_combo)[0]
+                suspension = suspension_combo[suspension_voice]
+            else:
+                suspension_voice = None
+                suspension = None
+
+            pitch_pair = voicing[1:-1]
+
+            if tenor_resolution_pitch is not None:
+                other_pitch = [p for p in pitch_pair if p != tenor_resolution_pitch][0]
+                assert suspension_voice is None or suspension_voice is InnerVoice.ALTO
+                assert suspension is None or suspension.pitch == other_pitch
+                return {"tenor": tenor_resolution_pitch, "alto": other_pitch}
+
+            elif alto_resolution_pitch is not None:
+                other_pitch = [p for p in pitch_pair if p != alto_resolution_pitch][0]
+                assert suspension_voice is None or suspension_voice is InnerVoice.TENOR
+                assert suspension is None or suspension.pitch == other_pitch
+                return {"tenor": other_pitch, "alto": alto_resolution_pitch}
+
+            elif suspension is not None:
+                other_pitch = [p for p in pitch_pair if p != suspension.pitch][0]
+                if suspension_voice is InnerVoice.TENOR:
+                    return {"tenor": suspension.pitch, "alto": other_pitch}
+                else:
+                    return {"tenor": other_pitch, "alto": suspension.pitch}
+
+            return {"tenor": pitch_pair[0], "alto": pitch_pair[1]}
+
         for suspensions in self._choose_inner_voice_suspensions(
             melody_pitch, bass_pitch, free_inner_voices
         ):
             if suspensions is not None:
                 suspension_combo, release_time = suspensions
                 LOGGER.debug(f"{suspension_combo=} at {self.i=}")
-                suspended_pitches = self._apply_suspension_combo(
-                    suspension_combo, release_time
-                )
-                if len(suspended_pitches) == 2:
-                    yield tuple(suspended_pitches)
+                self._apply_suspension_combo(suspension_combo, release_time)
+                if len(suspension_combo) == 2:
+                    assert not alto_resolution_pitch or not tenor_resolution_pitch
+                    yield {
+                        "tenor": suspension_combo[InnerVoice.TENOR].pitch,
+                        "alto": suspension_combo[InnerVoice.ALTO].pitch,
+                    }
                 else:
                     these_chord2_suspensions = chord2_suspensions | {
-                        suspended_pitch: suspension
-                        for (suspended_pitch, (_, suspension)) in zip(
-                            suspended_pitches, suspension_combo
-                        )
+                        s.pitch: s for s in suspension_combo.values()
                     }
                     for voicing in voice_lead_chords(
-                        self.prev_chord,  # type:ignore
+                        self.prev_chord,
                         self.current_chord,
                         chord1_pitches=self.prev_pitches,
                         chord1_suspensions=chord1_suspensions,
@@ -544,11 +592,11 @@ class FourPartWorker(TwoPartContrapuntist):
                         chord2_bass_pitch=bass_pitch,
                         chord2_suspensions=these_chord2_suspensions,
                     ):
-                        yield voicing[1:-1]
+                        yield _result_from_voicing(voicing, suspension_combo)
                 self._undo_suspension_combo(suspension_combo)
             else:
                 for voicing in voice_lead_chords(
-                    self.prev_chord,  # type:ignore
+                    self.prev_chord,
                     self.current_chord,
                     chord1_pitches=self.prev_pitches,
                     chord1_suspensions=chord1_suspensions,
@@ -556,7 +604,7 @@ class FourPartWorker(TwoPartContrapuntist):
                     chord2_bass_pitch=bass_pitch,
                     chord2_suspensions=chord2_suspensions,
                 ):
-                    yield voicing[1:-1]
+                    yield _result_from_voicing(voicing)
 
     def _resolve_inner_voice_suspensions_step(
         self,
@@ -564,7 +612,7 @@ class FourPartWorker(TwoPartContrapuntist):
         bass_pitch: Pitch,
         tenor_resolves: bool,
         alto_resolves: bool,
-    ) -> t.Iterator[tuple[Pitch, Pitch]]:
+    ) -> t.Iterator[InnerVoicesResult]:
         LOGGER.debug(
             f"resolving inner-voice suspension: {tenor_resolves=} {alto_resolves=}"
         )
@@ -582,24 +630,28 @@ class FourPartWorker(TwoPartContrapuntist):
             ):
                 raise DeadEnd()
 
-        if tenor_resolves and alto_resolves:
-            yield (
-                self._suspension_resolutions[InnerVoice.TENOR][self.i],
-                self._suspension_resolutions[InnerVoice.ALTO][self.i],
-            )
-        elif tenor_resolves or alto_resolves:
+        tenor_resolution_pitch = self._suspension_resolutions[InnerVoice.TENOR].get(
+            self.i, None
+        )
+        alto_resolution_pitch = self._suspension_resolutions[InnerVoice.ALTO].get(
+            self.i, None
+        )
+        if tenor_resolution_pitch and alto_resolution_pitch:
+            yield {"tenor": tenor_resolution_pitch, "alto": alto_resolution_pitch}
+        elif tenor_resolution_pitch or alto_resolution_pitch:
             yield from self._voice_lead_chords(
                 melody_pitch,
                 bass_pitch,
-                tenor_resolves=tenor_resolves,
-                alto_resolves=alto_resolves,
+                tenor_resolution_pitch=tenor_resolution_pitch,
+                alto_resolution_pitch=alto_resolution_pitch,
             )
+
         else:
             raise ValueError()
 
     def _inner_voice_step(
         self, melody_pitch, bass_pitch
-    ) -> t.Iterator[tuple[Pitch, Pitch]]:
+    ) -> t.Iterator[InnerVoicesResult]:
         # -------------------------------------------------------------------------------
         # Condition 1: start the inner voices
         # -------------------------------------------------------------------------------
@@ -614,7 +666,7 @@ class FourPartWorker(TwoPartContrapuntist):
                 shuffled=True,
             ):
                 LOGGER.debug(f"Pitch voicing: {pitch_voicing}")
-                yield pitch_voicing[1:-1]
+                yield {"tenor": pitch_voicing[1], "alto": pitch_voicing[2]}
                 return
 
         # -------------------------------------------------------------------------------
@@ -646,8 +698,9 @@ class FourPartWorker(TwoPartContrapuntist):
                     ):
                         yield {
                             "bass": bass_pitch,
+                            "tenor": inner_voices["tenor"],
+                            "alto": inner_voices["alto"],
                             "melody": melody_pitch,
-                            "inner_voices": inner_voices,
                         }
         else:
             for melody_pitch in self._melody_step():
@@ -657,8 +710,9 @@ class FourPartWorker(TwoPartContrapuntist):
                     ):
                         yield {
                             "bass": bass_pitch,
+                            "tenor": inner_voices["tenor"],
+                            "alto": inner_voices["alto"],
                             "melody": melody_pitch,
-                            "inner_voices": inner_voices,
                         }
         LOGGER.debug("reached dead end")
         raise DeadEnd()
@@ -677,10 +731,11 @@ class FourPartWorker(TwoPartContrapuntist):
             with append_attempt(
                 (
                     self._score.structural_bass,
+                    self._score.inner_voices[InnerVoice.TENOR],
+                    self._score.inner_voices[InnerVoice.ALTO],
                     self._score.structural_melody,
-                    self._score.inner_voices,
                 ),
-                (pitches["bass"], pitches["melody"], pitches["inner_voices"]),
+                (pitches["bass"], pitches["tenor"], pitches["alto"], pitches["melody"]),
             ):
                 LOGGER.debug(f"append attempt {pitches}")
                 return self._recurse()
