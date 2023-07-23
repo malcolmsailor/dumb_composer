@@ -104,6 +104,35 @@ TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingPr
     }
 )
 
+DEFAULT_CHORD_FACTOR_SUSPENSION_WEIGHT = 0.5
+SUSPENSION_WEIGHTS_BY_SCALAR_INTERVALS: t.Mapping[
+    tuple[ScalarInterval, ...], t.Mapping[ChordFactor, float]
+] = {
+    # TRIADS
+    # 53 chord
+    (2, 4): {Third: 3.0, Fifth: 0.75},
+    # 63 chord
+    (2, 5): {Third: 2.5, Root: 1.0},
+    # 64 chord
+    (3, 5): {},
+    # SEVENTH CHORDS
+    # 73 chord
+    (2, 4, 6): {Third: 2.5, Root: 1.0},
+    # 65 chord
+    (2, 4, 5): {Third: 3.0, Root: 1.0},
+    # 43 chord
+    (2, 3, 5): {Third: 2.5, Root: 1.0},
+    # 42 chord
+    (1, 3, 5): {Third: 2.5, Root: 0.75},
+}
+SUSPENSION_WEIGHTS_BY_CHROMATIC_INTERVALS: t.Mapping[
+    tuple[ChromaticInterval, ...], t.Mapping
+] = {
+    # TRIADS
+    # Diminished 63 chord
+    (3, 9): {Third: 1.0, Root: 3.0},
+}
+
 
 def is_major_or_minor_64(chord: Chord) -> bool:
     return chord.chromatic_intervals_above_bass in ((5, 8), (5, 9))
@@ -173,6 +202,12 @@ def is_43_ascending_by_step(
     )
 
 
+def is_diminished_63(
+    chord: Chord, previous_chord: Chord | None = None, next_chord: Chord | None = None
+) -> bool:
+    return chord.chromatic_intervals_above_bass == (3, 9)
+
+
 def is_diminished_63_ascending_by_step_to_63(
     chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
 ) -> bool:
@@ -192,7 +227,7 @@ def is_diminished_63_ascending_by_step_to_63(
     if next_chord is None:
         return False
     return (
-        is_63(chord)
+        is_diminished_63(chord)
         and chord_ascends_by_step(chord, next_chord)
         and is_63(next_chord, superset_ok=True)
     )
@@ -204,9 +239,10 @@ CONDITIONAL_TENDENCIES: t.Mapping[
     {
         is_stationary_64: {Root: Tendency.DOWN, Third: Tendency.DOWN},
         is_43_ascending_by_step: {
-            Seventh: Tendency.UP
-        },  # TODO: (Malcolm 2023-07-19) maybe change to NONE
-        is_diminished_63_ascending_by_step_to_63: {Seventh: Tendency.UP},
+            Seventh: Tendency.NONE
+        },  # TODO: (Malcolm 2023-07-19) maybe change to UP
+        is_diminished_63: {Fifth: Tendency.NONE},
+        is_diminished_63_ascending_by_step_to_63: {Fifth: Tendency.UP},
     }
 )
 
@@ -220,7 +256,7 @@ CONDITIONAL_TENDENCIES: t.Mapping[
 #   for all other notes.
 VOICING_PREREQUISITES: t.Mapping[
     RNToken, t.Mapping[ChordFactor, t.Sequence[ChordFactor]]
-] = MappingProxyType({"V43": {Root: [Seventh]}})
+] = {"V43": {Root: [Seventh]}}
 
 
 # Can't be a lambda because needs to be pickleable
@@ -247,7 +283,11 @@ class Chord:
     harmony_release: t.Optional[TimeStamp] = field(default=None, compare=False)
 
     def __post_init__(self):
-        self._lookup_pcs = {pc: i for (i, pc) in enumerate(self.pcs)}
+        self._pc_to_bass_factor = {pc: i for (i, pc) in enumerate(self.pcs)}
+        self._pc_to_chord_factor = {
+            pc: (i + self.inversion) % self.cardinality
+            for (i, pc) in enumerate(self.pcs)
+        }
         self._pc_voicing_cache = {}
         self._max_doublings = defaultdict(default2)
         if self.is_consonant:
@@ -304,7 +344,7 @@ class Chord:
     @cached_property
     def chromatic_intervals_above_bass(self) -> t.Tuple[ChromaticInterval]:
         """
-        >>> rntxt = "m1 C: I b3 V43"
+        >>> rntxt = "m1 Bb: I b3 V43"
         >>> I, V43 = get_chords_from_rntxt(rntxt)
         >>> I.chromatic_intervals_above_bass
         (4, 7)
@@ -312,7 +352,7 @@ class Chord:
         (3, 5, 9)
         """
         foot = self.foot
-        return tuple(pc - foot for pc in self.pcs[1:])
+        return tuple((pc - foot) % 12 for pc in self.pcs[1:])
 
     def copy(self):
         """
@@ -335,7 +375,7 @@ class Chord:
         {}
         >>> V43._voicing_prerequisites  # pitch-class 5 (F) must be present for
         ... # bass-factor 2 (G) to be added
-        mappingproxy({2: (5,)})
+        {2: (5,)}
         """
         chord_factor_prerequisites = VOICING_PREREQUISITES.get(self.token, None)
         if chord_factor_prerequisites is None:
@@ -346,7 +386,7 @@ class Chord:
             )
             for bass_factor, prereqs in chord_factor_prerequisites.items()
         }
-        return MappingProxyType(bass_factor_prerequisites)
+        return bass_factor_prerequisites
 
     @cached_property
     def bass_factor_to_chord_factor(self) -> t.Tuple[int]:
@@ -406,6 +446,17 @@ class Chord:
     def max_doublings(self):  # pylint: disable=missing-docstring
         return self._max_doublings
 
+    def pitch_to_chord_factor(self, pitch: PitchOrPitchClass) -> ChordFactor:
+        """
+        >>> rntxt = "m1 C: I b3 I6"
+        >>> I, I6 = get_chords_from_rntxt(rntxt)
+        >>> I.pitch_to_chord_factor(60)
+        0
+        >>> I6.pitch_to_chord_factor(60)
+        0
+        """
+        return self._pc_to_chord_factor[pitch % 12]
+
     def pitch_to_bass_factor(self, pitch: PitchOrPitchClass) -> BassFactor:
         """
         >>> rntxt = "m1 C: I b3 I6"
@@ -415,7 +466,7 @@ class Chord:
         >>> I6.pitch_to_bass_factor(60)
         2
         """
-        return self._lookup_pcs[pitch % 12]
+        return self._pc_to_bass_factor[pitch % 12]
 
     @property
     def is_consonant(self) -> bool:
@@ -605,7 +656,7 @@ class Chord:
         >>> V64.get_pitch_tendency(67)
         <Tendency.NONE: 1>
         """
-        bass_factor = self._lookup_pcs[pitch % 12]
+        bass_factor = self._pc_to_bass_factor[pitch % 12]
         return self.tendencies.get(bass_factor, Tendency.NONE)
 
     def pc_can_be_doubled(self, pitch_or_pc: int) -> bool:
@@ -640,7 +691,7 @@ class Chord:
         >>> viio7_of_vi.check_pitch_doublings([56, 59, 62, 65, 71])
         True
         """
-        counts = Counter([self._lookup_pcs[pitch % 12] for pitch in pitches])
+        counts = Counter([self._pc_to_bass_factor[pitch % 12] for pitch in pitches])
         for bass_factor, count in counts.items():
             if (
                 count > 1
@@ -1025,6 +1076,13 @@ class Chord:
 
         Note: the bass is not included in the result.
 
+        # TODO: (Malcolm 2023-07-23) restore
+        # >>> rntxt = "m1 F: viio6/ii"
+        # >>> (viio6_of_ii,) = get_chords_from_rntxt(rntxt)
+        # >>> viio6_of_ii.get_pcs_needed_to_complete_voicing(
+        # ...     other_chord_factors=(66,), bass_suspension=46, min_notes=4, max_notes=4
+        # ... )
+
         >>> rntxt = '''m1 C: V7 b2 V65 b3 V6 b4 V43
         ... m2 I'''
         >>> V7, V65, V6, V43, I = get_chords_from_rntxt(rntxt)
@@ -1152,6 +1210,22 @@ class Chord:
         return out
 
     @cached_property
+    def suspension_weight_per_chord_factor(self) -> defaultdict[ChordFactor, float]:
+        out_dict = {}
+        if self.scalar_intervals_above_bass in SUSPENSION_WEIGHTS_BY_SCALAR_INTERVALS:
+            out_dict |= SUSPENSION_WEIGHTS_BY_SCALAR_INTERVALS[
+                self.scalar_intervals_above_bass
+            ]
+        if (
+            self.chromatic_intervals_above_bass
+            in SUSPENSION_WEIGHTS_BY_CHROMATIC_INTERVALS
+        ):
+            out_dict |= SUSPENSION_WEIGHTS_BY_CHROMATIC_INTERVALS[
+                self.chromatic_intervals_above_bass
+            ]
+        return defaultdict(lambda: DEFAULT_CHORD_FACTOR_SUSPENSION_WEIGHT, out_dict)
+
+    @cached_property
     def augmented_second_adjustments(self) -> t.Dict[ScaleDegree, Inflection]:
         """
         Suppose that a scale contains an augmented second. Then, to remove the
@@ -1235,7 +1309,7 @@ class Chord:
                 (unspeller_pcs(m.group("key")) + interval) % 12  # type:ignore
             )
             out.token = key + ":" + m.group("numeral")  # type:ignore
-        out._lookup_pcs = {pc: i for (i, pc) in enumerate(out.pcs)}
+        out._pc_to_bass_factor = {pc: i for (i, pc) in enumerate(out.pcs)}
         return out
 
 
@@ -1551,6 +1625,7 @@ def get_chords_from_rntxt(
         [None] + out_list[:-1], out_list, out_list[1:] + [None]
     ):
         chord.update_tendencies_from_context(prev_chord, next_chord)
+
     return out_list
 
 

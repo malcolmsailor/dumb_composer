@@ -60,7 +60,6 @@ class ComposerWrangler:
         exts: t.Set[str] = {"txt", "rntxt"},
         basename_startswith=None,
     ):
-
         for path in self._get_paths(base_path, exts, basename_startswith):
             self(path)
 
@@ -136,9 +135,7 @@ class ComposerWrangler:
                 **settings_dict,
             )
             with open(os.path.join(output_dir, "settings.txt"), "w") as outf:
-                json.dump(
-                    asdict(generic_settings), outf, indent=2, default=repr
-                )
+                json.dump(asdict(generic_settings), outf, indent=2, default=repr)
 
         if not any((write_midi, write_csv, write_romantext)):
             raise ValueError(
@@ -151,9 +148,7 @@ class ComposerWrangler:
         missing_files = n - len(paths_todo)
         while missing_files:
             if shuffle:
-                paths_todo.extend(
-                    random.sample(paths, min(missing_files, len(paths)))
-                )
+                paths_todo.extend(random.sample(paths, min(missing_files, len(paths))))
             else:
                 paths_todo.extend(paths[: min(missing_files, len(paths))])
             missing_files = n - len(paths_todo)

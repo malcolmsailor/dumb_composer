@@ -6,19 +6,25 @@ from numbers import Number
 from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
-    TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS,
+    TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS,
 )
+from dumb_composer.pitch_utils.aliases import Third
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt  # used in doctests
 from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.intervals import (
     reduce_compound_interval,
     smallest_pitch_class_interval,
 )
-from dumb_composer.pitch_utils.types import ChromaticInterval, Pitch, TimeStamp
+from dumb_composer.pitch_utils.types import (
+    ChordFactor,
+    ChromaticInterval,
+    Pitch,
+    ScalarInterval,
+    TimeStamp,
+)
 from dumb_composer.time import Meter, MeterError
 
 
-# TODO: (Malcolm 2023-07-20) update
 def pitch_dissonant_against_chord(pitch: int, chord_pcs: t.Sequence[int]) -> bool:
     """The first item of chord_pcs is understood to be the bass.
 
@@ -318,30 +324,30 @@ def find_suspensions(
             ):
                 continue
 
-            comparison_pc = None
+            displaced_pc = None
             if resolution_chord == suspension_chord:
-                comparison_pc = resolution_pc
+                displaced_pc = resolution_pc
             else:
                 to_continue = True
                 for interval in resolve_by:
-                    comparison_pc = (src_pitch + interval) % 12
+                    displaced_pc = (src_pitch + interval) % 12
                     if (
-                        comparison_pc not in suspension_chord_pcs_to_avoid
-                        and comparison_pc in suspension_chord.pcs
+                        displaced_pc not in suspension_chord_pcs_to_avoid
+                        and displaced_pc in suspension_chord.pcs
                     ):
                         to_continue = False
                         break
                 if to_continue:
                     continue
-            assert comparison_pc is not None
+            assert displaced_pc is not None
 
             interval_above_bass = reduce_compound_interval(
                 src_pitch - suspension_chord.foot
             )
 
             other_pcs = list(suspension_chord.pcs)
-            if comparison_pc != suspension_chord.foot:
-                other_pcs.remove(comparison_pc)
+            if displaced_pc != suspension_chord.foot:
+                other_pcs.remove(displaced_pc)
             dissonant = pitch_dissonant_against_chord(src_pitch, other_pcs)
             if enforce_dissonant and not dissonant:
                 continue
@@ -349,8 +355,6 @@ def find_suspensions(
             expected_resolution_interval = reduce_compound_interval(
                 (src_pitch + resolution_interval) - resolution_chord.foot
             )
-            # TODO: (Malcolm 2023-07-21) do we want to revise weights here? 5 is maybe
-            #   a little high?
 
             if src_pitch_tendency is Tendency.NONE:
                 score_factor = 1.0
@@ -359,9 +363,20 @@ def find_suspensions(
             else:
                 score_factor = contrary_tendency_score_factor
 
+            displaced_chord_factor = suspension_chord.pitch_to_chord_factor(
+                displaced_pc
+            )
+            chord_factor_weight = suspension_chord.suspension_weight_per_chord_factor[
+                displaced_chord_factor
+            ]
+
             score = (
-                TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS[expected_resolution_interval]
-                * score_factor
+                # TODO: (Malcolm 2023-07-23) restore
+                # TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS[
+                #     expected_resolution_interval
+                # ] *
+                score_factor
+                * chord_factor_weight
             )
 
             out.append(
@@ -496,12 +511,18 @@ def find_bass_suspension(
     expected_resolution_interval = reduce_compound_interval(
         (src_pitch + resolution_interval) - resolution_chord.foot
     )
-    # TODO: (Malcolm 2023-07-21) suspension weights per-chord type (e.g., specify
-    #   that a bass suspension on a 6/3 chord is good)
-    # TODO: (Malcolm 2023-07-21) do we want to revise weights here? 5 is maybe
-    #   a little high?
+
+    displaced_chord_factor = suspension_chord.pitch_to_chord_factor(
+        suspension_chord.foot
+    )
+    chord_factor_weight = suspension_chord.suspension_weight_per_chord_factor[
+        displaced_chord_factor
+    ]
+
     score = (
-        TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS[expected_resolution_interval]
+        # TODO: (Malcolm 2023-07-23) restore?
+        # TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS[expected_resolution_interval]
+        chord_factor_weight
         * score_factor
     )
 
@@ -597,14 +618,9 @@ def find_suspension_release_times(
             out.append(res_onset)
         if res_weight == meter.min_weight:
             break
-        try:
-            stop, _ = meter.get_onset_of_greatest_weight_between(
-                start, stop, include_start=False, return_first=meter.is_compound
-            )
-        except MeterError:
-            # TODO: (Malcolm 2023-07-21) this occurs when the division gets too small.
-            # we should avoid such outcomes though.
-            break
+        stop, _ = meter.get_onset_of_greatest_weight_between(
+            start, stop, include_start=False, return_first=meter.is_compound
+        )
     # TODO suspensions releases should have a "score" that indicates
     #   how likely they are to be employed.
     return out
@@ -614,13 +630,20 @@ def validate_suspension_resolution(
     resolution_pitch: Pitch,
     other_pitches: t.Sequence[Pitch],
     resolution_chord: Chord,
+    prev_melody_pitch: Pitch | None = None,
+    melody_pitch: Pitch | None = None,
 ) -> bool:
-    """
-    For now, this function checks whether resolution pitch is a tendency tone and if
-    so, makes sure that it doesn't occur in other pitches.
-    """
-    # TODO: (Malcolm 2023-07-22) think about other conditions that should apply
+    # 1: if resolution pc is a tendency tone, make sure that tendency doesn't occur
+    #   in other voices
     if resolution_chord.get_pitch_tendency(resolution_pitch) is not None:
         if resolution_pitch % 12 in {p % 12 for p in other_pitches}:
             return False
+
+    # 2: make sure resolution pitch isn't doubled by melody, unless the melody
+    #   is moving obliquely
+    if melody_pitch is not None:
+        if melody_pitch % 12 == resolution_pitch % 12:
+            if prev_melody_pitch is None or prev_melody_pitch != melody_pitch:
+                return False
+
     return True

@@ -58,7 +58,7 @@ class TwoPartContrapuntistSettings(IntervalChooser2Settings):
     # If a bool and True, the only allowed suspension is by semitone.
     allow_upward_suspensions_melody: t.Union[bool, t.Tuple[int]] = False
     allow_upward_suspensions_bass: t.Union[bool, t.Tuple[int]] = False
-    annotate_suspensions: bool = False  # TODO: (Malcolm 2023-07-21) restore True
+    annotate_suspensions: bool = True
     # when choosing whether to insert a suspension, we put the "score" of each
     #   suspension (so far, by default 1.0) into a softmax together with the
     #   following "no_suspension_score".
@@ -144,6 +144,9 @@ class TwoPartContrapuntist:
             assert score is not None
             assert score.range_constraints == self.settings.range_constraints
             self._score = score
+
+        # For debugging
+        self._deadend_args: dict[str, t.Any] = {}
 
     def validate_state(self) -> bool:
         return len(self._score.structural_melody) == len(self._score.structural_bass)
@@ -454,7 +457,6 @@ class TwoPartContrapuntist:
             + list(zip(next_chord_suspensions, repeat([next_chord_release_time])))
             + [(None, None)]
         )
-
         for suspension, release_times in weighted_sample_wo_replacement(
             suspensions_and_release_times, weights
         ):
@@ -889,7 +891,6 @@ class TwoPartContrapuntist:
                     LOGGER.debug(
                         f"{self.__class__.__name__} yielding tendency resolution pitch {pitch}"
                     )
-
                     yield pitch
                     # self._lingering_tendencies[i + 1][
                     #     pitch
@@ -1044,7 +1045,7 @@ class TwoPartContrapuntist:
                     yield {"bass": bass_pitch, "melody": melody_pitch}
 
         LOGGER.debug("reached dead end")
-        raise DeadEnd()
+        raise DeadEnd(**self._deadend_args)
 
     def __call__(self):
         assert self.empty

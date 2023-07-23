@@ -31,12 +31,11 @@ class StructuralPartitionerSettings:
     # probability distribution we can sample from. The higher the temperature,
     # the more evenly the probability mass is spread out.
     # (The temperature should always be > 0.)
-    # TODO changing this doesn't seem to be having an effect
     candidates_softmax_temperature: float = 0.5
     arc_shape: Shape = Shape.QUADRATIC
 
 
-# TODO: (Malcolm) can I replace this with flatten_iterables ?
+# this could maybe be replaced with flatten_iterables
 def _flatten_list_sub(x: t.Union[t.Any, t.List[t.Any]]):
     if isinstance(x, list):
         out = []

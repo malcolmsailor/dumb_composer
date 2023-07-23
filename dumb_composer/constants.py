@@ -20,7 +20,7 @@ DOM_7TH = (0, 4, 7, 10)
 MIN_7TH = (0, 3, 7, 10)
 HALF_DIM = (0, 3, 6, 10)
 
-DEFAULT_BASS_RANGE = (30, 50)
+DEFAULT_BASS_RANGE = (36, 50)
 DEFAULT_MEL_RANGE = (60, 78)
 DEFAULT_ACCOMP_RANGE = (49, 76)
 DEFAULT_TENOR_MEL_RANGE = (48, 67)
@@ -85,7 +85,7 @@ PERFECT_CONSONANCE_WEIGHT = 0.0
 IMPERFECT_CONSONANCE_WEIGHT = 5.0
 DISSONANCE_WEIGHT = 2.5
 
-# TODO: (Malcolm 2023-07-20) it would be nice to use MappingProxyType here except that it isn't pickleable
+# it would be nice to use MappingProxyType here except that it isn't pickleable
 TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS = {
     0: OCTAVE_UNISON_WEIGHT,
     1: DISSONANCE_WEIGHT,
@@ -100,4 +100,20 @@ TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS = {
     10: DISSONANCE_WEIGHT,
     11: DISSONANCE_WEIGHT,
     12: OCTAVE_UNISON_WEIGHT,
+}
+
+TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS = {
+    0: 0.0,
+    1: 1.0,
+    2: 1.0,
+    3: 1.5,
+    4: 1.5,
+    5: 1.0,
+    6: 1.0,
+    7: 0.75,
+    8: 1.5,
+    9: 1.5,
+    10: 1.0,
+    11: 1.0,
+    12: 0.75,
 }

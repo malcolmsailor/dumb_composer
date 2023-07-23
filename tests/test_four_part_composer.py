@@ -5,6 +5,7 @@ import pandas as pd
 from midi_to_notes import df_to_midi
 
 from dumb_composer.four_part_composer import FourPartComposer, FourPartComposerSettings
+from dumb_composer.time import Meter
 from tests.test_helpers import TEST_OUT_DIR
 
 
@@ -29,19 +30,29 @@ def test_four_part_composer(time_sig=(4, 4)):
     m13 I
     """
     dfs = []
+    deadend_dfs = []
     settings = FourPartComposerSettings()
-    for seed in range(42, 42 + 10):
+    initial_seed = 42
+    number_of_tries = 10
+    for seed in range(initial_seed, initial_seed + number_of_tries):
         fpc = FourPartComposer(settings)
         random.seed(seed)
-        out_df = fpc(rn_txt)
+        out_df, these_deadends = fpc._debug(rn_txt)
 
         dfs.append(out_df)
+        deadend_dfs.extend(these_deadends)
 
     time_adjustment = 0
-    for df in dfs:
-        df["onset"] += time_adjustment
-        df["release"] += time_adjustment
-        time_adjustment = df["release"].max() + numer
+
+    meter = Meter(ts)
+    for df_list in (dfs, deadend_dfs):
+        for df in df_list:
+            df["onset"] += time_adjustment
+            df["release"] += time_adjustment
+            time_adjustment = (
+                df["release"].max() // meter.bar_dur + 1
+            ) * meter.bar_dur + numer
+
     mid_path = os.path.join(
         TEST_OUT_DIR,
         f"four_part_composer={ts.replace('/', '-')}.mid",
@@ -49,3 +60,12 @@ def test_four_part_composer(time_sig=(4, 4)):
     out_df = pd.concat(dfs, axis=0)
     print(f"writing {mid_path}")
     df_to_midi(out_df, mid_path, ts=(numer, denom))
+
+    if deadend_dfs:
+        deadend_path = os.path.join(
+            TEST_OUT_DIR,
+            f"four_part_composer={ts.replace('/', '-')}_deadends.mid",
+        )
+        deadend_df = pd.concat(deadend_dfs, axis=0)
+        print(f"writing {deadend_path}")
+        df_to_midi(deadend_df, deadend_path, ts=(numer, denom))

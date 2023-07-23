@@ -219,8 +219,6 @@ def apply_ties(
 
 class ScaleGetter:
     """
-    # TODO: (Malcolm) I'm not sure why this class is necessary in addition to
-    # ScaleDict
     >>> C_major = (0, 2, 4, 5, 7, 9, 11)
     >>> D_major = (2, 4, 6, 7, 9, 11, 1)
     >>> Octatonic = (0, 2, 3, 5, 6, 8, 9, 11)
@@ -669,7 +667,6 @@ class FourPartScore(_ScoreBase):
     def inner_voices_as_df(self) -> pd.DataFrame:
         notes = []
         for chord_i, inner_voices in enumerate(zip(*self.inner_voices.values())):
-            # TODO: (Malcolm 2023-07-22) verify
             for pitch in inner_voices:
                 notes.append(
                     Note(  # type:ignore

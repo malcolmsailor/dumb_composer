@@ -42,7 +42,6 @@ from dumb_composer.utils.display import Spinner
 from dumb_composer.utils.recursion import DeadEnd, RecursionFailed, append_attempt
 
 LOGGER = logging.getLogger(__name__)
-# TODO: (Malcolm 2023-07-13) update
 LOGGER.setLevel(logging.DEBUG)
 
 
@@ -156,7 +155,7 @@ class PrefabComposer:
                             return
         except MissingPrefabError as exc:
             self.missing_prefabs[str(exc)] += 1
-        raise DeadEnd
+        raise DeadEnd()
 
     def _recurse(self, i: int, score: PrefabScore):
         self._check_n_recurse_calls()

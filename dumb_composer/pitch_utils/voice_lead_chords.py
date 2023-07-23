@@ -6,10 +6,17 @@ from collections import Counter
 from itertools import chain
 from types import MappingProxyType
 
-from voice_leader import voice_lead_pitches_multiple_options_iter
+from voice_leader import (
+    CardinalityDiffersTooMuch,
+    voice_lead_pitches_multiple_options_iter,
+)
 
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt  # Used in doctests
-from dumb_composer.pitch_utils.chords import Chord, Tendency
+from dumb_composer.pitch_utils.chords import (  # Used in doctests
+    Chord,
+    Tendency,
+    get_chords_from_rntxt,
+    is_same_harmony,
+)
 from dumb_composer.pitch_utils.parts import (
     outer_voices_have_forbidden_antiparallels,
     succession_has_forbidden_parallels,
@@ -41,6 +48,21 @@ def voice_lead_chords(
     normalize_voice_assignments: bool = True,
 ) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
+
+    >>> rntxt = "m1 F: viio64 b3 viio6/ii"
+    >>> viio64, viio6_of_ii = get_chords_from_rntxt(rntxt)
+    >>> suspension = Suspension(
+    ...     pitch=46, resolves_by=-1, dissonant=True, interval_above_bass=0, score=1.25
+    ... )
+    >>> vl_iter = voice_lead_chords(
+    ...     viio64,
+    ...     viio6_of_ii,
+    ...     (46, 55, 55, 64),
+    ...     chord2_bass_pitch=46,
+    ...     chord2_melody_pitch=66,
+    ...     chord2_suspensions={46: suspension},
+    ... )
+    >>> next(vl_iter)
 
     # TODO: (Malcolm 2023-07-22) is this example working as intended?
     # >>> rntxt = '''m1 F: vi b3 viio7/V'''
@@ -595,6 +617,8 @@ def voice_lead_chords(
         (p + s.resolves_by) % 12 for (p, s) in chord2_suspensions.items()
     }
 
+    within_harmony = is_same_harmony(chord1, chord2)
+
     resolution_pitches = []
     unresolved_suspensions = []
     unresolved_tendencies = []
@@ -626,9 +650,11 @@ def voice_lead_chords(
             else:
                 unresolved_suspensions.append(pitch)
         # ------------------------------------------------------------------------------
-        # Case 2 pitch has tendency
+        # Case 2 pitch has tendency *and* chord changes
         # ------------------------------------------------------------------------------
-        elif (pitch_tendency := chord1.get_pitch_tendency(pitch)) is not Tendency.NONE:
+        elif (not within_harmony) and (
+            pitch_tendency := chord1.get_pitch_tendency(pitch)
+        ) is not Tendency.NONE:
             resolution = chord2.get_tendency_resolutions(pitch, pitch_tendency)
 
             pc = pitch % 12
@@ -807,30 +833,35 @@ def voice_lead_chords(
         for option in chord2_options
     ]
 
-    for (
-        candidate_pitches,
-        voice_assignments,
-    ) in voice_lead_pitches_multiple_options_iter(
-        pitches_to_voice_lead_from,
-        pcs_to_voice_lead_to,
-        chord2_option_weights=chord2_option_weights,
-        # We handle the bass separately if there is a bass suspension
-        preserve_bass=bass_suspension is None,
-        avoid_bass_crossing=bass_suspension is None,
-        min_pitch=min_pitch,
-        max_pitch=max_pitch,
-        min_bass_pitch=min_bass_pitch,
-        max_bass_pitch=max_bass_pitch,
-        exclude_motions=exclude_motions,
-        ignore_voice_assignments=normalize_voice_assignments,
-    ):
-        output = tuple(
-            sorted(candidate_pitches + prespecified_pitches + chord2_suspension_pitches)
-        )
-        if not validate_spacing(output, spacing_constraints):
-            continue
-        if succession_has_forbidden_parallels(chord1_pitches, output):
-            continue
-        if outer_voices_have_forbidden_antiparallels(chord1_pitches, output):
-            continue
-        yield output
+    try:
+        for (
+            candidate_pitches,
+            voice_assignments,
+        ) in voice_lead_pitches_multiple_options_iter(
+            pitches_to_voice_lead_from,
+            pcs_to_voice_lead_to,
+            chord2_option_weights=chord2_option_weights,
+            # We handle the bass separately if there is a bass suspension
+            preserve_bass=bass_suspension is None,
+            avoid_bass_crossing=bass_suspension is None,
+            min_pitch=min_pitch,
+            max_pitch=max_pitch,
+            min_bass_pitch=min_bass_pitch,
+            max_bass_pitch=max_bass_pitch,
+            exclude_motions=exclude_motions,
+            ignore_voice_assignments=normalize_voice_assignments,
+        ):
+            output = tuple(
+                sorted(
+                    candidate_pitches + prespecified_pitches + chord2_suspension_pitches
+                )
+            )
+            if not validate_spacing(output, spacing_constraints):
+                continue
+            if succession_has_forbidden_parallels(chord1_pitches, output):
+                continue
+            if outer_voices_have_forbidden_antiparallels(chord1_pitches, output):
+                continue
+            yield output
+    except CardinalityDiffersTooMuch as exc:
+        raise ValueError

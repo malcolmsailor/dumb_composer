@@ -1,6 +1,7 @@
 import logging
 import typing as t
 from contextlib import contextmanager
+from copy import deepcopy
 
 
 class RecursionFailed(Exception):
@@ -12,7 +13,15 @@ class UndoRecursiveStep(Exception):
 
 
 class DeadEnd(UndoRecursiveStep):
-    pass
+    def __init__(
+        self,
+        save_deadends_to: list[t.Any] | None = None,
+        max_deadends_to_save: int = 100,
+        **kwargs,
+    ):
+        if save_deadends_to is not None:
+            if len(save_deadends_to) < max_deadends_to_save:
+                save_deadends_to.append(deepcopy(kwargs))
 
 
 @contextmanager

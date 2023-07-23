@@ -16,7 +16,7 @@ from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import Pitch, PitchClass, TimeStamp
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
-from dumb_composer.shared_classes import FourPartScore, InnerVoice
+from dumb_composer.shared_classes import Annotation, FourPartScore, InnerVoice
 from dumb_composer.structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
@@ -42,9 +42,6 @@ LOGGER.setLevel(logging.DEBUG)
 
 SuspensionCombo = dict[InnerVoice, Suspension]
 
-# TODO: (Malcolm 2023-07-22) suspensions less likely when the preparation is an
-#   ascending tendency tone
-# TODO: (Malcolm 2023-07-22) don't move melody to suspension resolution in inner voice
 # TODO: (Malcolm 2023-07-22) I think we generally don't want 9--8 suspensions in
 #   inner voices except in certain special circumstances
 
@@ -63,6 +60,8 @@ class FourPartComposerSettings(
     range_constraints: RangeConstraints = RangeConstraints()
     spacing_constraints: SpacingConstraints = SpacingConstraints()
     allow_upward_suspension_resolutions_inner_voices: bool | tuple[int, ...] = False
+
+    inner_voice_suspensions_dont_cross_melody: bool = True
 
 
 class FourPartWorker(TwoPartContrapuntist):
@@ -109,6 +108,9 @@ class FourPartWorker(TwoPartContrapuntist):
             OuterVoice | InnerVoice, t.Dict[int, int]
         ] = defaultdict(dict)
 
+        # For debugging
+        self._deadend_args: dict[str, t.Any] = {}
+
     def validate_state(self) -> bool:
         return (
             len(self._score.structural_melody)
@@ -135,8 +137,6 @@ class FourPartWorker(TwoPartContrapuntist):
     @property
     def prev_inner_voices(self) -> tuple[Pitch, Pitch]:
         assert self.i > 0
-        # TODO: (Malcolm 2023-07-22) do we still want to use this property after
-        #   refactoring score?
         return (
             self._score.inner_voices[InnerVoice.TENOR][self.i - 1],
             self._score.inner_voices[InnerVoice.ALTO][self.i - 1],
@@ -173,6 +173,27 @@ class FourPartWorker(TwoPartContrapuntist):
         self._score.inner_voice_suspensions[voice].pop(
             self.i
         )  # raises KeyError if not present
+
+    def annotate_suspension(self, voice: OuterVoice | InnerVoice):
+        if isinstance(voice, OuterVoice):
+            super().annotate_suspension(voice)
+            return
+        annotations_label = (
+            "tenor_suspensions" if voice is InnerVoice.TENOR else "alto_suspensions"
+        )
+        self._score.annotations[annotations_label].append(
+            Annotation(self.current_chord.onset, "S")
+        )
+
+    def remove_suspension_annotation(self, voice: OuterVoice | InnerVoice):
+        annotations_label = {
+            OuterVoice.BASS: "bass_suspensions",
+            OuterVoice.MELODY: "melody_suspensions",
+            InnerVoice.TENOR: "tenor_suspensions",
+            InnerVoice.ALTO: "alto_suspensions",
+        }[voice]
+        popped_annotation = self._score.annotations[annotations_label].pop()
+        assert popped_annotation.onset == self.current_chord.onset
 
     def prev_inner_voice_suspension(self, inner_voice: InnerVoice) -> Suspension | None:
         assert self.i >= 1
@@ -225,9 +246,6 @@ class FourPartWorker(TwoPartContrapuntist):
                 for suspension in suspensions_per_inner_voice[voice]
             ]
 
-        # TODO: (Malcolm 2023-07-21) I'm sure there are many more conditions to consider
-        # In fact, I'm not at all sure that a one-voice-at-a-time approach wouldn't be
-        # better.
         if InnerVoice.TENOR in suspensions_per_inner_voice:
             tenor_suspensions: list[SuspensionCombo] = [
                 {InnerVoice.TENOR: suspension}
@@ -282,11 +300,17 @@ class FourPartWorker(TwoPartContrapuntist):
         return out
 
     def _validate_suspension_resolution(
-        self, inner_voice: InnerVoice, other_pitches: t.Sequence[Pitch]
+        self, inner_voice: InnerVoice, bass_pitch: Pitch, melody_pitch: Pitch
     ) -> bool:
         resolution_pitch = self._suspension_resolutions[inner_voice][self.i]
+        if resolution_pitch < bass_pitch:
+            return False
         return validate_suspension_resolution(
-            resolution_pitch, other_pitches, self.current_chord
+            resolution_pitch,
+            (bass_pitch, melody_pitch),
+            self.current_chord,
+            prev_melody_pitch=self.prev_melody_pitch,
+            melody_pitch=melody_pitch,
         )
 
     def _choose_inner_voice_suspensions(
@@ -344,6 +368,13 @@ class FourPartWorker(TwoPartContrapuntist):
 
             for inner_voice in free_inner_voices:
                 prev_pitch = self.prev_pitch(inner_voice)
+
+                if (
+                    self.settings.inner_voice_suspensions_dont_cross_melody
+                    and prev_pitch > melody_pitch
+                ):
+                    continue
+
                 # Note: we don't provide `other_suspended_nonbass_pitches` here because
                 #   we could then rule out valid combinations of suspensions (since
                 #   these can include a 4th in combination with other intervals but not
@@ -372,6 +403,12 @@ class FourPartWorker(TwoPartContrapuntist):
             suspensions: dict[InnerVoice, list[Suspension]] = {}
             for inner_voice in free_inner_voices:
                 prev_pitch = self.prev_pitch(inner_voice)
+                if (
+                    self.settings.inner_voice_suspensions_dont_cross_melody
+                    and prev_pitch > melody_pitch
+                ):
+                    continue
+
                 # Note: we don't provide `other_suspended_nonbass_pitches` here because
                 #   we could then rule out valid combinations of suspensions (since
                 #   these can include a 4th in combination with other intervals but not
@@ -468,7 +505,7 @@ class FourPartWorker(TwoPartContrapuntist):
             )
             self.add_suspension(inner_voice, suspension)
             if self.settings.annotate_suspensions:
-                raise NotImplementedError("TODO")
+                self.annotate_suspension(inner_voice)
             suspended_pitches.append(suspended_pitch)
 
     def _undo_suspension_combo(self, suspension_combo: SuspensionCombo):
@@ -477,7 +514,7 @@ class FourPartWorker(TwoPartContrapuntist):
             self.remove_suspension_resolution(inner_voice)
             self.remove_suspension(inner_voice)
             if self.settings.annotate_suspensions:
-                raise NotImplementedError("TODO")
+                self.remove_suspension_annotation(inner_voice)
 
         if not self.suspension_in_any_voice():
             self.merge_current_chords_if_they_were_previously_split()
@@ -546,19 +583,22 @@ class FourPartWorker(TwoPartContrapuntist):
             pitch_pair = voicing[1:-1]
 
             if tenor_resolution_pitch is not None:
-                other_pitch = [p for p in pitch_pair if p != tenor_resolution_pitch][0]
+                other_pitch_i = int(pitch_pair[0] == tenor_resolution_pitch)
+                other_pitch = pitch_pair[other_pitch_i]
                 assert suspension_voice is None or suspension_voice is InnerVoice.ALTO
                 assert suspension is None or suspension.pitch == other_pitch
                 return {"tenor": tenor_resolution_pitch, "alto": other_pitch}
 
             elif alto_resolution_pitch is not None:
-                other_pitch = [p for p in pitch_pair if p != alto_resolution_pitch][0]
+                other_pitch_i = int(pitch_pair[0] == alto_resolution_pitch)
+                other_pitch = pitch_pair[other_pitch_i]
                 assert suspension_voice is None or suspension_voice is InnerVoice.TENOR
                 assert suspension is None or suspension.pitch == other_pitch
                 return {"tenor": other_pitch, "alto": alto_resolution_pitch}
 
             elif suspension is not None:
-                other_pitch = [p for p in pitch_pair if p != suspension.pitch][0]
+                other_pitch_i = int(pitch_pair[0] == suspension.pitch)
+                other_pitch = pitch_pair[other_pitch_i]
                 if suspension_voice is InnerVoice.TENOR:
                     return {"tenor": suspension.pitch, "alto": other_pitch}
                 else:
@@ -618,17 +658,17 @@ class FourPartWorker(TwoPartContrapuntist):
         )
         if tenor_resolves:
             if not self._validate_suspension_resolution(
-                InnerVoice.TENOR, other_pitches=(melody_pitch, bass_pitch)
+                InnerVoice.TENOR, melody_pitch=melody_pitch, bass_pitch=bass_pitch
             ):
                 # If the melody doubles a resolution pc, the validation will fail.
                 # It would be more efficient but rather more work to not generate the
                 # melody in the first place.
-                raise DeadEnd()
+                raise DeadEnd(**self._deadend_args)
         if alto_resolves:
             if not self._validate_suspension_resolution(
-                InnerVoice.ALTO, other_pitches=(melody_pitch, bass_pitch)
+                InnerVoice.ALTO, melody_pitch=melody_pitch, bass_pitch=bass_pitch
             ):
-                raise DeadEnd()
+                raise DeadEnd(**self._deadend_args)
 
         tenor_resolution_pitch = self._suspension_resolutions[InnerVoice.TENOR].get(
             self.i, None
@@ -715,7 +755,7 @@ class FourPartWorker(TwoPartContrapuntist):
                             "melody": melody_pitch,
                         }
         LOGGER.debug("reached dead end")
-        raise DeadEnd()
+        raise DeadEnd(**self._deadend_args)
 
     def _recurse(self) -> None:
         self._check_n_recurse_calls()
@@ -746,6 +786,12 @@ class FourPartWorker(TwoPartContrapuntist):
         self._recurse()
         return self._score
 
+    def _debug(self):
+        saved_deadends = []
+        self._deadend_args = dict(save_deadends_to=saved_deadends, score=self._score)
+        score = self()
+        return score, saved_deadends
+
 
 # TODO: (Malcolm 2023-07-21) this could probably be a function rather than a class
 class FourPartComposer:
@@ -772,3 +818,31 @@ class FourPartComposer:
             raise RecursionFailed("Reached a terminal dead end")
         self._worker = None
         return score.get_df(["structural_melody", "inner_voices", "structural_bass"])
+
+    def _debug(
+        self,
+        chord_data: t.Union[str, t.List[Chord]],
+        range_constraints: RangeConstraints = RangeConstraints(),
+        transpose: int = 0,
+    ):
+        print("Reading score... ", end="", flush=True)
+        score = FourPartScore(chord_data, range_constraints, transpose=transpose)
+        print("done.")
+        self.structural_partitioner(score)
+        self._worker = FourPartWorker(score=score, settings=self.settings)
+
+        try:
+            score, deadends = self._worker._debug()
+        except DeadEnd:
+            raise RecursionFailed("Reached a terminal dead end")
+        self._worker = None
+        score_df = score.get_df(
+            ["structural_melody", "inner_voices", "structural_bass"]
+        )
+        deadend_dfs = [
+            deadend["score"].get_df(
+                ["structural_melody", "inner_voices", "structural_bass"]
+            )
+            for deadend in deadends
+        ]
+        return score_df, deadend_dfs
