@@ -10,8 +10,11 @@ from types import MappingProxyType
 import pandas as pd
 
 from dumb_composer.chord_spacer import SpacingConstraints
+from dumb_composer.pitch_utils.types import TimeStamp
 from dumb_composer.shared_classes import Allow, Note, notes, print_notes
 from dumb_composer.time import Meter, RhythmFetcher
+
+Pattern = str | t.Callable
 
 
 class ExtraPitches(Enum):
@@ -24,7 +27,7 @@ def pattern_method(
     requires_bass: bool = False,
     allow_compound: Allow = Allow.YES,
     allow_triple: Allow = Allow.YES,
-    min_dur: t.Optional[Number] = None,
+    min_dur: t.Optional[TimeStamp] = None,
     min_dur_fallback: str = "simple_chord",
     min_pitch_count: t.Optional[int] = None,
     min_pitch_count_fallback: str = "simple_chord",
@@ -101,19 +104,18 @@ class PatternMaker:
             out.append(pattern_name)
         return out
 
-    @pattern_method(requires_bass=True, min_dur=2)
+    @pattern_method(requires_bass=True, min_dur=TimeStamp(2))
     def oompah(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
         """
         >>> pm = PatternMaker("4/4")
-        >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="oompah"))
+        >>> print_notes(pm(pitches=[48, 64, 67], onset=0, release=4, pattern="oompah"))
         on off   pitches
         0   1     (48,)
         1   2  (64, 67)
@@ -123,8 +125,7 @@ class PatternMaker:
         In 3/4 gives the same results as `oompahpah`.
 
         >>> pm = PatternMaker("3/4")
-        >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=3, pattern="oompah"))
+        >>> print_notes(pm(pitches=[48, 64, 67], onset=0, release=3, pattern="oompah"))
         on off   pitches
         0   1     (48,)
         1   2  (64, 67)
@@ -135,7 +136,8 @@ class PatternMaker:
 
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompah"))
+        ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompah")
+        ... )
         on off   pitches
         1   2     (48,)
         2   3     (48,)
@@ -148,24 +150,29 @@ class PatternMaker:
         out = []
         for i, beat in enumerate(beats):
             if (i == 0 and chord_change) or beat["weight"] > beat_weight:
-                out.append(Note(foot, beat["onset"], beat["release"], track=track))
+                out.append(
+                    Note(  # type:ignore
+                        foot, beat["onset"], beat["release"], track=track
+                    )
+                )
             else:
                 out.extend(notes(others, beat["onset"], beat["release"], track=track))
         return out
 
-    @pattern_method(requires_bass=True, min_dur=3, min_dur_fallback="oompah")
+    @pattern_method(requires_bass=True, min_dur=TimeStamp(3), min_dur_fallback="oompah")
     def oompahpah(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="oompahpah"))
+        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="oompahpah")
+        ... )
         on off   pitches
         0   1     (48,)
         1   2  (64, 67)
@@ -175,7 +182,8 @@ class PatternMaker:
         In 3/4 gives the same results as `oompah`.
         >>> pm = PatternMaker("3/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=3, pattern="oompahpah"))
+        ...     pm(pitches=[48, 64, 67], onset=0, release=3, pattern="oompahpah")
+        ... )
         on off   pitches
         0   1     (48,)
         1   2  (64, 67)
@@ -185,7 +193,8 @@ class PatternMaker:
         it may be best to avoid using this pattern starting on a weakbeat.
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompahpah"))
+        ...     pm(pitches=[48, 64, 67], onset=0.5, release=4, pattern="oompahpah")
+        ... )
         on off   pitches
         1   2     (48,)
         2   3  (64, 67)
@@ -197,7 +206,11 @@ class PatternMaker:
         out = []
         for i, beat in enumerate(beats):
             if (i == 0 and chord_change) or beat["weight"] == max_weight:
-                out.append(Note(foot, beat["onset"], beat["release"], track=track))
+                out.append(
+                    Note(  # type:ignore
+                        foot, beat["onset"], beat["release"], track=track
+                    )
+                )
             else:
                 out.extend(notes(others, beat["onset"], beat["release"], track=track))
         return out
@@ -225,26 +238,30 @@ class PatternMaker:
     def simple_chord(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
-        return [Note(pitch, onset, release, track=track) for pitch in pitches]
+        return [
+            Note(pitch, onset, release, track=track)  # type:ignore
+            for pitch in pitches
+        ]
 
     @pattern_method()
     def off_beat_chords(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="off_beat_chords"))
+        ...     pm(pitches=[48, 64, 67], onset=0, release=4, pattern="off_beat_chords")
+        ... )
         on off       pitches
         1   2  (48, 64, 67)
         2   3  (48, 64, 67)
@@ -255,7 +272,8 @@ class PatternMaker:
 
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=1, pattern="off_beat_chords"))
+        ...     pm(pitches=[48, 64, 67], onset=0, release=1, pattern="off_beat_chords")
+        ... )
         on  off       pitches
         0    1  (48, 64, 67)
 
@@ -263,13 +281,25 @@ class PatternMaker:
 
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=3.5, release=5, pattern="off_beat_chords"))
+        ...     pm(
+        ...         pitches=[48, 64, 67],
+        ...         onset=3.5,
+        ...         release=5,
+        ...         pattern="off_beat_chords",
+        ...     )
+        ... )
         on off       pitches
         3.5   4  (48, 64, 67)
 
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=3.5, release=3.75, pattern="off_beat_chords"))
+        ...     pm(
+        ...         pitches=[48, 64, 67],
+        ...         onset=3.5,
+        ...         release=3.75,
+        ...         pattern="off_beat_chords",
+        ...     )
+        ... )
         on   off       pitches
         3.5  3.75  (48, 64, 67)
         """
@@ -281,15 +311,21 @@ class PatternMaker:
     def off_semibeat_chords(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
         """
         >>> pm = PatternMaker("4/4")
         >>> print_notes(
-        ...     pm(pitches=[48, 64, 67], onset=0, release=2, pattern="off_semibeat_chords"))
+        ...     pm(
+        ...         pitches=[48, 64, 67],
+        ...         onset=0,
+        ...         release=2,
+        ...         pattern="off_semibeat_chords",
+        ...     )
+        ... )
         on  off       pitches
         1/2    1  (48, 64, 67)
         1  3/2  (48, 64, 67)
@@ -303,8 +339,8 @@ class PatternMaker:
     def beat_chords(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
@@ -314,8 +350,8 @@ class PatternMaker:
     def semibeat_chords(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
@@ -327,8 +363,8 @@ class PatternMaker:
     def superbeat_chords(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
@@ -342,8 +378,8 @@ class PatternMaker:
     def sustained_semibeat_arpeggio(
         self,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
@@ -351,15 +387,17 @@ class PatternMaker:
         onsets = self.rf.next_n("semibeat", onset, len(pitches), release)
         out = []
         for pitch_onset, pitch in zip(onsets, pitches):
-            out.append(Note(pitch, pitch_onset, release, track=track))
+            out.append(
+                Note(pitch, pitch_onset, release, track=track),  # type:ignore
+            )
         return out
 
     def _tremolo(
         self,
         onset_weight: int,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
         extra_pitches_at: ExtraPitches = ExtraPitches.TOP,
@@ -373,44 +411,44 @@ class PatternMaker:
         onsets = self.rf._regularly_spaced_by_weight(onset_weight, onset, release)
         out = []
         if extra_pitches_at is ExtraPitches.BOTTOM:
-            for onset in onsets:
-                if onset["weight"] >= bass_weight:
+            for onset_dict in onsets:
+                if onset_dict["weight"] >= bass_weight:
                     for pitch in pitches[:-1]:
                         out.append(
-                            Note(
+                            Note(  # type:ignore
                                 pitch,
-                                onset["onset"],
-                                onset["release"],
+                                onset_dict["onset"],
+                                onset_dict["release"],
                                 track=track,
                             )
                         )
                 else:
                     out.append(
-                        Note(
+                        Note(  # type:ignore
                             pitches[-1],
-                            onset["onset"],
-                            onset["release"],
+                            onset_dict["onset"],
+                            onset_dict["release"],
                             track=track,
                         )
                     )
         else:
-            for onset in onsets:
-                if onset["weight"] >= bass_weight:
+            for onset_dict in onsets:
+                if onset_dict["weight"] >= bass_weight:
                     out.append(
-                        Note(
+                        Note(  # type:ignore
                             pitches[0],
-                            onset["onset"],
-                            onset["release"],
+                            onset_dict["onset"],
+                            onset_dict["release"],
                             track=track,
                         )
                     )
                 else:
                     for pitch in pitches[1:]:
                         out.append(
-                            Note(
+                            Note(  # type:ignore
                                 pitch,
-                                onset["onset"],
-                                onset["release"],
+                                onset_dict["onset"],
+                                onset_dict["release"],
                                 track=track,
                             )
                         )
@@ -434,8 +472,8 @@ class PatternMaker:
         mid_weight_increment: int,
         top_weight_increment: int,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
         extra_pitches_at: ExtraPitches = ExtraPitches.TOP,
@@ -459,49 +497,49 @@ class PatternMaker:
             bass_i, mid_i, top_i = range(3)
         bass_has_sounded = False
         out = []
-        for onset in onsets:
-            if onset["weight"] >= bass_weight or (
+        for onset_dict in onsets:
+            if onset_dict["weight"] >= bass_weight or (
                 not bass_has_sounded
                 and chord_change
-                and onset["weight"] == bass_weight - 1
+                and onset_dict["weight"] == bass_weight - 1
             ):
                 if isinstance(bass_i, slice):
                     for pitch in pitches[bass_i]:
                         out.append(
-                            Note(
+                            Note(  # type:ignore
                                 pitch,
-                                onset["onset"],
-                                onset["release"],
+                                onset_dict["onset"],
+                                onset_dict["release"],
                                 track=track,
                             )
                         )
                 else:
                     out.append(
-                        Note(
+                        Note(  # type:ignore
                             pitches[bass_i],
-                            onset["onset"],
-                            onset["release"],
+                            onset_dict["onset"],
+                            onset_dict["release"],
                             track=track,
                         )
                     )
                 bass_has_sounded = True
-            elif onset["weight"] == mid_weight:
+            elif onset_dict["weight"] == mid_weight:
                 if isinstance(mid_i, slice):
                     for pitch in pitches[mid_i]:
                         out.append(
-                            Note(
+                            Note(  # type:ignore
                                 pitch,
-                                onset["onset"],
-                                onset["release"],
+                                onset_dict["onset"],
+                                onset_dict["release"],
                                 track=track,
                             )
                         )
                 else:
                     out.append(
-                        Note(
+                        Note(  # type:ignore
                             pitches[mid_i],
-                            onset["onset"],
-                            onset["release"],
+                            onset_dict["onset"],
+                            onset_dict["release"],
                             track=track,
                         )
                     )
@@ -509,19 +547,19 @@ class PatternMaker:
                 if isinstance(top_i, slice):
                     for pitch in pitches[top_i]:
                         out.append(
-                            Note(
+                            Note(  # type:ignore
                                 pitch,
-                                onset["onset"],
-                                onset["release"],
+                                onset_dict["onset"],
+                                onset_dict["release"],
                                 track=track,
                             )
                         )
                 else:
                     out.append(
-                        Note(
+                        Note(  # type:ignore
                             pitches[top_i],
-                            onset["onset"],
-                            onset["release"],
+                            onset_dict["onset"],
+                            onset_dict["release"],
                             track=track,
                         )
                     )
@@ -531,8 +569,8 @@ class PatternMaker:
         self,
         weight,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
@@ -578,8 +616,8 @@ class PatternMaker:
         self,
         weight,
         pitches: t.Sequence[int],
-        onset: Number,
-        release: Number,
+        onset: TimeStamp,
+        release: TimeStamp,
         track: int,
         chord_change: bool,
     ):
@@ -712,7 +750,7 @@ class PatternMaker:
 
     def get_pattern(
         self, pitches_or_pcs, onset, harmony_onset, harmony_release, pattern=None
-    ):
+    ) -> Pattern:
         if pattern is not None:
             self._prev_pattern = pattern
             return pattern

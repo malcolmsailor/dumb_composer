@@ -2,63 +2,71 @@ import os
 import random
 
 import pandas as pd
+import pytest
 from midi_to_notes import df_to_midi
 
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.time import MeterError
 from dumb_composer.utils.recursion import RecursionFailed
-from tests.test_helpers import TEST_OUT_DIR, get_funcname, write_df
+from tests.test_helpers import TEST_OUT_DIR, get_funcname, merge_dfs, write_df
 
 
-def test_prefab_composer(quick, pytestconfig):
-    rn_format = """Time signature: {}
+@pytest.mark.parametrize("time_sig", [(4, 4), (3, 4)])
+@pytest.mark.parametrize("prefab_voice", ("soprano", "tenor", "bass"))
+def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voice):
+    numer, denom = time_sig
+    ts = f"{numer}/{denom}"
+    rn_txt = f"""Time signature: {ts}
     m1 Bb: I
-    m2 F: ii
-    m3 I64
-    m4 V7
-    m5 I
-    m6 ii6
-    m7 V7
-    m8 I
-    m9 I64
-    m10 V7
-    m11 I53
-    m12 V43
-    m13 V42
-    m14 I6
+    m2 V7/IV
+    m3 IV64
+    Note: TODO try a pedal point here
+    m4 V65
+    m5 I b3 V43
+    m6 I6 b3 I
+    m7 F: viio64 b3 viio6/ii
+    m8 ii b3 ii42
+    m9 V65 b3 V7
+    m10 vi b3 viio7/V
+    m11 V b3 Cad64
+    m12 V b3 V7
+    m13 I
     """
     funcname = get_funcname()
     test_out_dir = os.path.join(TEST_OUT_DIR, funcname)
     os.makedirs(test_out_dir, exist_ok=True)
-    time_sigs = [(4, 4), (3, 4)]
-    for numer, denom in time_sigs:
-        for prefab_voice in ("soprano", "tenor", "bass"):
-            random.seed(42)
-            for i in range(1):
-                ts = f"{numer}/{denom}"
-                path_wo_ext = os.path.join(
-                    test_out_dir,
-                    f"ts={ts.replace('/', '-')}_"
-                    f"prefab_voice={prefab_voice}_{i + 1}",
-                )
-                mid_path = path_wo_ext + ".mid"
-                log_path = path_wo_ext + ".log"
-                logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
-                logging_plugin.set_log_path(log_path)
-                rn_temp = rn_format.format(ts)
-                settings = PrefabComposerSettings(
-                    prefab_voice=prefab_voice,
-                    top_down_tie_prob={0: 0.5, 1: 1.0},  # TODO move elsewhere
-                )
-                pfc = PrefabComposer(settings)
-                out_df = pfc(rn_temp)
-                write_df(
-                    out_df,
-                    mid_path,
-                    ts=(numer, denom),
-                )
-                if quick:
-                    return
+
+    dfs = []
+    initial_seed = 42
+    number_of_tries = 10
+    for seed in range(initial_seed, initial_seed + number_of_tries):
+        random.seed(seed)
+        settings = PrefabComposerSettings(
+            prefab_voice=prefab_voice,
+            top_down_tie_prob={0: 0.5, 1: 1.0},  # TODO move elsewhere
+        )
+        pfc = PrefabComposer(settings)
+        out_df = pfc(rn_txt)
+        dfs.append(out_df)
+
+    out_df = merge_dfs(dfs, ts)
+
+    path_wo_ext = os.path.join(
+        test_out_dir,
+        f"ts={ts.replace('/', '-')}_" f"prefab_voice={prefab_voice}",
+    )
+    mid_path = path_wo_ext + ".mid"
+    log_path = path_wo_ext + ".log"
+    logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
+    logging_plugin.set_log_path(log_path)
+    write_df(
+        out_df,
+        mid_path,
+        ts=(numer, denom),
+    )
+
+    if quick:
+        raise NotImplementedError()
 
 
 def test_problem_files(slow):

@@ -6,7 +6,7 @@ from midi_to_notes import df_to_midi
 
 from dumb_composer.four_part_composer import FourPartComposer, FourPartComposerSettings
 from dumb_composer.time import Meter
-from tests.test_helpers import TEST_OUT_DIR
+from tests.test_helpers import TEST_OUT_DIR, merge_dfs
 
 
 def test_four_part_composer(time_sig=(4, 4)):
@@ -42,30 +42,20 @@ def test_four_part_composer(time_sig=(4, 4)):
         dfs.append(out_df)
         deadend_dfs.extend(these_deadends)
 
-    time_adjustment = 0
-
-    meter = Meter(ts)
-    for df_list in (dfs, deadend_dfs):
-        for df in df_list:
-            df["onset"] += time_adjustment
-            df["release"] += time_adjustment
-            time_adjustment = (
-                df["release"].max() // meter.bar_dur + 1
-            ) * meter.bar_dur + numer
+    out_df = merge_dfs(dfs, ts)
+    deadend_df = merge_dfs(deadend_dfs, ts)
 
     mid_path = os.path.join(
         TEST_OUT_DIR,
         f"four_part_composer={ts.replace('/', '-')}.mid",
     )
-    out_df = pd.concat(dfs, axis=0)
     print(f"writing {mid_path}")
     df_to_midi(out_df, mid_path, ts=(numer, denom))
 
-    if deadend_dfs:
+    if len(deadend_df):
         deadend_path = os.path.join(
             TEST_OUT_DIR,
             f"four_part_composer={ts.replace('/', '-')}_deadends.mid",
         )
-        deadend_df = pd.concat(deadend_dfs, axis=0)
         print(f"writing {deadend_path}")
         df_to_midi(deadend_df, deadend_path, ts=(numer, denom))

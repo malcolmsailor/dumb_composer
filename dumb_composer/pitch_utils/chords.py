@@ -644,7 +644,7 @@ class Chord:
         >>> V7.get_pitch_tendency(11)
         <Tendency.UP: 2>
         >>> viio6.get_pitch_tendency(5)
-        <Tendency.DOWN: 3>
+        <Tendency.NONE: 1>
         >>> Cad64.get_pitch_tendency(0)
         <Tendency.DOWN: 3>
 

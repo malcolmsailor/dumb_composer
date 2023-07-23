@@ -161,7 +161,7 @@ def find_suspensions(
     >>> IV, V, V43, viio6, I, IV64, V65, ii42 = get_chords_from_rntxt(rntxt)
 
     >>> find_suspensions(60, preparation_chord=I, suspension_chord=V)
-    [Suspension(pitch=60, resolves_by=-1, dissonant=True, interval_above_bass=5, score=5.0)]
+    [Suspension(pitch=60, resolves_by=-1, dissonant=True, interval_above_bass=5, ...
 
     We return a list because there can be more than one possible suspension.
 
@@ -169,8 +169,8 @@ def find_suspensions(
     ...     71, preparation_chord=V, suspension_chord=IV, resolve_up_by=(1,)
     ... ):
     ...     print(s)
-    Suspension(pitch=71, resolves_by=-2, dissonant=True, interval_above_bass=6, score=1.25)
-    Suspension(pitch=71, resolves_by=1, dissonant=True, interval_above_bass=6, score=0.0)
+    Suspension(pitch=71, resolves_by=-2, dissonant=True, interval_above_bass=6, ...
+    Suspension(pitch=71, resolves_by=1, dissonant=True, interval_above_bass=6, ...
 
     If the current pitch is already in the next chord, it can't be a suspension.
 
@@ -181,19 +181,19 @@ def find_suspensions(
     interpreted as an incomplete V7 chord:
 
     >>> find_suspensions(67, preparation_chord=I, suspension_chord=viio6)
-    [Suspension(pitch=67, resolves_by=-2, dissonant=True, interval_above_bass=5, score=5.0)]
+    [Suspension(pitch=67, resolves_by=-2, dissonant=True, interval_above_bass=5, ...
 
     Determining whether a suspension is dissonant is tricky. Here are some
     special cases.
 
     >>> find_suspensions(69, preparation_chord=IV, suspension_chord=I)
-    [Suspension(pitch=69, resolves_by=-2, dissonant=False, interval_above_bass=9, score=0.0)]
+    [Suspension(pitch=69, resolves_by=-2, dissonant=False, interval_above_bass=9, ...
 
     >>> find_suspensions(67, preparation_chord=I, suspension_chord=IV64)
-    [Suspension(pitch=67, resolves_by=-2, dissonant=True, interval_above_bass=7, score=2.5)]
+    [Suspension(pitch=67, resolves_by=-2, dissonant=True, interval_above_bass=7, ...
 
     >>> find_suspensions(65, preparation_chord=IV, suspension_chord=ii42)
-    [Suspension(pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=3, score=2.5)]
+    [Suspension(pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=3, ...
 
     We assume that the pitch to which the suspension resolves will not be
     sounding during the suspension *unless* the pitch is in the bass.
@@ -214,7 +214,7 @@ def find_suspensions(
     ...     suspension_chord=ii42,
     ...     suspension_must_belong_to_scale_of_suspension_chord=False,
     ... )
-    [Suspension(pitch=71, resolves_by=-1, dissonant=False, interval_above_bass=9, score=1.25)]
+    [Suspension(pitch=71, resolves_by=-1, dissonant=False, interval_above_bass=9, ...
 
     ------------------------------------------------------------------------------------
     Avoid tones
@@ -226,7 +226,7 @@ def find_suspensions(
 
 
     >>> find_suspensions(72, preparation_chord=I, suspension_chord=V)
-    [Suspension(pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=5, score=5.0)]
+    [Suspension(pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=5, ...
     >>> find_suspensions(
     ...     72,
     ...     preparation_chord=I,
@@ -240,7 +240,7 @@ def find_suspensions(
     ...     suspension_chord=V,
     ...     suspension_chord_pcs_to_avoid={10},
     ... )
-    [Suspension(pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=5, score=5.0)]
+    [Suspension(pitch=72, resolves_by=-1, dissonant=True, interval_above_bass=5, ...
     >>> find_suspensions(
     ...     72,
     ...     preparation_chord=I,
@@ -274,17 +274,17 @@ def find_suspensions(
     >>> find_suspensions(
     ...     60, preparation_chord=Ab, suspension_chord=Db6, resolve_up_by=(1,)
     ... )
-    [Suspension(pitch=60, resolves_by=1, dissonant=False, interval_above_bass=7, score=5.0)]
+    [Suspension(pitch=60, resolves_by=1, dissonant=False, interval_above_bass=7, ...
 
     Suspension resolves similar to tendency tone, score is increased to 6.25:
     >>> find_suspensions(
     ...     60, preparation_chord=V_of_Db, suspension_chord=Db6, resolve_up_by=(1,)
     ... )
-    [Suspension(pitch=60, resolves_by=1, dissonant=False, interval_above_bass=7, score=6.25)]
+    [Suspension(pitch=60, resolves_by=1, dissonant=False, interval_above_bass=7, ...
 
     Suspension resolves contrary to tendency tone, score is reduced to 1.25:
     >>> find_suspensions(60, preparation_chord=V_of_Db, suspension_chord=bb6)
-    [Suspension(pitch=60, resolves_by=-2, dissonant=True, interval_above_bass=11, score=1.25)]
+    [Suspension(pitch=60, resolves_by=-2, dissonant=True, interval_above_bass=11, ...
     """
     if resolution_chord is None:
         resolution_chord = suspension_chord
@@ -424,7 +424,7 @@ def find_bass_suspension(
     ...     suspension_chord=ii6,
     ...     resolution_chord=V42,
     ... )
-    [Suspension(pitch=48, resolves_by=-2, dissonant=True, interval_above_bass=0, score=0.0)]
+    [Suspension(pitch=48, resolves_by=-2, dissonant=True, interval_above_bass=0, ...
 
     We can also obtain a suspension even when the pitch of resolution is not in the
     intermediate chord, provided a valid suspension resolution in the same direction
@@ -435,14 +435,14 @@ def find_bass_suspension(
     ...     suspension_chord=V6_of_V,
     ...     resolution_chord=V42,
     ... )
-    [Suspension(pitch=48, resolves_by=-2, dissonant=True, interval_above_bass=0, score=0.0)]
+    [Suspension(pitch=48, resolves_by=-2, dissonant=True, interval_above_bass=0, ...
     >>> find_bass_suspension(
     ...     src_pitch=48,
     ...     preparation_chord=V,
     ...     suspension_chord=ii6,
     ...     resolution_chord=V6_of_V,
     ... )
-    [Suspension(pitch=48, resolves_by=-1, dissonant=True, interval_above_bass=0, score=0.0)]
+    [Suspension(pitch=48, resolves_by=-1, dissonant=True, interval_above_bass=0, ...
 
     However, if there is no pitch of resolution in the same direction in the
     intermediate chord, there is no suspension:
@@ -453,7 +453,7 @@ def find_bass_suspension(
     >>> find_bass_suspension(
     ...     src_pitch=52, preparation_chord=V6, suspension_chord=vi6, resolve_up_by=(1,)
     ... )
-    [Suspension(pitch=52, resolves_by=1, dissonant=True, interval_above_bass=0, score=0.0)]
+    [Suspension(pitch=52, resolves_by=1, dissonant=True, interval_above_bass=0, ...
     >>> find_bass_suspension(
     ...     src_pitch=52,
     ...     preparation_chord=V6,

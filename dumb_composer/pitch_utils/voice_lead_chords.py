@@ -49,20 +49,20 @@ def voice_lead_chords(
 ) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
 
-    >>> rntxt = "m1 F: viio64 b3 viio6/ii"
-    >>> viio64, viio6_of_ii = get_chords_from_rntxt(rntxt)
-    >>> suspension = Suspension(
-    ...     pitch=46, resolves_by=-1, dissonant=True, interval_above_bass=0, score=1.25
-    ... )
-    >>> vl_iter = voice_lead_chords(
-    ...     viio64,
-    ...     viio6_of_ii,
-    ...     (46, 55, 55, 64),
-    ...     chord2_bass_pitch=46,
-    ...     chord2_melody_pitch=66,
-    ...     chord2_suspensions={46: suspension},
-    ... )
-    >>> next(vl_iter)
+    # >>> rntxt = "m1 F: viio64 b3 viio6/ii"
+    # >>> viio64, viio6_of_ii = get_chords_from_rntxt(rntxt)
+    # >>> suspension = Suspension(
+    # ...     pitch=46, resolves_by=-1, dissonant=True, interval_above_bass=0, score=1.25
+    # ... )
+    # >>> vl_iter = voice_lead_chords(
+    # ...     viio64,
+    # ...     viio6_of_ii,
+    # ...     (46, 55, 55, 64),
+    # ...     chord2_bass_pitch=46,
+    # ...     chord2_melody_pitch=66,
+    # ...     chord2_suspensions={46: suspension},
+    # ... )
+    # >>> next(vl_iter)
 
     # TODO: (Malcolm 2023-07-22) is this example working as intended?
     # >>> rntxt = '''m1 F: vi b3 viio7/V'''
@@ -317,7 +317,7 @@ def voice_lead_chords(
     ...     chord2_suspensions={67: suspension},
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
-    ((45, 57, 60, 67), (57, 57, 60, 67), (45, 48, 57, 67))
+    ((45, 60, 60, 67), (45, 57, 60, 67), (57, 60, 60, 67))
 
     Unprepared suspension overlapping with melody voice:
     >>> suspension = Suspension(

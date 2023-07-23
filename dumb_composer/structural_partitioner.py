@@ -7,6 +7,8 @@ from enum import Enum, auto
 from numbers import Number
 from types import MappingProxyType
 
+from dumb_composer.pitch_utils.types import TimeStamp
+
 from .shared_classes import Score, _ScoreBase
 from .time import Meter
 from .time_utils import (
@@ -100,7 +102,7 @@ class StructuralPartitioner:
         )
 
     def _step(
-        self, chord_onset: Number, chord_release: Number
+        self, chord_onset: TimeStamp, chord_release: TimeStamp
     ) -> t.Union[t.Tuple[Number, Number], t.List]:
         chord_dur = chord_release - chord_onset  # type:ignore
         split = random.random() < self._arc(chord_dur)
@@ -125,7 +127,7 @@ class StructuralPartitioner:
             #   the metric strength of each point in the bar, down to
             #   never_split_dur_in_beats
             # TODO debug the weights here
-            candidates = self._ts.weights_between(  # type:ignore
+            candidates = self._ts.weights_between_as_dict(  # type:ignore
                 (
                     math.ceil(self.settings.never_split_dur_in_beats)
                     * self._ts.beat_dur  # type:ignore
@@ -133,7 +135,6 @@ class StructuralPartitioner:
                 chord_onset,
                 chord_release,
                 include_start=False,
-                out_format="dict",
             )
             candidate_onsets, candidate_weights = zip(
                 *candidates.items()  # type:ignore

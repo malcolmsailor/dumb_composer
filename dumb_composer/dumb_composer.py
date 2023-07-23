@@ -183,6 +183,8 @@ class PrefabComposer:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
         #       context manager handles popping from the list
+        # TODO: (Malcolm 2023-07-23) I've started using DeadEnd in place of
+        #   UndoRecursiveStep, does that matter?
         for pitches in self._two_part_contrapuntist._step():
             try:
                 with append_attempt(
