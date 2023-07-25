@@ -8,14 +8,13 @@ from numbers import Number
 from types import MappingProxyType
 
 from dumb_composer.pitch_utils.types import TimeStamp
-
-from .shared_classes import Score, _ScoreBase
-from .time import Meter
-from .time_utils import (
+from dumb_composer.shared_classes import Score, _ScoreBase
+from dumb_composer.time import Meter
+from dumb_composer.time_utils import (
     get_barline_times_within_duration,
     get_onset_closest_to_middle_of_duration,
 )
-from .utils.math_ import linear_arc, quadratic_arc, softmax
+from dumb_composer.utils.math_ import linear_arc, quadratic_arc, softmax
 
 
 class Shape(Enum):
@@ -104,7 +103,8 @@ class StructuralPartitioner:
     def _step(
         self, chord_onset: TimeStamp, chord_release: TimeStamp
     ) -> t.Union[t.Tuple[Number, Number], t.List]:
-        chord_dur = chord_release - chord_onset  # type:ignore
+        assert self._ts is not None
+        chord_dur = chord_release - chord_onset
         split = random.random() < self._arc(chord_dur)
         if not split:
             return (chord_onset, chord_release)
@@ -127,23 +127,18 @@ class StructuralPartitioner:
             #   the metric strength of each point in the bar, down to
             #   never_split_dur_in_beats
             # TODO debug the weights here
-            candidates = self._ts.weights_between_as_dict(  # type:ignore
-                (
-                    math.ceil(self.settings.never_split_dur_in_beats)
-                    * self._ts.beat_dur  # type:ignore
-                ),
+            candidates = self._ts.weights_between(
+                (math.ceil(self.settings.never_split_dur_in_beats) * self._ts.beat_dur),
                 chord_onset,
                 chord_release,
                 include_start=False,
             )
-            candidate_onsets, candidate_weights = zip(
-                *candidates.items()  # type:ignore
-            )
             probs = softmax(
-                candidate_weights,
+                [candidate["weight"] for candidate in candidates],
                 temperature=self.settings.candidates_softmax_temperature,
             )
-            split_point = random.choices(candidate_onsets, weights=probs)[0]
+            choice = random.choices(candidates, weights=probs, k=1)[0]
+            split_point = choice["onset"]
         return [
             self._step(chord_onset, split_point),
             self._step(split_point, chord_release),

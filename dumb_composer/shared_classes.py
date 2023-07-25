@@ -20,15 +20,14 @@ from dumb_composer.pitch_utils.chords import (
     is_same_harmony,
 )
 from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
+from dumb_composer.pitch_utils.put_in_range import put_in_range
+from dumb_composer.pitch_utils.scale import Scale, ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints
 from dumb_composer.pitch_utils.types import Pitch, PitchClass, TimeStamp
 from dumb_composer.suspensions import Suspension
+from dumb_composer.time import Meter
+from dumb_composer.utils.df_helpers import sort_note_df
 from dumb_composer.utils.iterables import flatten_iterables
-
-from .pitch_utils.put_in_range import put_in_range
-from .pitch_utils.scale import Scale, ScaleDict
-from .time import Meter
-from .utils.df_helpers import sort_note_df
 
 
 class InnerVoice(Enum):

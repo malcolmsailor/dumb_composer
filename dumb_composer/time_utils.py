@@ -4,14 +4,16 @@ from numbers import Number
 
 import numpy as np
 
+from dumb_composer.constants import TIME_TYPE
+
 
 def get_onsets_within_duration(
-    start: Number,
-    stop: Number,
-    grid: Number,
+    start: TIME_TYPE,
+    stop: TIME_TYPE,
+    grid: TIME_TYPE,
     include_start: bool = True,
     include_stop: bool = False,
-) -> t.List[Number]:
+) -> t.List[TIME_TYPE]:
     """Inclusive of start, exclusive of stop.
     >>> get_onsets_within_duration(1.6, 3.0, 0.25)
     [1.75, 2.0, 2.25, 2.5, 2.75]
@@ -29,12 +31,12 @@ def get_onsets_within_duration(
 
 
 def get_barline_times_within_duration(
-    start: Number,
-    stop: Number,
-    ts_dur: Number,
+    start: TIME_TYPE,
+    stop: TIME_TYPE,
+    ts_dur: TIME_TYPE,
     include_start: bool = True,
     include_stop: bool = False,
-) -> t.List[Number]:
+) -> t.List[TIME_TYPE]:
     """
     >>> get_barline_times_within_duration(0.0, 16.0, 4.0)
     [0.0, 4.0, 8.0, 12.0]
@@ -57,8 +59,8 @@ def get_barline_times_within_duration(
 
 
 def get_onset_closest_to_middle_of_duration(
-    onsets: t.Sequence[Number], start: Number, stop: Number
-) -> Number:
+    onsets: t.Sequence[TIME_TYPE], start: TIME_TYPE, stop: TIME_TYPE
+) -> TIME_TYPE:
     """
     >>> get_onset_closest_to_middle_of_duration([0.0, 4.0, 8.0], -4.0, 12.0)
     4.0
@@ -69,10 +71,11 @@ def get_onset_closest_to_middle_of_duration(
     """
     midpoint = (start + stop) / 2  # type:ignore
     manhattan_distance = [abs(onset - midpoint) for onset in onsets]
-    return onsets[np.argmin(manhattan_distance)]
+    arg_min = np.argmin(manhattan_distance)  # type:ignore
+    return onsets[arg_min]
 
 
-def get_max_ioi(onsets: t.Sequence[Number]) -> Number:
+def get_max_ioi(onsets: t.Sequence[TIME_TYPE]) -> TIME_TYPE:
     """
     Unlikely to give right answer if onsets are not sorted.
 
@@ -87,7 +90,7 @@ def get_max_ioi(onsets: t.Sequence[Number]) -> Number:
     return max(y - x for x, y in zip(onsets[:-1], onsets[1:]))  # type:ignore
 
 
-def get_min_ioi(onsets: t.Sequence[Number]) -> Number:
+def get_min_ioi(onsets: t.Sequence[TIME_TYPE]) -> TIME_TYPE:
     """
     Unlikely to give right answer if onsets are not sorted.
 
