@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from numbers import Number
 import random
 import typing as t
+from dataclasses import dataclass
+from numbers import Number
 
-from dumb_composer.constants import TIME_TYPE
+from dumb_composer.pitch_utils.types import TIME_TYPE
 from dumb_composer.time import Meter, RhythmFetcher
 
 
@@ -150,7 +150,6 @@ def test_meter():
             assert meter.superbeat_dur == meter.bar_dur
             assert sum(meter.stutterbeat_durs) == meter.bar_dur
         else:
-
             assert meter.bar_dur / meter.beat_dur in (2, 4)
             if meter.bar_dur / meter.beat_dur == 2:
                 assert meter.superbeat_dur == meter.bar_dur
@@ -352,9 +351,7 @@ def test_split_at_metric_strong_points(slow):
                             > 1
                         )
                     for item in result:
-                        onsets = meter.weights_between(
-                            grid, item.onset, item.release
-                        )
+                        onsets = meter.weights_between(grid, item.onset, item.release)
                         assert item.dur <= min_split_dur or all(
                             onsets[0]["weight"] > onset["weight"]
                             for onset in onsets[1:]
@@ -385,7 +382,6 @@ def test_split_odd_duration(slow):
     n_bars = 2
     min_split_dur = 1.0
     for ts in Meter.available_time_signatures:
-
         meter = Meter(ts)
         grid = meter.weight_to_grid[-2]
         grid_n = int(meter.bar_dur / grid)
@@ -407,16 +403,13 @@ def weight_to_grid_doctest():
     # TODO this doctest doesn't run because (apparently) it's under a
     #   cached_property (rather than a property). Figure out a way around that.
     assert sorted(
-        (weight, float(grid))
-        for (weight, grid) in Meter("4/4").weight_to_grid.items()
+        (weight, float(grid)) for (weight, grid) in Meter("4/4").weight_to_grid.items()
     ) == [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 2.0), (2, 4.0)]
 
     assert sorted(
-        (weight, float(grid))
-        for (weight, grid) in Meter("3/4").weight_to_grid.items()
+        (weight, float(grid)) for (weight, grid) in Meter("3/4").weight_to_grid.items()
     ) == [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.0), (1, 3.0)]
 
     assert sorted(
-        (weight, float(grid))
-        for (weight, grid) in Meter("12/8").weight_to_grid.items()
+        (weight, float(grid)) for (weight, grid) in Meter("12/8").weight_to_grid.items()
     ) == [(-3, 0.125), (-2, 0.25), (-1, 0.5), (0, 1.5), (1, 3.0), (2, 6.0)]

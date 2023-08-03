@@ -1,12 +1,17 @@
+import typing as t
 from fractions import Fraction
 from types import MappingProxyType
 
 from mspell import Speller, Unspeller
 
+from dumb_composer.pitch_utils.types import InnerVoice, OuterVoice, Voice
+
 unspeller_pcs = Unspeller(pitches=False)
 speller_pcs = Speller(pitches=False)
 speller = Speller(pitches=True)
 unspeller = Unspeller(pitches=True)
+
+MAX_TIME = 2**31
 
 LOW_PITCH = 21
 HI_PITCH = 108
@@ -71,7 +76,7 @@ KEYBOARD_STYLE_REGISTERS = MappingProxyType(
 # internal stuff #
 ##################
 
-TIME_TYPE = Fraction
+
 METER_CONDITIONS = (
     "triple",
     "duple",
@@ -116,4 +121,19 @@ TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS = {
     10: 1.0,
     11: 1.0,
     12: 0.75,
+}
+
+TRACKS: dict[t.Literal["structural", "prefabs"], dict[Voice, int]] = {
+    "structural": {
+        OuterVoice.BASS: 2,
+        InnerVoice.TENOR: 2,
+        InnerVoice.ALTO: 1,
+        OuterVoice.MELODY: 1,
+    },
+    "prefabs": {
+        OuterVoice.BASS: 15,
+        InnerVoice.TENOR: 14,
+        InnerVoice.ALTO: 13,
+        OuterVoice.MELODY: 12,
+    },
 }

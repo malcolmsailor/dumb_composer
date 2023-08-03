@@ -6,13 +6,15 @@ import textwrap
 import typing as t
 from abc import abstractmethod
 from collections import defaultdict, deque
+from copy import copy
+from dataclasses import asdict, dataclass
 from enum import Enum
 from functools import cached_property
 from numbers import Number
 
 import pandas as pd
 
-from dumb_composer.constants import TIME_TYPE
+from dumb_composer.constants import TRACKS
 from dumb_composer.pitch_utils.chords import (
     Allow,
     Chord,
@@ -23,16 +25,23 @@ from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
 from dumb_composer.pitch_utils.put_in_range import put_in_range
 from dumb_composer.pitch_utils.scale import Scale, ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints
-from dumb_composer.pitch_utils.types import Pitch, PitchClass, TimeStamp
-from dumb_composer.suspensions import Suspension
+from dumb_composer.pitch_utils.types import (
+    TIME_TYPE,
+    InnerVoice,
+    Note,
+    OuterVoice,
+    Pitch,
+    PitchClass,
+    ScalarInterval,
+    TimeStamp,
+    Voice,
+)
+from dumb_composer.suspensions import Suspension, SuspensionCombo
 from dumb_composer.time import Meter
 from dumb_composer.utils.df_helpers import sort_note_df
 from dumb_composer.utils.iterables import flatten_iterables
 
-
-class InnerVoice(Enum):
-    TENOR = 2
-    ALTO = 3
+LOGGER = logging.getLogger(__name__)
 
 
 class Annotation(pd.Series):
@@ -45,36 +54,84 @@ class Annotation(pd.Series):
         )
 
 
-class Note(pd.Series):
-    def __init__(
-        self,
-        pitch: int,
-        onset: Number,
-        release: Number,
-        track: int = 1,
-        tie_to_next: bool = False,
-    ):
-        super().__init__(
-            {  # type:ignore
-                "pitch": pitch,
-                "onset": onset,
-                "release": release,
-                "type": "note",
-                "track": track,
-                "tie_to_next": tie_to_next,
-            }
-        )
+# class Note:
+#     def __init__(
+#         self,
+#         pitch: int,
+#         onset: TimeStamp,
+#         release: TimeStamp,
+#         track: int = 1,
+#         tie_to_next: bool = False,
+#     ):
+#         self.pitch = pitch
+#         self.onset = onset
+#         self.release = release
+#         self.track = track
+#         self.tie_to_next = tie_to_next
 
-    def __str__(self):
-        return f"{self.pitch}[{self.onset}-{self.release}]"
+#     def to_pandas(self):
+#         return pd.Series(
+#             {  # type:ignore
+#                 "pitch": self.pitch,
+#                 "onset": self.onset,
+#                 "release": self.release,
+#                 "type": "note",
+#                 "track": self.track,
+#                 "tie_to_next": self.tie_to_next,
+#             }
+#         )
+
+#     def __repr__(self):
+#         return f"{self.pitch}[{self.onset}-{self.release}]" + (
+#             "(tied)" if self.tie_to_next else ""
+#         )
+
+#     def __str__(self):
+#         return self.__repr__()
+
+#     def copy(self):
+#         return copy.copy(self)
+
+#     def partial_copy(self, **kwargs) -> "Note":
+#         out = copy.copy(self)
+#         for attr_name, attr_val in kwargs.items():
+#             setattr(out, attr_name, attr_val)
+#         return out
+
+
+# class Note(pd.Series):
+#     def __init__(
+#         self,
+#         pitch: int,
+#         onset: TimeStamp,
+#         release: TimeStamp,
+#         track: int = 1,
+#         tie_to_next: bool = False,
+#     ):
+#         super().__init__(
+#             {  # type:ignore
+#                 "pitch": pitch,
+#                 "onset": onset,
+#                 "release": release,
+#                 "type": "note",
+#                 "track": track,
+#                 "tie_to_next": tie_to_next,
+#             }
+#         )
+
+#     def __repr__(self):
+#         return f"{self.pitch}[{self.onset}-{self.release}]" + (
+#             "(tied)" if self.tie_to_next else ""
+#         )
+
+#     def __str__(self):
+#         return self.__repr__()
 
 
 def notes(
-    pitches: t.Sequence[int], onset: Number, release: Number, track: int = 1
+    pitches: t.Sequence[int], onset: TimeStamp, release: TimeStamp, track: int = 1
 ) -> t.List[Note]:
-    return [
-        Note(pitch, onset, release, track=track) for pitch in pitches  # type:ignore
-    ]
+    return [Note(pitch, onset, release, track=track) for pitch in pitches]
 
 
 def print_notes(notes: t.Iterable[Note]) -> None:
@@ -91,7 +148,7 @@ def print_notes(notes: t.Iterable[Note]) -> None:
     0    1     (48,)
     1    2  (52, 55)
     """
-    df = pd.DataFrame(notes)
+    df = pd.DataFrame(notes)  # type:ignore
     df["on_off"] = [(row.onset, row.release) for _, row in df.iterrows()]
     df.sort_values("on_off", inplace=True, kind="mergesort")
     out = defaultdict(list)
@@ -251,24 +308,24 @@ class StructuralMelodyIntervals(collections.abc.Mapping):
     def __init__(
         self,
         scales: ScaleGetter,
-        structural_melody: t.List[int],
+        structural_soprano: t.List[int],
         structural_bass: t.List[int],
     ):
         # This class doesn't really have custody of its attributes, which
         #   should all be attributes of the PrefabScore that creates it. The only
         #   reason this class exists is to that we can provide a [] subscript
-        #   syntax to PrefabScore.structural_melody_intervals
+        #   syntax to PrefabScore.structural_soprano_intervals
         self.scales = scales
-        self.structural_melody = structural_melody
+        self.structural_soprano = structural_soprano
         self.structural_bass = structural_bass
 
     def __getitem__(self, idx):
         return self.scales[idx].get_reduced_scalar_interval(
-            self.structural_bass[idx], self.structural_melody[idx]
+            self.structural_bass[idx], self.structural_soprano[idx]
         )
 
     def __len__(self):
-        return min(len(self.structural_bass), len(self.structural_melody))
+        return min(len(self.structural_bass), len(self.structural_soprano))
 
     def __iter__(self):
         for i in range(len(self)):
@@ -279,11 +336,8 @@ class _ScoreBase:
     def __init__(
         self,
         chord_data: t.Union[str, t.List[Chord]],
-        range_constraints: RangeConstraints = RangeConstraints(),
         ts: Meter | str | None = None,
         transpose: int = 0,
-        melody_track: int = 1,
-        bass_track: int = 2,
     ):
         if isinstance(chord_data, str):
             logging.debug(f"reading chords from {chord_data}")
@@ -299,28 +353,300 @@ class _ScoreBase:
         if transpose:
             self._chords = [chord.transpose(transpose) for chord in self._chords]
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in chord_data)
-        self.range_constraints = range_constraints
-        self.structural_bass: t.List[Pitch] = []
-        self.structural_melody: t.List[Pitch] = []
-        self.melody_suspensions: t.Dict[int, Suspension] = {}
-        self.bass_suspensions: t.Dict[int, Suspension] = {}
+        # self.range_constraints = range_constraints
+        self._structural: defaultdict[Voice, list[Pitch]] = defaultdict(list)
+        self._suspensions: defaultdict[Voice, dict[int, Suspension]] = defaultdict(dict)
+        self._suspension_resolutions: t.DefaultDict[
+            Voice, t.Dict[int, int]
+        ] = defaultdict(dict)
         self.annotations: defaultdict[str, t.List[Annotation]] = defaultdict(list)
         self.misc: dict[str, t.Any] = {}
 
-        self._structural_melody_interval_getter = StructuralMelodyIntervals(
-            self.scales, self.structural_melody, self.structural_bass
+        self._structural_soprano_interval_getter = StructuralMelodyIntervals(
+            self.scales, self.structural_soprano, self.structural_bass
         )
+        self._split_chords: t.List[int] = []
 
-        self.melody_track = melody_track
-        self.bass_track = bass_track
+    # ----------------------------------------------------------------------------------
+    # State validation etc.
+    # ----------------------------------------------------------------------------------
+
+    def validate_state(self) -> bool:
+        return len({len(pitches) for pitches in self._structural.values()}) == 1
+
+    @property
+    def i(self):
+        return len(self.structural_bass)
+
+    @property
+    def empty(self) -> bool:
+        assert self.validate_state()
+        return len(self.structural_bass) == 0
+
+    @property
+    def complete(self) -> bool:
+        assert self.validate_state()
+        return len(self.structural_bass) == len(self.chords)
+
+    @property
+    def current_chord(self) -> Chord:
+        return self.chords[self.i]
+
+    @property
+    def prev_chord(self) -> Chord:
+        assert self.i > 0
+        return self.chords[self.i - 1]
+
+    @property
+    def next_chord(self) -> Chord | None:
+        if self.i + 1 >= len(self.chords):
+            return None
+        return self.chords[self.i + 1]
+
+    @property
+    def prev_foot_pc(self) -> PitchClass:
+        """The "notional" bass pitch-class.
+
+        It is "notional" because the pitch-class of the *actual* bass may be a
+        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+        the foot is the third B.
+        """
+        if self.i < 1:
+            raise ValueError()
+        return self.pc_bass[self.i - 1]
+
+    @property
+    def current_foot_pc(self) -> PitchClass:
+        """The "notional" bass pitch-class.
+
+        It is "notional" because the pitch-class of the *actual* bass may be a
+        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+        the foot is the third B.
+        """
+        return self.pc_bass[self.i]
+
+    @property
+    def next_foot_pc(self) -> PitchClass | None:
+        """The "notional" bass pitch-class.
+
+        It is "notional" because the pitch-class of the *actual* bass may be a
+        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+        the foot is the third B.
+        """
+        if self.i + 1 >= len(self.chords):
+            return None
+        return self.pc_bass[self.i + 1]
+
+    @property
+    def prev_bass_pitch(self) -> Pitch:
+        if self.i < 1:
+            raise ValueError()
+        return self.structural_bass[self.i - 1]
+
+    @property
+    def prev_melody_pitch(self) -> Pitch:
+        if self.i < 1:
+            raise ValueError()
+        return self.structural_soprano[self.i - 1]
+
+    def prev_pitch(self, voice: Voice, offset_from_current: int = 1) -> Pitch:
+        if self.i < offset_from_current:
+            raise ValueError
+        return self._structural[voice][self.i - offset_from_current]
+
+    def prev_pitches(self) -> tuple[Pitch]:
+        assert self.i > 0
+        out = (pitches[self.i - 1] for pitches in self._structural.values())
+        return tuple(sorted(out))
+
+    # ----------------------------------------------------------------------------------
+    # Properties and helper functions
+    # ----------------------------------------------------------------------------------
+    @cached_property
+    def structural_soprano(self):
+        return self._structural[OuterVoice.MELODY]
+
+    @cached_property
+    def structural_bass(self):
+        return self._structural[OuterVoice.BASS]
 
     @cached_property
     def pc_bass(self) -> t.List[int]:
         return [chord.foot for chord in self._chords]  # type:ignore
 
-    @property
-    def structural_melody_intervals(self) -> StructuralMelodyIntervals:
-        return self._structural_melody_interval_getter
+    def prev_suspension(
+        self, voice: Voice, offset_from_current: int = 1
+    ) -> Suspension | None:
+        if self.i < offset_from_current:
+            raise ValueError
+        return self._suspensions[voice].get(self.i - offset_from_current, None)
+
+    def prev_is_suspension(self, voice: Voice) -> bool:
+        return self.prev_suspension(voice) is not None
+
+    def prev_resolution(self, voice: Voice) -> Pitch | None:
+        assert self.i > 0
+        return self._suspension_resolutions[voice].get(self.i - 1, None)
+
+    def prev_is_resolution(self, voice: Voice) -> bool:
+        return self.prev_resolution(voice) is not None
+
+    def current_suspension(self, voice: Voice) -> Suspension | None:
+        return self._suspensions[voice].get(self.i, None)
+
+    def current_is_suspension(self, voice: Voice) -> bool:
+        return self.current_suspension(voice) is not None
+
+    def current_resolution(self, voice: Voice) -> Pitch | None:
+        return self._suspension_resolutions[voice].get(self.i, None)
+
+    def current_is_resolution(self, voice: Voice) -> bool:
+        return self.current_resolution(voice) is not None
+
+    def prev_is_preparation(self, voice: Voice) -> bool:
+        suspension = self.current_suspension
+        if suspension is None:
+            return False
+        return self._structural[voice] == suspension.pitch
+
+    def current_resolution_pcs(self):
+        out = set()
+        for voice in self._suspension_resolutions:
+            if self.i in self._suspension_resolutions[voice]:
+                out.add(self._suspension_resolutions[voice][self.i] % 12)
+        return out
+
+    def add_suspension(self, voice: Voice, suspension: Suspension):
+        suspensions = self._suspensions[voice]
+        assert self.i not in suspensions
+        suspensions[self.i] = suspension
+
+    def remove_suspension(self, voice: Voice):
+        suspensions = self._suspensions[voice]
+        suspensions.pop(self.i)  # raises KeyError if missing
+
+    def annotate_suspension(self, voice: Voice):
+        raise NotImplementedError
+        annotations_label = (
+            "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
+        )
+        self._score.annotations[annotations_label].append(
+            Annotation(self.current_chord.onset, "S")
+        )
+
+    def remove_suspension_annotation(self, voice: Voice):
+        raise NotImplementedError
+        annotations_label = (
+            "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
+        )
+        popped_annotation = self._score.annotations[annotations_label].pop()
+        assert popped_annotation.onset == self.current_chord.onset
+
+    def split_current_chord_at(self, time: TimeStamp):
+        LOGGER.debug(
+            f"Splitting chord at {time=} w/ duration "
+            f"{self.current_chord.release - self.current_chord.onset}"
+        )
+        self.split_ith_chord_at(self.i, time)
+        LOGGER.debug(
+            f"After split chord has duration "
+            f"{self.current_chord.release - self.current_chord.onset}"
+        )
+        self._split_chords.append(self.i)
+
+    def merge_current_chords_if_they_were_previously_split(self):
+        if self._split_chords and self._split_chords[-1] == self.i:
+            assert self.next_chord is not None
+            assert is_same_harmony(self.current_chord, self.next_chord)
+            self.merge_ith_chords(self.i)
+            self._split_chords.pop()
+
+    def add_suspension_resolution(self, voice: Voice, pitch: Pitch):
+        assert not self.i + 1 in self._suspension_resolutions[voice]
+        self._suspension_resolutions[voice][self.i + 1] = pitch
+
+    def remove_suspension_resolution(self, voice: Voice):
+        assert self.i + 1 in self._suspension_resolutions[voice]
+        del self._suspension_resolutions[voice][self.i + 1]
+
+    def suspension_in_any_voice(self) -> bool:
+        for suspensions in self._suspensions.values():
+            if self.i in suspensions:
+                return True
+        return False
+
+    def apply_suspension(
+        self,
+        suspension: Suspension,
+        suspension_release: TimeStamp,
+        voice: Voice,
+        annotate: bool = True,
+    ) -> Pitch:
+        if suspension_release < self.current_chord.release:
+            # If the suspension resolves during the current chord, we need to split
+            #   the current chord to permit that
+            self.split_current_chord_at(suspension_release)
+        else:
+            # Otherwise, make sure the suspension resolves at the onset of the
+            #   next chord
+            assert (
+                self.next_chord is not None
+                and suspension_release == self.next_chord.onset
+            )
+
+        suspended_pitch = self.prev_pitch(voice)
+        self.add_suspension_resolution(voice, suspended_pitch + suspension.resolves_by)
+        self.add_suspension(voice, suspension)
+        if annotate:
+            self.annotate_suspension(voice)
+        return suspended_pitch
+
+    def apply_suspensions(
+        self,
+        suspension_combo: SuspensionCombo,
+        suspension_release: TimeStamp,
+        annotate: bool = True,
+    ):
+        LOGGER.debug(f"applying {suspension_combo=} at {self.i=}")
+        for voice, suspension in suspension_combo.items():
+            self.apply_suspension(
+                suspension,
+                suspension_release=suspension_release,
+                voice=voice,
+                annotate=annotate,
+            )
+
+    def undo_suspension(self, voice: Voice, annotate: bool = True) -> None:
+        self.remove_suspension_resolution(voice)
+        self.remove_suspension(voice)
+        if annotate:
+            self.remove_suspension_annotation(voice)
+        if not self.suspension_in_any_voice():
+            self.merge_current_chords_if_they_were_previously_split()
+
+    def undo_suspensions(
+        self, suspension_combo: SuspensionCombo, annotate: bool = True
+    ):
+        LOGGER.debug(f"undoing {suspension_combo=} at {self.i=}")
+        for voice in suspension_combo:
+            self.undo_suspension(voice, annotate)
+
+    # TODO: (Malcolm 2023-08-01) update annotate
+    def undo_all_suspensions(self, annotate: bool = False):
+        LOGGER.debug(f"undoing all suspensions at at {self.i=}")
+        for voice in self._structural:
+            if self.current_is_suspension(voice):
+                self.undo_suspension(voice, annotate=annotate)
+
+    def prev_structural_interval_above_bass(self, voice: Voice) -> ScalarInterval:
+        if voice is OuterVoice.BASS:
+            return 0
+        return self.prev_scale.get_reduced_scalar_interval(
+            self.prev_pitch(OuterVoice.BASS), self.prev_pitch(voice)
+        )
 
     @property
     def chords(self) -> t.List[Chord]:
@@ -333,14 +659,31 @@ class _ScoreBase:
         #   is needed
         if hasattr(self, "pc_bass"):
             del self.pc_bass
+        # TODO: (Malcolm 2023-07-28) why is ScaleGetter needed? perhaps Scale
+        #   should be composed within Chord?
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in self._chords)
-        self._structural_melody_interval_getter = StructuralMelodyIntervals(
-            self.scales, self.structural_melody, self.structural_bass
+        self._structural_soprano_interval_getter = StructuralMelodyIntervals(
+            self.scales, self.structural_soprano, self.structural_bass
         )
 
     @property
     def scales(self) -> ScaleGetter:
         return self._scale_getter
+
+    @property
+    def current_scale(self) -> Scale:
+        return self.scales[self.i]
+
+    @property
+    def prev_scale(self) -> Scale:
+        assert self.i > 0
+        return self.scales[self.i - 1]
+
+    @property
+    def next_scale(self) -> Scale | None:
+        if self.i + 1 >= len(self.scales):
+            return None
+        return self.scales[self.i + 1]
 
     @property
     @abstractmethod
@@ -352,6 +695,7 @@ class _ScoreBase:
         idx: int,
         attr_names: t.Sequence[str] | None = None,
     ) -> t.Tuple[Pitch]:
+        raise NotImplementedError
         if attr_names is None:
             attr_names = self.default_existing_pitch_attr_names
 
@@ -386,6 +730,7 @@ class _ScoreBase:
         """
         # just in case pc_bass has not been computed yet, we need
         #   to compute it now:
+        LOGGER.debug(f"splitting chord {i=} at {time=}")
         self.pc_bass
         # TODO make debug flag for check_correctness
         chord = self.chords[i]
@@ -396,8 +741,8 @@ class _ScoreBase:
         new_chord.onset = time
         self.chords.insert(i + 1, new_chord)
         self.pc_bass.insert(i + 1, self.pc_bass[i])
-        if len(self.structural_melody) > i:
-            self.structural_melody.insert(i + 1, self.structural_melody[i])
+        if len(self.structural_soprano) > i:
+            self.structural_soprano.insert(i + 1, self.structural_soprano[i])
         self._scale_getter.insert_scale_pcs(i + 1, new_chord.scale_pcs)
 
     def merge_ith_chords(self, i: int, check_correctness: bool = True) -> None:
@@ -406,6 +751,7 @@ class _ScoreBase:
         """
         # just in case pc_bass has not been computed yet, we need
         #   to compute it now:
+        LOGGER.debug(f"merging chord {i=}")
         self.pc_bass
         # TODO make debug flag for check_correctness
         chord1, chord2 = self.chords[i : i + 2]
@@ -415,32 +761,19 @@ class _ScoreBase:
             assert chord1 == chord2
         self.chords.pop(i + 1)
         self.pc_bass.pop(i + 1)
-        if len(self.structural_melody) > i + 2:
-            self.structural_melody.pop(i + 1)
+        if len(self.structural_soprano) > i + 2:
+            self.structural_soprano.pop(i + 1)
         self._scale_getter.pop_scale_pcs(i + 1)
 
-    def is_chord_change(
+    def at_chord_change(
         self,
-        i,
         compare_scales: bool = True,
         compare_inversions: bool = True,
         allow_subsets: bool = False,
     ) -> bool:
-        """
-        >>> rntxt = '''Time Signature: 4/4
-        ... m1 I b4 V
-        ... m2 V'''
-        >>> score = PrefabScore(rntxt)
-        >>> score.is_chord_change(0)
-        True
-        >>> score.is_chord_change(1)
-        True
-        >>> score.is_chord_change(2)
-        False
-        """
-        return (i == 0) or not is_same_harmony(
-            self.chords[i - 1],
-            self.chords[i],
+        return self.empty or not is_same_harmony(
+            self.prev_chord,
+            self.current_chord,
             compare_scales,
             compare_inversions,
             allow_subsets,
@@ -448,7 +781,6 @@ class _ScoreBase:
 
     @property
     def annotations_as_df(self) -> pd.DataFrame:
-        # return pd.DataFrame(self.annotations)
         out = pd.concat([pd.DataFrame(annots) for annots in self.annotations.values()])
         # only one annotation per time-point appears in the kern files (or is it
         #   the verovio realizations?). Anyway, we merge them into one here. TODO
@@ -463,34 +795,39 @@ class _ScoreBase:
         out = pd.DataFrame(temp)
         return out
 
-    @property
-    def structural_bass_as_df(self) -> pd.DataFrame:
+    def as_df(self, attr_name: str, track: int = 0) -> pd.DataFrame:
+        notes = getattr(self, attr_name)
         return pd.DataFrame(
-            Note(  # type:ignore
-                bass_pitch,
-                self.chords[i].onset,
-                self.chords[i].release,
-                track=self.bass_track,
-            )
-            for i, bass_pitch in enumerate(self.structural_bass)
-        )
-
-    @property
-    def structural_melody_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            Note(  # type:ignore
+            Note(
                 melody_pitch,
                 self.chords[i].onset,
                 self.chords[i].release,
-                track=self.melody_track,
+                track=track,
             )
-            for i, melody_pitch in enumerate(self.structural_melody)
+            for i, melody_pitch in enumerate(notes)
+        )
+
+    @property
+    def structural_melody_as_df(self):
+        return self.as_df(
+            "structural_melody", track=TRACKS["structural"][OuterVoice.MELODY]
+        )
+
+    @property
+    def structural_bass_as_df(self):
+        return self.as_df(
+            "structural_bass", track=TRACKS["structural"][OuterVoice.BASS]
         )
 
     def get_df(self, contents: t.Union[str, t.Sequence[str]]) -> pd.DataFrame:
         if isinstance(contents, str):
             contents = [contents]
-        dfs = (getattr(self, f"{name}_as_df") for name in contents)
+        dfs = []
+        for name in contents:
+            if hasattr(self, f"{name}_as_df"):
+                dfs.append(getattr(self, f"{name}_as_df"))
+            else:
+                dfs.append(self.as_df(name))
         df = pd.concat(dfs)
         return sort_note_df(df)
 
@@ -511,73 +848,8 @@ class Score(_ScoreBase):
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
-        return "structural_bass", "structural_melody"  # type:ignore
-
-
-class PrefabScore(_ScoreBase):
-    """This class provides a "shared working area" for the various classes and
-    functions that build a score. It doesn't encapsulate much of anything.
-
-    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
-    >>> score = PrefabScore(chord_data=rntxt)
-
-    >>> [chord.pcs for chord in score.chords]
-    [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
-
-    >>> score.pc_bass  # Pitch-classes
-    [0, 5, 7, 4]
-    """
-
-    def __init__(
-        self,
-        chord_data: t.Union[str, t.List[Chord]],
-        range_constraints: RangeConstraints = RangeConstraints(),
-        prefab_track: int = 1,
-        melody_track: int = 2,
-        bass_track: int = 3,
-        accompaniments_track: int = 2,
-        ts: t.Optional[t.Union[Meter, str]] = None,
-        transpose: int = 0,
-    ):
-        super().__init__(
-            chord_data,
-            range_constraints=range_constraints,
-            ts=ts,
-            transpose=transpose,
-            melody_track=melody_track,
-            bass_track=bass_track,
-        )
-
-        self.prefabs: t.List[t.List[Note]] = []
-        self.accompaniments: t.List[t.List[Note]] = []
-        self.prefab_track = prefab_track
-        self.accompaniments_track = accompaniments_track
-        self.tied_prefab_indices: t.Set[int] = set()
-        self.allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
-
-    @property
-    def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
-        return "structural_bass", "structural_melody"  # type:ignore
-
-    @property
-    def prefabs_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            apply_ties(
-                (note for prefab in self.prefabs for note in prefab),
-                check_correctness=True,  # TODO remove this when I'm more confident
-            )
-        )
-
-    @property
-    def accompaniments_as_df(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            note for accompaniment in self.accompaniments for note in accompaniment
-        )
-
-    def _validate_split_ith_chord_at(self, i: int, chord: Chord, time: TIME_TYPE):
-        super()._validate_split_ith_chord_at(i, chord, time)
-        assert len(self.prefabs) <= i
-        assert len(self.accompaniments) <= i
+        raise NotImplementedError
+        return "structural_bass", "structural_soprano"  # type:ignore
 
 
 class FourPartScore(_ScoreBase):
@@ -594,85 +866,269 @@ class FourPartScore(_ScoreBase):
     [36, 41, 43, 40]
 
     Let's add a melody:
-    >>> score.structural_melody.extend([72, 74, 71, 72])
-    >>> score.get_existing_pitches(0)
-    (36, 72)
-    >>> score.get_existing_pitches(1)
-    (41, 74)
+    >>> score.structural_soprano.extend([72, 74, 71, 72])
+
+    # TODO: (Malcolm 2023-08-03) implement or change
+    # >>> score.get_existing_pitches(0)
+    # (36, 72)
+    # >>> score.get_existing_pitches(1)
+    # (41, 74)
 
     Let's add inner parts:
-    >>> score.inner_voices[InnerVoice.TENOR].extend([55, 57, 55, 55])
-    >>> score.inner_voices[InnerVoice.ALTO].extend([64, 65, 62, 77])
-    >>> score.get_existing_pitches(0)  # TODO: (Malcolm 2023-07-22) sort?
-    (36, 72, 55, 64)
+    >>> score.structural_tenor.extend([55, 57, 55, 55])
+    >>> score.structural_alto.extend([64, 65, 62, 77])
+
+    # >>> score.get_existing_pitches(0)
+    # (36, 55, 64, 72)
     """
 
     def __init__(
         self,
         chord_data: t.Union[str, t.List[Chord]],
-        range_constraints: RangeConstraints = RangeConstraints(),
         ts: t.Optional[t.Union[Meter, str]] = None,
         transpose: int = 0,
-        melody_track: int = 1,
-        bass_track: int = 3,
-        inner_voices_track: int = 2,
     ):
         super().__init__(
             chord_data,
-            range_constraints=range_constraints,
             ts=ts,
             transpose=transpose,
-            melody_track=melody_track,
-            bass_track=bass_track,
         )
-        # self.inner_voices: t.List[t.Tuple[Pitch, Pitch]] = []
-        self.inner_voices: defaultdict[InnerVoice, list[Pitch]] = defaultdict(list)
-        self.inner_voices_track = inner_voices_track
-        self.inner_voice_suspensions: defaultdict[
-            InnerVoice, dict[int, Suspension]
-        ] = defaultdict(lambda: {})
 
-    def get_existing_pitches(
+    @property
+    def structural_tenor(self):
+        return self._structural[InnerVoice.TENOR]
+
+    @property
+    def structural_alto(self):
+        return self._structural[InnerVoice.ALTO]
+
+    @property
+    def structural_tenor_as_df(self):
+        return self.as_df(
+            "structural_tenor", track=TRACKS["structural"][InnerVoice.TENOR]
+        )
+
+    @property
+    def structural_alto_as_df(self):
+        return self.as_df(
+            "structural_alto", track=TRACKS["structural"][InnerVoice.ALTO]
+        )
+
+    @property
+    def default_existing_pitch_attr_names(self) -> t.Tuple[str, ...]:
+        raise NotImplementedError
+        return (
+            "structural_bass",
+            "structural_tenor",
+            "structural_alto",
+            "structural_soprano",
+        )
+
+
+class _ChordTransitionInterface:
+    def __init__(self, reference_score: _ScoreBase):
+        self._score = reference_score
+
+    @property
+    def ts(self) -> Meter:
+        return self._score.ts
+
+    @property
+    def structural_voices(self) -> t.Iterator[Voice]:
+        yield from self._score._structural.keys()
+
+    @property
+    def i(self) -> int:
+        return self._score.i - 2
+
+    def structural_interval_from_departure_to_arrival(
+        self, voice: Voice
+    ) -> ScalarInterval:
+        return self.departure_scale.get_interval(
+            self.departure_pitch(voice),
+            self.arrival_pitch(voice),
+            scale2=self.arrival_scale,
+        )
+
+    def validate_state(self) -> bool:
+        if not self._score.validate_state():
+            return False
+        return self.i + 2 == self._score.i
+
+    def departure_pitch(self, voice: Voice) -> Pitch:
+        return self._score.prev_pitch(voice, offset_from_current=2)
+
+    def arrival_pitch(self, voice: Voice):
+        return self._score.prev_pitch(voice)
+
+    def departure_interval_above_bass(self, voice: Voice):
+        if voice is OuterVoice.BASS:
+            return 0
+        return self.departure_scale.get_reduced_scalar_interval(
+            self.departure_pitch(OuterVoice.BASS), self.departure_pitch(voice)
+        )
+
+    @property
+    def departure_chord(self):
+        assert self._score.i > 1
+        return self._score.chords[self.i]
+
+    @property
+    def arrival_chord(self):
+        assert self._score.i > 1
+        return self._score.chords[self.i + 1]
+
+    @property
+    def departure_scale(self):
+        assert self._score.i > 1
+        return self._score.scales[self.i]
+
+    @property
+    def arrival_scale(self):
+        assert self._score.i > 1
+        return self._score.scales[self.i + 1]
+
+    @property
+    def arrival_time(self):
+        assert self._score.i > 1
+        return self._score.chords[self.i + 1].onset
+
+    def departure_is_preparation(self, voice: Voice) -> bool:
+        return self._score.prev_is_suspension(voice)
+
+    def departure_suspension(self, voice: Voice) -> Suspension | None:
+        return self._score.prev_suspension(voice=voice, offset_from_current=2)
+
+    def departure_is_suspension(self, voice: Voice) -> bool:
+        return self._score.prev_is_resolution(voice)
+
+    def departure_is_resolution(self, voice: Voice) -> bool:
+        assert self._score.i > 1
+        return self._score._suspension_resolutions[voice].get(self.i, None) is None
+
+    def at_chord_change(
         self,
-        idx: int,
-        attr_names: t.Sequence[str] | None = None,
-    ) -> t.Tuple[Pitch]:
-        if attr_names is None:
-            attr_names = self.default_existing_pitch_attr_names
-
-        # Quite a hacky solution
-        if "inner_voices" in attr_names:
-            attr_names = [
-                attr_name for attr_name in attr_names if attr_name != "inner_voices"
-            ]
-            inner_voices_pitches = [
-                inner_voice_pitches[idx]
-                for inner_voice_pitches in self.inner_voices.values()
-            ]
-        else:
-            inner_voices_pitches = []
-
-        return tuple(
-            flatten_iterables(
-                [super().get_existing_pitches(idx, attr_names), inner_voices_pitches]
-            )
+        compare_scales: bool = True,
+        compare_inversions: bool = True,
+        allow_subsets: bool = False,
+    ):
+        return not is_same_harmony(
+            self.departure_chord,
+            self.arrival_chord,
+            compare_scales,
+            compare_inversions,
+            allow_subsets,
         )
+
+    def departure_attr(self, attr_name: str, voice: Voice):
+        assert self._score.i > 1
+        return getattr(self._score, attr_name)[voice][self.i]
+
+    def arrival_attr(self, attr_name: str, voice: Voice):
+        assert self._score.i > 1
+        return getattr(self._score, attr_name)[voice][self.i + 1]
+
+
+class PrefabScore(FourPartScore):
+    """This class provides a "shared working area" for the various classes and
+    functions that build a score. It doesn't encapsulate much of anything.
+
+    >>> rntxt = "m1 C: I b2 ii6 b3 V b4 I6"
+    >>> score = PrefabScore(chord_data=rntxt)
+
+    >>> [chord.pcs for chord in score.chords]
+    [(0, 4, 7), (5, 9, 2), (7, 11, 2), (4, 7, 0)]
+
+    >>> score.pc_bass  # Pitch-classes
+    [0, 5, 7, 4]
+    """
+
+    def __init__(
+        self,
+        chord_data: t.Union[str, t.List[Chord]],
+        ts: t.Optional[t.Union[Meter, str]] = None,
+        transpose: int = 0,
+    ):
+        super().__init__(chord_data, ts=ts, transpose=transpose)
+
+        self.prefabs: defaultdict[Voice, list[list[Note]]] = defaultdict(list)
+        self.accompaniments: t.List[t.List[Note]] = []
+        self._tied_prefab_indices: defaultdict[Voice, set[int]] = defaultdict(set)
+        self._allow_prefab_start_with_rest: t.Dict[int, Allow] = {}
 
     @property
     def default_existing_pitch_attr_names(self) -> t.Tuple[str]:
-        return "structural_bass", "inner_voices", "structural_melody"  # type:ignore
+        raise NotImplementedError
+        return "structural_bass", "structural_soprano"  # type:ignore
 
     @property
-    def inner_voices_as_df(self) -> pd.DataFrame:
-        notes = []
-        for chord_i, inner_voices in enumerate(zip(*self.inner_voices.values())):
-            for pitch in inner_voices:
-                notes.append(
-                    Note(  # type:ignore
-                        pitch,
-                        self.chords[chord_i].onset,
-                        self.chords[chord_i].release,
-                        track=self.inner_voices_track,
-                    )
-                )
-        return pd.DataFrame(notes)
+    def prefabs_as_df(self) -> pd.DataFrame:
+        sub_dfs = []
+        for voice, notes in self.prefabs.items():
+            track = TRACKS["prefabs"][voice]
+            tied_notes = apply_ties(
+                (note for prefab in notes for note in prefab),
+                check_correctness=True,  # TODO remove this when I'm more confident
+            )
+            sub_df = pd.DataFrame(tied_notes)
+            sub_df["track"] = track
+            sub_dfs.append(sub_df)
+        return pd.concat(sub_dfs)
+
+    @property
+    def accompaniments_as_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            note
+            for accompaniment in self.accompaniments
+            for note in accompaniment  # type:ignore
+        )
+
+    def _validate_split_ith_chord_at(self, i: int, chord: Chord, time: TIME_TYPE):
+        super()._validate_split_ith_chord_at(i, chord, time)
+        for voice in self.prefabs:
+            assert len(self.prefabs[voice]) <= i
+        assert len(self.accompaniments) <= i
+
+
+class PrefabInterface(_ChordTransitionInterface):
+    def __init__(self, reference_score: PrefabScore):
+        super().__init__(reference_score)
+        self._tied_prefab_indices: defaultdict[Voice, set[int]] = defaultdict(set)
+        self._allow_prefab_start_with_rest: defaultdict[
+            Voice, dict[int, Allow]
+        ] = defaultdict(dict)
+        self._score: PrefabScore
+
+    def last_existing_prefab_note(self, voice: Voice) -> Note | None:
+        prefabs = self._score.prefabs[voice]
+        if not prefabs:
+            return None
+        last_prefab = prefabs[-1]
+        if not last_prefab:
+            return None
+        return last_prefab[-1]
+
+    def departure_follows_tie(self, voice: Voice) -> bool:
+        if self.i < 1:
+            return False
+        return self.i - 1 in self._tied_prefab_indices[voice]
+
+    def add_tie_from_departure(self, voice: Voice):
+        assert self.i not in self._tied_prefab_indices[voice]
+        self._tied_prefab_indices[voice].add(self.i)
+
+    def remove_tie_from_departure(self, voice: Voice):
+        self._tied_prefab_indices[voice].remove(self.i)
+
+    def get_departure_can_start_with_rest(self, voice: Voice) -> Allow:
+        return self._allow_prefab_start_with_rest[voice].get(self.i, Allow.NO)
+
+    def set_arrival_can_start_with_rest(self, voice: Voice, allow: Allow) -> None:
+        self._allow_prefab_start_with_rest[voice][self.i + 1] = allow
+
+    def unset_arrival_can_start_with_rest(self, voice: Voice) -> None:
+        del self._allow_prefab_start_with_rest[voice][self.i + 1]
+
+
+class AccompanimentInterface(_ChordTransitionInterface):
+    pass

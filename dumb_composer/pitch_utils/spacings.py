@@ -2,7 +2,11 @@ import random
 import typing as t
 from dataclasses import dataclass
 
-from dumb_composer.constants import DEFAULT_BASS_RANGE, DEFAULT_MEL_RANGE
+from dumb_composer.constants import (
+    DEFAULT_ACCOMP_RANGE,
+    DEFAULT_BASS_RANGE,
+    DEFAULT_MEL_RANGE,
+)
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, yield_all_in_range
 from dumb_composer.pitch_utils.types import Pitch, PitchClass
 
@@ -17,6 +21,8 @@ class RangeConstraints:
         max_pitch: Pitch = DEFAULT_RANGE_MAX_PITCH,
         min_bass_pitch: Pitch | None = DEFAULT_BASS_RANGE[0],
         max_bass_pitch: Pitch | None = DEFAULT_BASS_RANGE[1],
+        min_accomp_pitch: Pitch | None = DEFAULT_ACCOMP_RANGE[0],
+        max_accomp_pitch: Pitch | None = DEFAULT_ACCOMP_RANGE[1],
         min_melody_pitch: Pitch | None = DEFAULT_MEL_RANGE[0],
         max_melody_pitch: Pitch | None = DEFAULT_MEL_RANGE[1],
     ):
@@ -24,6 +30,12 @@ class RangeConstraints:
         self.max_pitch = max_pitch
         self.min_bass_pitch = min_pitch if min_bass_pitch is None else min_bass_pitch
         self.max_bass_pitch = max_pitch if max_bass_pitch is None else max_bass_pitch
+        self.min_accomp_pitch = (
+            min_pitch if min_accomp_pitch is None else min_accomp_pitch
+        )
+        self.max_accomp_pitch = (
+            max_pitch if max_accomp_pitch is None else max_accomp_pitch
+        )
         self.min_melody_pitch = (
             min_pitch if min_melody_pitch is None else min_melody_pitch
         )
@@ -199,7 +211,7 @@ class SpacingConstraints:
 
     """
 
-    max_adjacent_interval: int = 12
+    max_adjacent_interval: int = 14
     min_adjacent_interval: int = 0
     min_total_interval: int = None  # type:ignore
     max_total_interval: int = None  # type:ignore

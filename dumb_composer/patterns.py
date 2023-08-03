@@ -14,6 +14,8 @@ from dumb_composer.pitch_utils.types import TimeStamp
 from dumb_composer.shared_classes import Allow, Note, notes, print_notes
 from dumb_composer.time import Meter, RhythmFetcher
 
+LOGGER = logging.getLogger(__name__)
+
 Pattern = str | t.Callable
 
 
@@ -723,7 +725,7 @@ class PatternMaker:
             ),
         ):
             if not constraint():
-                logging.debug(
+                LOGGER.debug(
                     f"{self.__class__.__name__} "
                     f"falling back from {pattern_name} to {fallback}"
                 )
@@ -737,7 +739,7 @@ class PatternMaker:
                     track,
                     chord_change,
                 )
-        logging.debug(
+        LOGGER.debug(
             f"{self.__class__.__name__}: "
             f"{pattern_name} time:{onset}--{release} "
             f"chord_change:{'yes' if chord_change else 'no'}"
@@ -761,14 +763,14 @@ class PatternMaker:
             try_to_keep_same_pattern or random.random() <= self._inertia
         ):
             pattern = self._prev_pattern
-            logging.debug(f"{self.__class__.__name__} retrieving pattern {pattern}")
+            LOGGER.debug(f"{self.__class__.__name__} retrieving pattern {pattern}")
         else:
             pattern_options = self._get_pattern_options(
                 pitches_or_pcs, harmony_onset, harmony_release
             )
             pattern = random.choice(pattern_options)
             self._prev_pattern = pattern  # type:ignore
-            logging.debug(f"{self.__class__.__name__} setting pattern {pattern}")
+            LOGGER.debug(f"{self.__class__.__name__} setting pattern {pattern}")
         return pattern
 
     def __call__(

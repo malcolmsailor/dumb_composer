@@ -16,7 +16,7 @@ from tests.test_helpers import TEST_OUT_DIR
 
 
 @pytest.mark.parametrize(
-    "rntxt, structural_melody_pitches",
+    "rntxt, structural_soprano_pitches",
     (
         ("m1 d: i b3 viio7", [62, 65, 69]),
         ("m1 F: V7 b3 viio7/vi", [60, 64, 67, 70]),
@@ -24,14 +24,14 @@ from tests.test_helpers import TEST_OUT_DIR
     ),
 )
 @pytest.mark.parametrize("do_first", (mod.OuterVoice.BASS, mod.OuterVoice.MELODY))
-def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches, do_first):
+def test_avoid_doubling_tendency_tones(rntxt, structural_soprano_pitches, do_first):
     random.seed(42)
     settings = mod.TwoPartContrapuntistSettings(do_first=do_first)
-    for melody_pitch in structural_melody_pitches:
+    for melody_pitch in structural_soprano_pitches:
         tpc = mod.TwoPartContrapuntist(chord_data=rntxt, settings=settings)
         # We hack the score so that it starts with the intended pitch
         tpc._score.structural_bass.append(tpc._score.chords[0].foot + 24)
-        tpc._score.structural_melody.append(melody_pitch)
+        tpc._score.structural_soprano.append(melody_pitch)
         try:
             for pitches in tpc._step():
                 assert pitches["melody"] % 12 != pitches["bass"] % 12
@@ -40,7 +40,7 @@ def test_avoid_doubling_tendency_tones(rntxt, structural_melody_pitches, do_firs
 
 
 def update_counts(score, counts: defaultdict[str, Counter]):
-    paired_list = list(zip(score.structural_bass, score.structural_melody))
+    paired_list = list(zip(score.structural_bass, score.structural_soprano))
     for (prev_bass, prev_mel), (bass, mel) in zip(
         [(None, None)] + paired_list[:-1], paired_list
     ):

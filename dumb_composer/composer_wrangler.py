@@ -1,3 +1,7 @@
+import pytest
+
+pytest.mark.skip(reason="need to update implementation")
+
 import ast
 import itertools as it
 import json
@@ -128,10 +132,10 @@ class ComposerWrangler:
     ):
         def _log_composer_settings(settings_dict):
             generic_settings = PrefabComposerSettings(
-                prefab_voice="varies",
-                mel_range="varies",
-                bass_range="varies",
-                accomp_range="varies",
+                prefab_voices="varies",
+                # mel_range="varies",
+                # bass_range="varies",
+                # accomp_range="varies",
                 **settings_dict,
             )
             with open(os.path.join(output_dir, "settings.txt"), "w") as outf:

@@ -8,7 +8,7 @@ from functools import cached_property, reduce
 from numbers import Number
 from types import MappingProxyType
 
-from dumb_composer.constants import METER_CONDITIONS, TIME_TYPE
+from dumb_composer.constants import METER_CONDITIONS
 from dumb_composer.pitch_utils.types import TIME_TYPE
 
 from .time_utils import get_onsets_within_duration

@@ -16,7 +16,7 @@ from types import MappingProxyType
 import music21
 from cache_lib import cacher
 
-from dumb_composer.constants import TIME_TYPE, speller_pcs, unspeller_pcs
+from dumb_composer.constants import speller_pcs, unspeller_pcs
 from dumb_composer.pitch_utils.aliases import Fifth, Root, Seventh, Third
 from dumb_composer.pitch_utils.consonances import pcs_consonant
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
@@ -28,6 +28,7 @@ from dumb_composer.pitch_utils.spacings import (
     yield_spacings,
 )
 from dumb_composer.pitch_utils.types import (
+    TIME_TYPE,
     BassFactor,
     ChordFactor,
     ChromaticInterval,
@@ -239,7 +240,7 @@ CONDITIONAL_TENDENCIES: t.Mapping[
     {
         is_stationary_64: {Root: Tendency.DOWN, Third: Tendency.DOWN},
         is_43_ascending_by_step: {
-            Seventh: Tendency.NONE
+            Seventh: Tendency.UP
         },  # TODO: (Malcolm 2023-07-19) maybe change to UP
         is_diminished_63: {Fifth: Tendency.NONE},
         is_diminished_63_ascending_by_step_to_63: {Fifth: Tendency.UP},
@@ -324,8 +325,12 @@ class Chord:
     def non_foot_pcs(self):
         return self.pcs[1:]
 
+    @property
+    def scalar_intervals_including_bass(self) -> t.Tuple[ScalarInterval, ...]:
+        return (0,) + self.scalar_intervals_above_bass
+
     @cached_property
-    def scalar_intervals_above_bass(self) -> t.Tuple[ScalarInterval]:
+    def scalar_intervals_above_bass(self) -> t.Tuple[ScalarInterval, ...]:
         """
         >>> rntxt = "m1 C: I b3 V43"
         >>> I, V43 = get_chords_from_rntxt(rntxt)
@@ -1311,6 +1316,33 @@ class Chord:
             out.token = key + ":" + m.group("numeral")  # type:ignore
         out._pc_to_bass_factor = {pc: i for (i, pc) in enumerate(out.pcs)}
         return out
+
+    def scalar_intervals_from_bass_factor_to_others(
+        self, bass_factor: BassFactor
+    ) -> tuple[ScalarInterval, ...]:
+        """
+        >>> rntxt = "m1 C: I b2 I6 b3 I64 b4 V43"
+        >>> I, I6, I64, V43 = get_chords_from_rntxt(rntxt)
+        >>> I.scalar_intervals_from_bass_factor_to_others(0)
+        (-5, -3, 2, 4)
+        >>> I.scalar_intervals_from_bass_factor_to_others(1)
+        (-5, -2, 2, 5)
+        >>> I.scalar_intervals_from_bass_factor_to_others(2)
+        (-4, -2, 3, 5)
+        """
+        scale_card = len(self.scale_pcs)
+        scalar_intervals = self.scalar_intervals_including_bass
+        bass_factor_as_scalar_interval = scalar_intervals[bass_factor]
+        up = tuple(
+            sorted(
+                (scalar_interval - bass_factor_as_scalar_interval) % scale_card
+                for scalar_interval in scalar_intervals
+                if scalar_interval != bass_factor_as_scalar_interval
+            )
+        )
+        down = tuple(f - scale_card for f in up)
+
+        return down + up
 
 
 def is_same_harmony(

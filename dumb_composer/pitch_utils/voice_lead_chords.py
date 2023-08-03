@@ -24,6 +24,7 @@ from dumb_composer.pitch_utils.parts import (
 from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spacing
 from dumb_composer.pitch_utils.types import Pitch
 from dumb_composer.suspensions import Suspension
+from dumb_composer.utils.recursion import UndoRecursiveStep
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,9 +44,14 @@ def voice_lead_chords(
     max_bass_pitch: t.Optional[int] = None,
     raise_error_on_failure_to_resolve_tendencies: bool = False,
     max_diff_number_of_voices: int = 0,
-    spacing_constraints: SpacingConstraints = SpacingConstraints(),
+    # I'm setting spacing_constraints.max_adjacent_interval because that was how
+    #   it was when I wrote all the doctests and I don't want to rewrite them
+    spacing_constraints: SpacingConstraints = SpacingConstraints(
+        max_adjacent_interval=12
+    ),
     # TODO: (Malcolm 2023-07-22) document
     normalize_voice_assignments: bool = True,
+    allow_unresolved_tendencies: bool = False,
 ) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
 
@@ -304,15 +310,15 @@ def voice_lead_chords(
     ((43, 62, 72, 74), (43, 67, 72, 74), (55, 62, 72, 74))
 
     Suspension in melody voice whose preparation is unison w/ another voice:
-    >>> rntxt = "m1 F: viio64 b3 viio6/ii"
-    >>> viio64, viio6_of_ii = get_chords_from_rntxt(rntxt)
+    >>> rntxt = "m1 F: ii6 b3 viio6/ii"
+    >>> ii6, viio6_of_ii = get_chords_from_rntxt(rntxt)
     >>> suspension = Suspension(
     ...     pitch=67, resolves_by=-1, dissonant=True, interval_above_bass=10
     ... )
     >>> vl_iter = voice_lead_chords(
-    ...     viio64,
+    ...     ii6,
     ...     viio6_of_ii,
-    ...     (46, 64, 67, 67),
+    ...     (46, 62, 67, 67),
     ...     chord2_melody_pitch=67,
     ...     chord2_suspensions={67: suspension},
     ... )
@@ -534,13 +540,28 @@ def voice_lead_chords(
     Avoid resolving tendency tone when resolution pitch-class already present in melody
     ------------------------------------------------------------------------------------
 
+    # TODO: (Malcolm 2023-08-03) fix
     >>> rntxt = '''m1 F: viio7/V b3 V'''
     >>> viio7_of_V, V = get_chords_from_rntxt(rntxt)
+
+    With default settings, this will not return anything:
     >>> vl_iter = voice_lead_chords(
     ...     viio7_of_V,
     ...     V,
     ...     (35, 53, 62, 74),  # B2 F4 D5 D6
     ...     chord2_melody_pitch=64,  # E5 in melody
+    ... )  # chord2 must not resolve 53 to 52
+    >>> next(vl_iter)
+    Traceback (most recent call last):
+    StopIteration
+
+    With `allow_unresolved_tendencies`, the F4 will proceed to a different pitch:
+    >>> vl_iter = voice_lead_chords(
+    ...     viio7_of_V,
+    ...     V,
+    ...     (35, 53, 62, 74),  # B2 F4 D5 D6
+    ...     chord2_melody_pitch=64,  # E5 in melody
+    ...     allow_unresolved_tendencies=True,
     ... )  # chord2 must not resolve 53 to 52
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((36, 55, 60, 64), (36, 48, 60, 64), (36, 48, 55, 64))
@@ -594,7 +615,7 @@ def voice_lead_chords(
     chord1_melody_pitch = max(chord1_pitches)
 
     bass_suspension = None
-    melody_suspension = False
+    soprano_suspension = False
     if chord2_suspensions:
         # if enforce_preparations:
         #   assert all(p in chord1_pitches for p in chord2_suspensions)
@@ -603,11 +624,11 @@ def voice_lead_chords(
             if suspension.interval_above_bass == 0:
                 bass_suspension = pitch
             elif pitch == chord2_melody_pitch:
-                melody_suspension = True
+                soprano_suspension = True
             elif pitch == chord1_melody_pitch:
                 if chord2_melody_pitch is None:
                     chord2_melody_pitch = pitch
-                    melody_suspension = True
+                    soprano_suspension = True
         if bass_suspension is not None:
             chord2_suspensions.pop(bass_suspension)
     elif chord2_suspensions is None:
@@ -688,15 +709,17 @@ def voice_lead_chords(
                         )
                     ):
                         if tendency_tone_already_in_melody:
-                            LOGGER.warning(
+                            LOGGER.debug(
                                 f"Can't resolve {pitch=} with {pitch_tendency=} because "
                                 f"{chord2_melody_pitch=} w/ {chord2_melody_tendency=}"  # type:ignore
                             )
                         else:
-                            LOGGER.warning(
+                            LOGGER.debug(
                                 f"Can't resolve {pitch=} with {pitch_tendency=} because "
                                 f"of suspension that will resolve to this pitch-class"
                             )
+                        if not allow_unresolved_tendencies:
+                            return
                         unresolved_tendencies.append(pitch)
                     else:
                         if pc in tendency_pcs:
@@ -753,7 +776,7 @@ def voice_lead_chords(
         tuple(resolution_pitches)
         + (
             (chord2_melody_pitch,)
-            if (chord2_melody_pitch is not None and not melody_suspension)
+            if (chord2_melody_pitch is not None and not soprano_suspension)
             else ()
         )
         + tuple(chord2_included_pitches if chord2_included_pitches is not None else ())
@@ -857,10 +880,13 @@ def voice_lead_chords(
                 )
             )
             if not validate_spacing(output, spacing_constraints):
+                LOGGER.debug(f"spacing {output} did not validate")
                 continue
             if succession_has_forbidden_parallels(chord1_pitches, output):
+                LOGGER.debug(f"forbidden parallels in {output=}")
                 continue
             if outer_voices_have_forbidden_antiparallels(chord1_pitches, output):
+                LOGGER.debug(f"forbidden antiparallels in {output=}")
                 continue
             yield output
     except CardinalityDiffersTooMuch as exc:

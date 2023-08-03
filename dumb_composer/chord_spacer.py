@@ -25,8 +25,9 @@ from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spac
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.shared_classes import Allow
 from dumb_composer.utils.attr_compiler import attr_compiler
+from dumb_composer.utils.recursion import UndoRecursiveStep
 
-from .utils.recursion import UndoRecursiveStep
+LOGGER = logging.getLogger(__name__)
 
 
 class NoSpacings(UndoRecursiveStep):
@@ -356,7 +357,7 @@ class SimpleSpacerSettings:
     accomp_range: t.Tuple[int, int] = None  # type:ignore
 
     def __post_init__(self):
-        logging.debug(f"running SimpleSpacerSettings __post_init__()")
+        LOGGER.debug(f"running SimpleSpacerSettings __post_init__()")
         if self.bass_range is None:
             self.bass_range = DEFAULT_BASS_RANGE
         if self.accomp_range is None:
@@ -475,7 +476,7 @@ class SimpleSpacer:
                 pass
             else:
                 self._prev_pitches = pitches
-                logging.debug(f"{self.__class__.__name__} yielding spacing {pitches}")
+                LOGGER.debug(f"{self.__class__.__name__} yielding spacing {pitches}")
                 yield pitches
         if include_bass:
             assert min_bass_pitch is not None and max_bass_pitch is not None
@@ -507,11 +508,11 @@ class SimpleSpacer:
             ):
                 continue
             self._prev_pitches = spacing
-            logging.debug(f"{self.__class__.__name__} yielding spacing {spacing}")
+            LOGGER.debug(f"{self.__class__.__name__} yielding spacing {spacing}")
             yield spacing
         for i in range(len(possible_omissions)):
             for indices in it.combinations(possible_omissions, i + 1):
-                logging.debug(f"{self.__class__.__name__} omitting indices {indices}")
+                LOGGER.debug(f"{self.__class__.__name__} omitting indices {indices}")
                 try:
                     yield from self._sub(
                         [pc for i, pc in enumerate(pcs) if i not in indices],

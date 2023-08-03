@@ -9,7 +9,7 @@ from dumb_composer.time import Meter
 from tests.test_helpers import TEST_OUT_DIR, merge_dfs
 
 
-def test_four_part_composer(time_sig=(4, 4)):
+def test_four_part_composer(pytestconfig, time_sig=(4, 4)):
     numer, denom = time_sig
     ts = f"{numer}/{denom}"
     # TODO: (Malcolm 2023-07-18) pedal points in bass?
@@ -29,6 +29,16 @@ def test_four_part_composer(time_sig=(4, 4)):
     m12 V b3 V7
     m13 I
     """
+
+    path_wo_ext = os.path.join(
+        TEST_OUT_DIR,
+        f"four_part_composer={ts.replace('/', '-')}",
+    )
+    mid_path = path_wo_ext + ".mid"
+    log_path = path_wo_ext + ".log"
+    logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
+    logging_plugin.set_log_path(log_path)
+
     dfs = []
     deadend_dfs = []
     settings = FourPartComposerSettings()
@@ -45,11 +55,8 @@ def test_four_part_composer(time_sig=(4, 4)):
     out_df = merge_dfs(dfs, ts)
     deadend_df = merge_dfs(deadend_dfs, ts)
 
-    mid_path = os.path.join(
-        TEST_OUT_DIR,
-        f"four_part_composer={ts.replace('/', '-')}.mid",
-    )
     print(f"writing {mid_path}")
+    print(f"log_path = {log_path}")
     df_to_midi(out_df, mid_path, ts=(numer, denom))
 
     if len(deadend_df):

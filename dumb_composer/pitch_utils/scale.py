@@ -359,7 +359,7 @@ class Scale:
         pitch2: int,
         scale2: t.Optional[Scale] = None,
         reduce_compounds: bool = False,
-    ):
+    ) -> ScalarInterval:
         """Gets generic interval between two pitches.
 
         >>> s = Scale([0, 2, 4, 5, 7, 9, 11])  # C major

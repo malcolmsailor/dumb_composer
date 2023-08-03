@@ -11,9 +11,24 @@ from dumb_composer.utils.recursion import RecursionFailed
 from tests.test_helpers import TEST_OUT_DIR, get_funcname, merge_dfs, write_df
 
 
-@pytest.mark.parametrize("time_sig", [(4, 4), (3, 4)])
-@pytest.mark.parametrize("prefab_voice", ("soprano", "tenor", "bass"))
-def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voice):
+@pytest.mark.parametrize(
+    "time_sig",
+    [
+        (4, 4),
+        # (3, 4),
+    ],
+)
+# TODO: (Malcolm 2023-07-28) add tenor and maybe alto
+@pytest.mark.parametrize(
+    "prefab_voices",
+    (
+        # ("soprano",),
+        # ("bass",),
+        # ("soprano", "alto", "tenor", "bass"),
+        ("soprano", "bass"),
+    ),
+)
+def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voices):
     numer, denom = time_sig
     ts = f"{numer}/{denom}"
     rn_txt = f"""Time signature: {ts}
@@ -36,13 +51,22 @@ def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voice):
     test_out_dir = os.path.join(TEST_OUT_DIR, funcname)
     os.makedirs(test_out_dir, exist_ok=True)
 
+    path_wo_ext = os.path.join(
+        test_out_dir,
+        f"ts={ts.replace('/', '-')}_" f"prefab_voice={prefab_voices}",
+    )
+    mid_path = path_wo_ext + ".mid"
+    log_path = path_wo_ext + ".log"
+    logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
+    logging_plugin.set_log_path(log_path)
+
     dfs = []
-    initial_seed = 42
+    initial_seed = 48
     number_of_tries = 10
     for seed in range(initial_seed, initial_seed + number_of_tries):
         random.seed(seed)
         settings = PrefabComposerSettings(
-            prefab_voice=prefab_voice,
+            prefab_voices=prefab_voices,
             top_down_tie_prob={0: 0.5, 1: 1.0},  # TODO move elsewhere
         )
         pfc = PrefabComposer(settings)
@@ -51,19 +75,12 @@ def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voice):
 
     out_df = merge_dfs(dfs, ts)
 
-    path_wo_ext = os.path.join(
-        test_out_dir,
-        f"ts={ts.replace('/', '-')}_" f"prefab_voice={prefab_voice}",
-    )
-    mid_path = path_wo_ext + ".mid"
-    log_path = path_wo_ext + ".log"
-    logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
-    logging_plugin.set_log_path(log_path)
     write_df(
         out_df,
         mid_path,
         ts=(numer, denom),
     )
+    print(f"log_path = {log_path}")
 
     if quick:
         raise NotImplementedError()

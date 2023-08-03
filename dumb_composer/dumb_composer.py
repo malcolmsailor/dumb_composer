@@ -15,9 +15,17 @@ from dumb_composer.constants import (
     DEFAULT_TENOR_MEL_RANGE,
 )
 from dumb_composer.dumb_accompanist import (
+    AccompanimentDeadEnd,
     AccompAnnots,
     DumbAccompanist,
     DumbAccompanistSettings,
+)
+from dumb_composer.four_part_composer import FourPartComposerSettings, FourPartWorker
+from dumb_composer.four_part_composer import (
+    append_structural_pitches as append_four_part_pitches,
+)
+from dumb_composer.four_part_composer import (
+    pop_structural_pitches as pop_four_part_pitches,
 )
 from dumb_composer.pitch_utils.chords import Chord
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
@@ -26,9 +34,21 @@ from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import Pitch
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
-from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
+from dumb_composer.prefab_applier import (
+    PrefabApplier,
+    PrefabApplierSettings,
+    PrefabDeadEnd,
+    append_prefabs,
+    pop_prefabs,
+)
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
-from dumb_composer.shared_classes import FourPartScore, Note, PrefabScore
+from dumb_composer.shared_classes import (
+    AccompanimentInterface,
+    FourPartScore,
+    Note,
+    PrefabInterface,
+    PrefabScore,
+)
 from dumb_composer.structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
@@ -38,8 +58,21 @@ from dumb_composer.two_part_contrapuntist import (
     TwoPartContrapuntist,
     TwoPartContrapuntistSettings,
 )
+from dumb_composer.two_part_contrapuntist import (
+    append_structural_pitches as append_two_part_pitches,
+)
+from dumb_composer.two_part_contrapuntist import (
+    pop_structural_pitches as pop_two_part_pitches,
+)
 from dumb_composer.utils.display import Spinner
-from dumb_composer.utils.recursion import DeadEnd, RecursionFailed, append_attempt
+from dumb_composer.utils.recursion import (
+    DeadEnd,
+    RecursionFailed,
+    StructuralDeadEnd,
+    UndoRecursiveStep,
+    append_attempt,
+    recursive_attempt,
+)
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
@@ -47,10 +80,9 @@ LOGGER.setLevel(logging.DEBUG)
 
 @dataclass
 class PrefabComposerSettings(
-    TwoPartContrapuntistSettings,
     DumbAccompanistSettings,
     PrefabApplierSettings,
-    StructuralPartitionerSettings,
+    FourPartComposerSettings,
 ):
     bass_range: t.Optional[t.Tuple[int, int]] = None
     mel_range: t.Optional[t.Tuple[int, int]] = None
@@ -64,39 +96,42 @@ class PrefabComposerSettings(
     #   next lesser key in the dict. (If there is no such key, then the note
     #   is not tied.)
     top_down_tie_prob: t.Optional[t.Union[float, t.Dict[int, float]]] = None
+    structural_worker: t.Literal["two_part", "four_part"] = "four_part"
 
     def __post_init__(self):
         # We need to reconcile DumbAccompanistSettings'
         # settings with PrefabApplierSettings 'prefab_voice' setting.
-        if (
-            self.mel_range is None
-            and self.accomp_range is None
-            and self.bass_range is None
-        ):
-            ranges = Ranger()(melody_part=self.prefab_voice)
-            self.mel_range = ranges["mel_range"]
-            self.bass_range = ranges["bass_range"]
-            self.accomp_range = ranges["accomp_range"]
-        logging.debug(f"running PrefabComposerSettings __post_init__()")
-        if self.prefab_voice == "bass":
-            self.accompaniment_below = None
-            self.accompaniment_above = ["prefabs"]
-            self.include_bass = False
-            if self.mel_range is None:
-                self.mel_range = DEFAULT_BASS_RANGE
-        elif self.prefab_voice == "tenor":
-            # TODO set ranges in a better/more dynamic way
-            if self.mel_range is None:
-                self.mel_range = DEFAULT_TENOR_MEL_RANGE
-            if self.accomp_range is None:
-                self.accomp_range = DEFAULT_TENOR_ACCOMP_RANGE
-            self.accompaniment_below = None
-            self.accompaniment_above = ["prefabs"]
-            self.include_bass = True
-        else:  # self.prefab_voice == "soprano"
-            self.accompaniment_below = ["prefabs"]
-            self.accompaniment_above = None
-            self.include_bass = True
+        # TODO: (Malcolm 2023-07-29)
+        # if (
+        #     self.mel_range is None
+        #     and self.accomp_range is None
+        #     and self.bass_range is None
+        # ):
+        #     ranges = Ranger()(melody_part=self.prefab_voice)
+        #     self.mel_range = ranges["mel_range"]
+        #     self.bass_range = ranges["bass_range"]
+        #     self.accomp_range = ranges["accomp_range"]
+        LOGGER.debug(f"running PrefabComposerSettings __post_init__()")
+        # TODO: (Malcolm 2023-07-29)
+        # if self.prefab_voice == "bass":
+        #     self.accompaniment_below = None
+        #     self.accompaniment_above = ["prefabs"]
+        #     self.include_bass = False
+        #     if self.mel_range is None:
+        #         self.mel_range = DEFAULT_BASS_RANGE
+        # elif self.prefab_voice == "tenor":
+        #     # TODO set ranges in a better/more dynamic way
+        #     if self.mel_range is None:
+        #         self.mel_range = DEFAULT_TENOR_MEL_RANGE
+        #     if self.accomp_range is None:
+        #         self.accomp_range = DEFAULT_TENOR_ACCOMP_RANGE
+        #     self.accompaniment_below = None
+        #     self.accompaniment_above = ["prefabs"]
+        #     self.include_bass = True
+        # else:  # self.prefab_voice == "soprano"
+        #     self.accompaniment_below = ["prefabs"]
+        #     self.accompaniment_above = None
+        #     self.include_bass = True
         if hasattr(super(), "__post_init__"):
             super().__post_init__()
 
@@ -105,18 +140,30 @@ class PrefabComposer:
     def __init__(self, settings: t.Optional[PrefabComposerSettings] = None):
         if settings is None:
             settings = PrefabComposerSettings()
-        self.structural_partitioner = StructuralPartitioner(settings)
-        self._two_part_contrapuntist: None | TwoPartContrapuntist = None
-        self.prefab_applier = PrefabApplier(settings)
-        self.dumb_accompanist = DumbAccompanist(settings)
         self.settings = settings
-        logging.debug(
+        self.structural_partitioner = StructuralPartitioner(settings)
+        self._structural_worker: None | TwoPartContrapuntist | FourPartWorker = None
+
+        if self.settings.structural_worker == "two_part":
+            self._structural_worker_cls = TwoPartContrapuntist
+            self._structural_append_func = append_two_part_pitches
+            self._structural_pop_func = pop_two_part_pitches
+        elif self.settings.structural_worker == "four_part":
+            self._structural_worker_cls = FourPartWorker
+            self._structural_append_func = append_four_part_pitches
+            self._structural_pop_func = pop_four_part_pitches
+        else:
+            raise ValueError()
+
+        self._prefab_applier: None | PrefabApplier = None
+        self._dumb_accompanist: None | DumbAccompanist = None
+        self.settings = settings
+        LOGGER.debug(
             textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
         )
         self._scales = ScaleDict()
         self._bass_range = settings.bass_range
         self._mel_range = settings.mel_range
-        self.missing_prefabs = Counter()
         self._n_recurse_calls = 0
         self._spinner = Spinner()
 
@@ -137,25 +184,41 @@ class PrefabComposer:
             self.settings.max_recurse_calls is not None
             and self._n_recurse_calls > self.settings.max_recurse_calls
         ):
-            logging.info(
+            LOGGER.info(
                 f"Max recursion calls {self.settings.max_recurse_calls} reached\n"
-                + self.get_missing_prefab_str()
+                + self._prefab_applier.get_missing_prefab_str()  # type:ignore
             )
             raise RecursionFailed(
                 f"Max recursion calls {self.settings.max_recurse_calls} reached"
             )
 
     def _final_step(self, i: int, score: PrefabScore):
-        logging.debug(f"{self.__class__.__name__}._recurse: {i} final step")
+        LOGGER.debug(f"{self.__class__.__name__}._recurse: {i} final step")
+        assert self._prefab_applier is not None
+        assert self._dumb_accompanist is not None
+
+        for prefabs in self._prefab_applier._final_step():
+            with recursive_attempt(
+                do_func=append_prefabs,
+                do_args=(prefabs, score),
+                undo_func=pop_prefabs,
+                undo_args=(prefabs, score),
+            ):
+                # with append_attempt(score.prefabs, prefab):
+                # for pattern in self._dumb_accompanist._final_step():
+                #     with append_attempt(score.accompaniments, pattern):
+                return
+        raise DeadEnd("reached end of _final_step()")
+
+    def _validate_state(self, i: int, score: PrefabScore):
+        # TODO: (Malcolm 2023-07-28) restore
+        # == len(score.accompaniments) check
         try:
-            for prefab in self.prefab_applier._final_step(score):
-                with append_attempt(score.prefabs, prefab):
-                    for pattern in self.dumb_accompanist._final_step(score):
-                        with append_attempt(score.accompaniments, pattern):
-                            return
-        except MissingPrefabError as exc:
-            self.missing_prefabs[str(exc)] += 1
-        raise DeadEnd()
+            assert i == 0
+        except AssertionError:
+            for prefabs in score.prefabs.values():
+                assert len(prefabs) == i - 1
+        assert i == len(score.structural_soprano)
 
     def _recurse(self, i: int, score: PrefabScore):
         self._check_n_recurse_calls()
@@ -164,49 +227,56 @@ class PrefabComposer:
 
         self._n_recurse_calls += 1
 
-        assert (i == 0) or (i - 1 == len(score.accompaniments) == len(score.prefabs))
-        assert i == len(score.structural_melody)
+        self._validate_state(i, score)
 
         # final step
         if i == len(score.chords):
             self._final_step(i, score)
             return
 
-        logging.debug(
+        LOGGER.debug(
             f"{self.__class__.__name__}._recurse: {i=} {score.chords[i].token=} "
             f"{score.chords[i].onset=} "
             f"{score.pc_bass[i]=}"
         )
 
-        assert self._two_part_contrapuntist is not None
+        assert self._structural_worker is not None
+        assert self._prefab_applier is not None
+        assert self._dumb_accompanist is not None
         # There should be two outcomes to the recursive stack:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
         #       context manager handles popping from the list
-        # TODO: (Malcolm 2023-07-23) I've started using DeadEnd in place of
-        #   UndoRecursiveStep, does that matter?
-        for pitches in self._two_part_contrapuntist._step():
-            try:
-                with append_attempt(
-                    (score.structural_bass, score.structural_melody),
-                    (pitches["bass"], pitches["melody"]),
-                    reraise=MissingPrefabError,
-                ):
-                    if i == 0:
-                        # appending prefab requires at least two structural
-                        #   melody pitches
-                        return self._recurse(i + 1, score)
-                    else:
-                        for prefab in self.prefab_applier._step(score):
-                            with append_attempt(score.prefabs, prefab):
-                                for pattern in self.dumb_accompanist._step(score):
-                                    with append_attempt(
-                                        self._dumb_accompanist_target, pattern
-                                    ):
-                                        return self._recurse(i + 1, score)
-            except MissingPrefabError as exc:
-                self.missing_prefabs[str(exc)] += 1
-        raise DeadEnd()
+        for pitches in self._structural_worker._step():
+            LOGGER.debug(f"{pitches=}")
+            with recursive_attempt(
+                do_func=self._structural_append_func,
+                do_args=(pitches, score),
+                undo_func=self._structural_pop_func,
+                undo_args=(score,),
+            ):
+                if i == 0:
+                    # appending prefab requires at least two structural
+                    #   melody pitches
+                    return self._recurse(i + 1, score)
+                else:
+                    for prefabs in self._prefab_applier._step():
+                        LOGGER.debug(f"{prefabs=}")
+                        with recursive_attempt(
+                            do_func=append_prefabs,
+                            do_args=(prefabs, score),
+                            undo_func=pop_prefabs,
+                            undo_args=(prefabs, score),
+                        ):
+                            for pattern in self._dumb_accompanist._step(pitches):
+                                LOGGER.debug(f"{pattern=}")
+                                with append_attempt(
+                                    self._dumb_accompanist_target,
+                                    pattern,
+                                ):
+                                    return self._recurse(i + 1, score)
+
+        raise DeadEnd("end of call to _recurse()")
 
     # TODO: (Malcolm) make this a function, write doctests
     def _apply_top_down_ties(self, score: PrefabScore):
@@ -246,29 +316,30 @@ class PrefabComposer:
                     prob = top_down_tie_prob[i]
                 else:
                     top_down_tie_prob[i] = prob
-        for prefab1, prefab2 in zip(score.prefabs, score.prefabs[1:]):
-            before_note = prefab1[-1]
-            after_note = prefab2[0]
-            if before_note.tie_to_next:
-                continue
-            if before_note.pitch != after_note.pitch:
-                continue
-            if before_note.release != after_note.onset:
-                continue
-            if is_float:
-                if random.random() < top_down_tie_prob:
-                    before_note.tie_to_next = True
-            else:
-                note_weight = score.ts.weight(before_note.onset)
-                prob = top_down_tie_prob.get(note_weight, 0.0)
-                if random.random() < prob:
-                    before_note.tie_to_next = True
+        for voice, notes in score.prefabs.items():
+            for prefab1, prefab2 in zip(notes, notes[1:]):
+                before_note = prefab1[-1]
+                after_note = prefab2[0]
+                if before_note.tie_to_next:
+                    continue
+                if before_note.pitch != after_note.pitch:
+                    continue
+                if before_note.release != after_note.onset:
+                    continue
+                if is_float:
+                    if random.random() < top_down_tie_prob:
+                        before_note.tie_to_next = True
+                else:
+                    note_weight = score.ts.weight(before_note.onset)
+                    prob = top_down_tie_prob.get(note_weight, 0.0)
+                    if random.random() < prob:
+                        before_note.tie_to_next = True
 
     def __call__(
         self,
         chord_data: t.Union[str, t.List[Chord]],
-        bass_range: t.Optional[t.Tuple[int, int]] = None,
-        mel_range: t.Optional[t.Tuple[int, int]] = None,
+        # bass_range: t.Optional[t.Tuple[int, int]] = None,
+        # mel_range: t.Optional[t.Tuple[int, int]] = None,
         return_ts: bool = False,
         transpose: int = 0,
     ) -> pd.DataFrame:
@@ -277,23 +348,23 @@ class PrefabComposer:
             If a list, should be the output of the get_chords_from_rntxt
             function or similar."""
         self._n_recurse_calls = 0
-        range_constraints = RangeConstraints(
-            min_bass_pitch=None if bass_range is None else bass_range[0],
-            max_bass_pitch=None if bass_range is None else bass_range[1],
-            min_melody_pitch=None if mel_range is None else mel_range[0],
-            max_melody_pitch=None if mel_range is None else mel_range[1],
-        )
-        # TODO: (Malcolm 2023-07-20) we shouldn't be setting range_constraints here
-        self.settings.range_constraints = range_constraints
-        bass_range, mel_range = self._get_ranges(bass_range, mel_range)
 
         print("Reading score... ", end="", flush=True)
-        score = PrefabScore(chord_data, range_constraints, transpose=transpose)
+        score = PrefabScore(chord_data, transpose=transpose)
         print("done.")
         self.structural_partitioner(score)
-        self.dumb_accompanist.init_new_piece(score.ts)
-        self._two_part_contrapuntist = TwoPartContrapuntist(
+        self._structural_worker = self._structural_worker_cls(
             score=score, settings=self.settings
+        )
+        prefab_interface = PrefabInterface(score)
+        self._prefab_applier = PrefabApplier(
+            score_interface=prefab_interface, settings=self.settings
+        )
+        accompanist_interface = AccompanimentInterface(score)
+        self._dumb_accompanist = DumbAccompanist(
+            score_interface=accompanist_interface,
+            settings=self.settings,
+            voices_to_accompany=self._prefab_applier.decorated_voices,
         )
         if self.settings.accompaniment_annotations is AccompAnnots.NONE:
             self._dumb_accompanist_target = score.accompaniments
@@ -316,34 +387,40 @@ class PrefabComposer:
         try:
             self._recurse(0, score)
         except DeadEnd:
-            logging.info(
+            LOGGER.info(
                 f"Recursion reached a terminal dead end. Missing prefabs "
-                "encountered along the way:\n" + self.get_missing_prefab_str()
+                "encountered along the way:\n"
+                + self._prefab_applier.get_missing_prefab_str()
             )
             raise RecursionFailed("Reached a terminal dead end")
         if self.settings.print_missing_prefabs:
-            logging.info(
+            LOGGER.info(
                 "Completed score. Missing prefabs encountered along the way:\n"
-                + self.get_missing_prefab_str()
+                + self._prefab_applier.get_missing_prefab_str()
             )
         if self.settings.top_down_tie_prob is not None:
             self._apply_top_down_ties(score)
-        self._two_part_contrapuntist = None
+        self._structural_worker = None
         if return_ts:
             # TODO: (Malcolm 2023-07-13) update type annotation?
             return (  # type:ignore
                 score.get_df(["prefabs", "accompaniments", "annotations"]),
                 score.ts.ts_str,
             )
-        return score.get_df(["prefabs", "accompaniments", "annotations"])
-
-    def get_missing_prefab_str(self, reverse=True, n=None):
-        if reverse:
-            outer_f = reversed
+        if self.settings.structural_worker == "two_part":
+            structural_voices = ["structural_bass", "structural_soprano"]
         else:
-            outer_f = lambda x: x
-        out = []
-        for key, count in outer_f(self.missing_prefabs.most_common(n=n)):
-            out.append(f"{count} failures:")
-            out.append(key)
-        return "\n".join(out)
+            structural_voices = [
+                "structural_bass",
+                "structural_tenor",
+                "structural_alto",
+                "structural_soprano",
+            ]
+        return score.get_df(
+            structural_voices
+            + [
+                "prefabs",
+                "accompaniments",
+                "annotations",  # TODO: (Malcolm 2023-08-01) restore
+            ]
+        )

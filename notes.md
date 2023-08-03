@@ -50,3 +50,51 @@ Chord lengths that should be allowed in
     18, ...
     - or: demisemibeat, semibeat, demisemibeat _ 3, semibeat _ 2, beat, ???,
       superbeat, beat _ 3, bar, superbeat _ 3, bar \* 2, ...
+
+
+if there are more than two prefab voices, raise an error
+
+if "soprano" is among prefab voices, accompaniment is below it
+if "bass" is among prefab voices, accompaniment is above it
+
+S -> accompaniment below
+A -> accompaniment below
+T -> accompaniment above [or above and below TODO]
+B -> accompaniment above
+
+SA -> accompaniment below alto
+ST -> accompaniment below tenor [or between tenor and soprano with bass TODO]
+SB -> accompaniment between voices
+AT -> accompaniment below tenor [or above alto with bass TODO]
+AB -> accompaniment above alto [or divided between?]
+TB -> accompaniment above tenor
+
+It would be nice to allow this to change on a per-measure basis.
+
+===
+
+2023-08-03
+
+Accompaniment procedure:
+1. choose pattern
+2. set appropriate ranges
+    - it seems best to set ranges dynamically. E.g., for alberti bass, set a certain range for the bass, then allow the rest to be within an octave above that, with optional minimums/maximums
+3. create 4-part structural counterpoint
+4. double parts as required by structure
+5. realize melody
+6. realize accompaniment
+
+Alberti:
+- 4 "real" parts:
+    - melody
+    - 3 in accompaniment in close position
+- only w/ melody in top voice? or bottom voice too?
+
+
+Solid chords:
+- 4 "real" parts
+- optional doublings
+
+Oom-pah etc:
+- 4 real parts
+- optional doublings

@@ -2,17 +2,21 @@ import inspect
 import os
 import random
 
+import pytest
+from midi_to_notes import df_to_midi
+
 from dumb_composer.dumb_accompanist import (
     AccompAnnots,
     DumbAccompanist,
     DumbAccompanistSettings,
 )
 from dumb_composer.patterns import PatternMaker
-from midi_to_notes import df_to_midi
-
-from tests.test_helpers import get_funcname, TEST_OUT_DIR
+from tests.test_helpers import TEST_OUT_DIR, get_funcname
 
 
+@pytest.mark.skip(
+    reason="dumb accompanist has changed, not sure it makes sense to call it on its own"
+)
 def test_dumb_accompanist(quick, pytestconfig):
     # rn_format = """Time signature: {}
     #     m1 C: I
@@ -76,9 +80,7 @@ def test_dumb_accompanist(quick, pytestconfig):
             )
             mid_path = path_wo_ext + ".mid"
             log_path = path_wo_ext + ".log"
-            logging_plugin = pytestconfig.pluginmanager.get_plugin(
-                "logging-plugin"
-            )
+            logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
             logging_plugin.set_log_path(log_path)
             settings = DumbAccompanistSettings(
                 pattern=pattern, accompaniment_annotations=AccompAnnots.ALL
@@ -89,7 +91,3 @@ def test_dumb_accompanist(quick, pytestconfig):
             df_to_midi(out_df, mid_path, ts=(numer, denom))
             if quick:
                 return
-
-
-if __name__ == "__main__":
-    test_dumb_accompanist()

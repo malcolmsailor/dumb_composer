@@ -4,7 +4,7 @@ from numbers import Number
 
 import numpy as np
 
-from dumb_composer.constants import TIME_TYPE
+from dumb_composer.pitch_utils.types import TIME_TYPE
 
 
 def get_onsets_within_duration(

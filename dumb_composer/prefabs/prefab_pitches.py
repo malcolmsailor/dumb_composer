@@ -1,15 +1,19 @@
-from dataclasses import dataclass, field
-from fractions import Fraction
-from numbers import Number
 import re
 import textwrap
 import typing as t
+from abc import abstractmethod
+from dataclasses import dataclass, field
+from fractions import Fraction
+from functools import cached_property
+from numbers import Number
 
-from dumb_composer.shared_classes import Allow
+from dumb_composer.pitch_utils.types import TIME_TYPE, ScalarInterval, Voice
 from dumb_composer.prefabs.prefab_rhythms import (
-    match_metric_strength_strs,
     MissingPrefabError,
+    PrefabBase,
+    match_metric_strength_strs,
 )
+from dumb_composer.shared_classes import Allow
 
 RELATIVE_DEGREE_REGEX = re.compile(
     r"""
@@ -25,18 +29,59 @@ MAX_IOI_REGEX = re.compile(r"M(?:(?P<frac>\d/\d)|(?P<float>\d+(?:\.\d+)?))")
 MIN_IOI_REGEX = re.compile(r"m(?:(?P<frac>\d/\d)|(?P<float>\d+(?:\.\d+)?))")
 
 
+# TODO: (Malcolm 2023-08-02) write code to find all prefabs that can be placed in
+#   rhythmic unison parallel motion against one another
+
+
+class PrefabPitchBase(PrefabBase):
+    relative_degrees: t.Sequence
+    tie_to_next: bool
+    alterations: tuple | dict
+
+    def stepwise_internally(self) -> bool:
+        raise NotImplementedError
+
+    def returns_to_main_pitch(self) -> bool:
+        raise NotImplementedError
+
+    def matches_criteria(self, *args, **kwargs) -> bool:
+        raise NotImplementedError
+
+    @cached_property
+    def interval_sum(self) -> int:
+        raise NotImplementedError
+
+    def approaches_arrival_pitch_by_step(self, interval_to_next) -> bool:
+        return abs(self.interval_sum - interval_to_next) == 1
+
+    def approaches_arrival_pitch_obliquely(
+        self, interval_to_next: ScalarInterval
+    ) -> bool:
+        return abs(self.interval_sum - interval_to_next) == 0
+
+
 @dataclass(frozen=True, init=False)
-class SingletonPitch:
+class SingletonPitch(PrefabPitchBase):
     relative_degrees: t.Tuple[int] = (0,)
     tie_to_next: bool = False
     alterations: t.Tuple = ()
 
+    @cached_property
+    def interval_sum(self) -> int:
+        return 0
+
     def matches_criteria(self, *args, **kwargs):
+        return True
+
+    def stepwise_internally(self) -> bool:
+        return True
+
+    def returns_to_main_pitch(self) -> bool:
         return True
 
 
 @dataclass
-class PrefabPitches:
+class PrefabPitches(PrefabPitchBase):
     """
     >>> pp = PrefabPitches(
     ...     interval_to_next=[1, 3],
@@ -47,6 +92,8 @@ class PrefabPitches:
     >>> pp.matches_criteria(1, "sw", relative_chord_factors=[2, 4])
     True
     >>> pp.matches_criteria(1, "sw", relative_chord_factors=[3, 5])
+    False
+    >>> pp.stepwise_internally()
     False
 
     If interval_to_next is None, matches anything:
@@ -72,6 +119,8 @@ class PrefabPitches:
     ... )
     >>> pp.alterations
     {1: '#'}
+    >>> pp.stepwise_internally()
+    True
 
     Minimum and maximum durations for relative degrees can be specified with 'm'
     and 'M' respectively following the relative degree. These can be indicated
@@ -97,7 +146,7 @@ class PrefabPitches:
     True
     """
 
-    interval_to_next: t.Optional[t.Union[int, t.Sequence[int]]]
+    interval_to_next: int | t.Sequence[int] | None
     metric_strength_str: str
     relative_degrees: t.Sequence[t.Union[int, str]]
     # constraints: specifies intervals relative to the initial pitch that
@@ -113,15 +162,19 @@ class PrefabPitches:
     allow_preparation: Allow = Allow.NO
     # allow_resolution: Allow = Allow.YES # Not yet implemented
 
+    avoid_interval_to_next: t.Sequence[int] = ()
     # __post_init__ defines the following attributes:
     alterations: t.Dict[int, str] = field(default_factory=dict, init=False)
     tie_to_next: bool = field(default=False, init=False)
     intervals: t.Optional[t.List[int]] = field(default=None, init=False)
-    min_iois: t.Dict[int, Number] = field(default_factory=dict, init=False)
-    max_iois: t.Dict[int, Number] = field(default_factory=dict, init=False)
+    min_iois: t.Dict[int, TIME_TYPE] = field(default_factory=dict, init=False)
+    max_iois: t.Dict[int, TIME_TYPE] = field(default_factory=dict, init=False)
+    avoid_voices: t.Container[Voice] = frozenset()
 
     def __post_init__(self):
         assert len(self.relative_degrees) == len(self.metric_strength_str)
+        if isinstance(self.interval_to_next, int):
+            self.interval_to_next = (self.interval_to_next,)
         temp_degrees = []
         for i, relative_degree in enumerate(self.relative_degrees):
             m = re.match(RELATIVE_DEGREE_REGEX, str(relative_degree))
@@ -134,44 +187,39 @@ class PrefabPitches:
                 max_ioi_m = re.search(MAX_IOI_REGEX, m.group("ioi_constraints"))
                 if max_ioi_m:
                     if max_ioi_m.group("float"):
-                        self.max_iois[i] = float(max_ioi_m.group("float"))
+                        self.max_iois[i] = float(  # type:ignore
+                            max_ioi_m.group("float")
+                        )
                     else:
                         self.max_iois[i] = Fraction(max_ioi_m.group("frac"))
                 min_ioi_m = re.search(MIN_IOI_REGEX, m.group("ioi_constraints"))
                 if min_ioi_m:
                     if min_ioi_m.group("float"):
-                        self.min_iois[i] = float(min_ioi_m.group("float"))
+                        self.min_iois[i] = float(  # type:ignore
+                            min_ioi_m.group("float")
+                        )
                     else:
                         self.min_iois[i] = Fraction(min_ioi_m.group("frac"))
             if m.group("tie_to_next"):
                 if i != len(self.relative_degrees) - 1:
-                    raise ValueError(
-                        "only last relative degree can be tied to next"
-                    )
-                if len(self.interval_to_next) != 1:
-                    raise ValueError(
-                        "if last relative degree is tied, interval_to_next "
-                        "can only have length 1, but interval_to_next is "
-                        f"{self.interval_to_next}"
-                    )
-                if (
-                    not int(m.group("relative_degree"))
-                    == self.interval_to_next[0]
-                ):
-                    raise ValueError(
-                        f"tied final relative degree {m.group('relative_degree')}"
-                        f" != interval_to_next {self.interval_to_next}"
-                    )
+                    raise ValueError("only last relative degree can be tied to next")
+                if self.interval_to_next is not None:
+                    if len(self.interval_to_next) != 1:
+                        raise ValueError(
+                            "if last relative degree is tied, interval_to_next "
+                            "can only have length 1, but interval_to_next is "
+                            f"{self.interval_to_next}"
+                        )
+                    if not int(m.group("relative_degree")) == self.interval_to_next[0]:
+                        raise ValueError(
+                            f"tied final relative degree {m.group('relative_degree')}"
+                            f" != interval_to_next {self.interval_to_next}"
+                        )
                 self.tie_to_next = True
-
         self.relative_degrees = temp_degrees
-        if isinstance(self.interval_to_next, int):
-            self.interval_to_next = (self.interval_to_next,)
         self.intervals = [
-            b - a
-            for a, b in zip(
-                self.relative_degrees[:-1], self.relative_degrees[1:]
-            )
+            b - a  # type:ignore
+            for a, b in zip(self.relative_degrees[:-1], self.relative_degrees[1:])
         ]
 
     def __len__(self):
@@ -181,16 +229,22 @@ class PrefabPitches:
         self,
         interval_to_next: t.Optional[int] = None,
         metric_strength_str: t.Optional[str] = None,
-        relative_chord_factors: t.Optional[int] = None,
+        relative_chord_factors: t.Container[int] | None = None,
         is_suspension: bool = False,
         is_preparation: bool = False,
         interval_is_diatonic: bool = True,
+        voice: Voice | None = None,
     ) -> bool:
-        if (
-            None not in (interval_to_next, self.interval_to_next)
-            and interval_to_next not in self.interval_to_next
-        ):
-            return False
+        # TODO: (Malcolm 2023-08-01) other criteria we would like to consider:
+        #   - whether the note is chromatically raised/lowered
+        if interval_to_next is not None:
+            if (
+                self.interval_to_next is not None
+                and interval_to_next not in self.interval_to_next  # type:ignore
+            ):
+                return False
+            if interval_to_next in self.avoid_interval_to_next:
+                return False
         if metric_strength_str is not None and not match_metric_strength_strs(
             metric_strength_str, self.metric_strength_str
         ):
@@ -225,6 +279,8 @@ class PrefabPitches:
             # we only want to tie diatonic notes ("chromatic" notes will
             #   change in the next harmony)
             return False
+        if voice is not None and voice in self.avoid_voices:
+            return False
         return True
 
     def __hash__(self):
@@ -232,10 +288,25 @@ class PrefabPitches:
         just return the id of the instance."""
         return id(self)
 
+    @cached_property
+    def interval_sum(self) -> int:
+        return sum(self.intervals)  # type:ignore
+
+    def stepwise_internally(self) -> bool:
+        for i in self.intervals:  # type:ignore
+            if abs(i) > 1:
+                return False
+        return True
+
+    def returns_to_main_pitch(self) -> bool:
+        return 0 == self.relative_degrees[-1] == self.relative_degrees[0]
+
 
 PP = PrefabPitches
 
 TWO_PREFABS = (
+    PP([0], "__", relative_degrees=[0, -1], negative_constraints=[-1]),
+    PP([0], "__", relative_degrees=[0, 1]),
     PP([-1, 2, 3], "__", [0, -2], [-2]),
     PP(
         [-1, -2, 2],
@@ -259,13 +330,22 @@ TWO_PREFABS = (
 THREE_PREFABS = (
     PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3], negative_constraints=[-2]),
     PP([-2], "__w", [0, -3, -1], [-3]),
-    PP(None, "___", [0, -1, 0], allow_preparation=Allow.YES),
+    PP(
+        None,
+        "___",
+        [0, -1, 0],
+        allow_preparation=Allow.YES,
+        # TODO: (Malcolm 2023-08-01) likely remove this condition
+        avoid_interval_to_next=(-1,),
+    ),
     PP(
         None,
         "___",
         [0, "#-1", 0],
         allow_preparation=Allow.YES,
         allow_suspension=Allow.NO,
+        # TODO: (Malcolm 2023-08-01) likely remove this condition
+        avoid_interval_to_next=(-1,),
     ),
     PP(
         [4],
@@ -324,9 +404,7 @@ FOUR_PREFABS = (
     PP([-7, -4], "____", [0, -2, -4, -2], constraints=[-2, -4]),
 )
 
-ASC_SCALE_FRAGMENTS = tuple(
-    PP([i], "_" * i, list(range(i))) for i in range(1, 12)
-)
+ASC_SCALE_FRAGMENTS = tuple(PP([i], "_" * i, list(range(i))) for i in range(1, 12))
 DESC_SCALE_FRAGMENTS = tuple(
     PP([i], "_" * abs(i), list(range(0, i, -1))) for i in range(-1, -12, -1)
 )
@@ -348,11 +426,12 @@ class PrefabPitchDirectory:
         self,
         interval_to_next: int,
         metric_strength_str: str,
+        voice: Voice,
         relative_chord_factors: t.Sequence[int],
         is_suspension: bool = False,
         is_preparation: bool = False,
         interval_is_diatonic: bool = True,
-    ) -> t.List[PrefabPitches]:
+    ) -> t.List[PrefabPitchBase]:
         tup = (
             interval_to_next,
             metric_strength_str,
@@ -363,7 +442,9 @@ class PrefabPitchDirectory:
         )
         if tup in self._memo:
             return self._memo[tup].copy()
-        out = [prefab for prefab in PREFABS if prefab.matches_criteria(*tup)]
+        out: list[PrefabPitchBase] = [
+            prefab for prefab in PREFABS if prefab.matches_criteria(*tup)
+        ]
         if not out:
             if len(metric_strength_str) == 1 and self._singleton is not None:
                 out = [self._singleton]
@@ -373,6 +454,7 @@ class PrefabPitchDirectory:
                         f"""No PrefabPitches instance matching criteria
                         \tinterval_to_next: {interval_to_next}
                         \tmetric_strength_str: {metric_strength_str}
+                        \tvoice: {voice}
                         \trelative_chord_factors: {relative_chord_factors}
                         \tis_suspension: {is_suspension}
                         \tis_preparation: {is_preparation}

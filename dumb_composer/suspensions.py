@@ -21,6 +21,7 @@ from dumb_composer.pitch_utils.types import (
     Pitch,
     ScalarInterval,
     TimeStamp,
+    Voice,
 )
 from dumb_composer.time import Meter, MeterError
 
@@ -154,6 +155,7 @@ def find_suspensions(
     other_suspended_bass_pitch: Pitch | None = None,
     contrary_tendency_score_factor: float = 0.25,
     similar_tendency_score_factor: float = 1.25,
+    forbidden_suspension_intervals_above_bass: tuple[ChromaticInterval, ...] = (),
 ) -> list[Suspension]:
     """
     >>> rntxt = '''m1 C: IV b2 V b3 V43 b4 viio6
@@ -312,6 +314,10 @@ def find_suspensions(
     src_pitch_tendency = preparation_chord.get_pitch_tendency(src_pitch)
 
     out = []
+    interval_above_bass = reduce_compound_interval(src_pitch - suspension_chord.foot)
+    if interval_above_bass in forbidden_suspension_intervals_above_bass:
+        return out
+
     for tendency, resolve_by in (
         (Tendency.DOWN, resolve_down_by),
         (Tendency.UP, resolve_up_by),
@@ -341,10 +347,6 @@ def find_suspensions(
                     continue
             assert displaced_pc is not None
 
-            interval_above_bass = reduce_compound_interval(
-                src_pitch - suspension_chord.foot
-            )
-
             other_pcs = list(suspension_chord.pcs)
             if displaced_pc != suspension_chord.foot:
                 other_pcs.remove(displaced_pc)
@@ -352,9 +354,9 @@ def find_suspensions(
             if enforce_dissonant and not dissonant:
                 continue
 
-            expected_resolution_interval = reduce_compound_interval(
-                (src_pitch + resolution_interval) - resolution_chord.foot
-            )
+            # expected_resolution_interval = reduce_compound_interval(
+            #     (src_pitch + resolution_interval) - resolution_chord.foot
+            # )
 
             if src_pitch_tendency is Tendency.NONE:
                 score_factor = 1.0
@@ -647,3 +649,6 @@ def validate_suspension_resolution(
                 return False
 
     return True
+
+
+SuspensionCombo = dict[Voice, Suspension]

@@ -5,7 +5,7 @@ from numbers import Number
 import pytest
 
 import dumb_composer.pitch_utils.chords as chords
-from dumb_composer.constants import TIME_TYPE
+from dumb_composer.pitch_utils.types import TIME_TYPE
 
 
 @pytest.mark.parametrize(

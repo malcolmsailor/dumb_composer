@@ -1,14 +1,15 @@
 import math
+import textwrap
+import typing as t
+from abc import abstractmethod
 from dataclasses import dataclass
 from functools import cached_property, partial
 from numbers import Number
-import typing as t
-import textwrap
-from dumb_composer.constants import TIME_TYPE
 
-from dumb_composer.time_utils import get_min_ioi, get_max_ioi
-from dumb_composer.utils.recursion import UndoRecursiveStep
+from dumb_composer.pitch_utils.types import TIME_TYPE, TimeStamp
 from dumb_composer.shared_classes import Allow
+from dumb_composer.time_utils import get_max_ioi, get_min_ioi
+from dumb_composer.utils.recursion import UndoRecursiveStep
 
 
 class MissingPrefabError(UndoRecursiveStep):
@@ -18,26 +19,36 @@ class MissingPrefabError(UndoRecursiveStep):
 MIN_DEFAULT_RHYTHM_BEFORE_REST = 1 / 2
 
 
+class PrefabBase:
+    pass
+
+
+class PrefabRhythmBase(PrefabBase):
+    onsets: t.Sequence[TimeStamp]
+    releases: t.Sequence[TimeStamp] | None
+
+
 @dataclass(frozen=True, init=False)
-class SingletonRhythm:
+class SingletonRhythm(PrefabRhythmBase):
     onsets: t.Tuple[TIME_TYPE] = (TIME_TYPE(0),)
+    releases: t.Sequence[TimeStamp] | None = None
     metric_strength_str: str = "_"
     allow_suspension: Allow = Allow.NO
     allow_preparation: Allow = Allow.NO
     allow_after_tie: bool = False
-    allow_next_to_start_with_rest: bool = False
+    allow_next_to_start_with_rest: Allow = Allow.NO
 
     def matches_criteria(self, *args, **kwargs):
         return True
 
 
 @dataclass
-class PrefabRhythms:
-    onsets: t.List[Number]
+class PrefabRhythms(PrefabRhythmBase):
+    onsets: t.List[TimeStamp]
     metric_strength_str: str
-    total_dur: Number
+    total_dur: TIME_TYPE
     # if releases is omitted it is generated automagically
-    releases: t.Optional[t.Sequence[Number]] = None
+    releases: t.Optional[t.Sequence[TimeStamp]] = None
     # endpoint_metric_strength_str indicates the metric strengths of the
     #   onset of the rhythm and the onset of the start of the next rhythm
     # E.g., if it goes from beat 1 to beat 1, should be "ss"
@@ -154,6 +165,14 @@ class PrefabRhythms:
         """We want each PrefabRhythms instance to be considered unique so we
         just return the id of the instance."""
         return id(self)
+
+    def __str__(self):
+        return str(
+            [
+                f"{onset}-{release}"
+                for (onset, release) in zip(self.onsets, self.releases)  # type:ignore
+            ]
+        )
 
 
 def match_metric_strength_strs(

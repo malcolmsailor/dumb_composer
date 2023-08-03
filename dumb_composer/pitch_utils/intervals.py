@@ -4,11 +4,14 @@ import numpy as np
 
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
 from dumb_composer.pitch_utils.types import (
+    BassFactor,
+    ChordFactor,
     ChromaticInterval,
     Interval,
     Pitch,
     PitchClass,
     PitchOrPitchClass,
+    ScalarInterval,
 )
 
 
@@ -281,16 +284,20 @@ def interval_finder(
     return intervals
 
 
-def get_relative_chord_factors(
-    chord_factor: int, chord_intervals: t.Tuple[int, ...], scale_card: int
+def get_scalar_intervals_to_other_chord_factors(
+    chord_factor: ChordFactor,
+    chord_intervals: t.Tuple[ScalarInterval, ...],
+    scale_card: int,
 ) -> t.Tuple[int]:
     """Given a chord factor expressed as a generic interval above the root,
     return a tuple of generic intervals to the other factors of the chord,
     both up and down.
 
-    >>> get_relative_chord_factors(0, (0, 2, 4), 7)
+    >>> get_scalar_intervals_to_other_chord_factors(0, (0, 2, 4), 7)
     (-5, -3, 2, 4)
-    >>> get_relative_chord_factors(2, (0, 2, 5), 8)
+    >>> get_scalar_intervals_to_other_chord_factors(2, (0, 2, 4), 7)
+    (-5, -2, 2, 5)
+    >>> get_scalar_intervals_to_other_chord_factors(2, (0, 2, 5), 8)
     (-5, -2, 3, 6)
     """
     up = tuple(
