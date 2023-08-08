@@ -1,4 +1,4 @@
-"""Provides a class, IntervalChooser, that chooses small intervals more often than 
+"""Provides a class, DeprecatedIntervalChooser, that chooses small intervals more often than 
 larger intervals."""
 import logging
 import math
@@ -155,7 +155,7 @@ class _IntervalChooserBase:
 
 
 @dataclass
-class IntervalChooserSettings(_IntervalChooserBaseSettings):
+class DeprecatedIntervalChooserSettings(_IntervalChooserBaseSettings):
     """
     smaller_mel_interval_concentration: float >= 0; like the lambda parameter to an
         exponential distribution. However, the intervals aren't drawn from a real
@@ -177,14 +177,19 @@ class IntervalChooserSettings(_IntervalChooserBaseSettings):
     unison_weighted_as: int = 0
 
 
-class IntervalChooser(_IntervalChooserBase):
+class DeprecatedIntervalChooser(_IntervalChooserBase):
     """
+    This class uses a function (similar to an exponential
+    PDF) to score melodic intervals. However it seems better to me to simply provide
+    scores for each interval, as in the revised IntervalChooser, since the
+    marginal probability of a melodic interval isn't merely a function of its size
+    (compare the probability of an octave to the probability of a major seventh).
 
     ------------------------------------------------------------------------------------
     Default settings
     ------------------------------------------------------------------------------------
 
-    >>> ic = IntervalChooser()
+    >>> ic = DeprecatedIntervalChooser()
     >>> intervals = [-7, -5, -2, 0, 2, 5, 7]
 
     To get a single interval, call an instance directly
@@ -201,22 +206,22 @@ class IntervalChooser(_IntervalChooserBase):
 
     Increasing smaller_mel_interval_concentration concentrates the distribution on
     smaller intervals:
-    >>> ic = IntervalChooser(
-    ...     IntervalChooserSettings(smaller_mel_interval_concentration=1.0)
+    >>> ic = DeprecatedIntervalChooser(
+    ...     DeprecatedIntervalChooserSettings(smaller_mel_interval_concentration=1.0)
     ... )
     >>> Counter(ic.choose_intervals(intervals, n=1000))  # doctest: +SKIP
     Counter({0: 775, 2: 109, -2: 103, 5: 6, -5: 4, 7: 2, -7: 1})
 
     Zero smaller_mel_interval_concentration (uniform distribution):
-    >>> ic = IntervalChooser(
-    ...     IntervalChooserSettings(smaller_mel_interval_concentration=0.0)
+    >>> ic = DeprecatedIntervalChooser(
+    ...     DeprecatedIntervalChooserSettings(smaller_mel_interval_concentration=0.0)
     ... )
     >>> Counter(ic.choose_intervals(intervals, n=1000))  # doctest: +SKIP
     Counter({-7: 156, 7: 153, -5: 150, 0: 146, 5: 135, 2: 132, -2: 128})
 
     Reweighting unison:
-    >>> ic = IntervalChooser(
-    ...     IntervalChooserSettings(
+    >>> ic = DeprecatedIntervalChooser(
+    ...     DeprecatedIntervalChooserSettings(
     ...         smaller_mel_interval_concentration=1.0, unison_weighted_as=7
     ...     )
     ... )
@@ -224,9 +229,9 @@ class IntervalChooser(_IntervalChooserBase):
     Counter({-2: 473, 2: 468, 5: 33, -5: 20, 7: 2, -7: 2, 0: 2})
     """
 
-    def __init__(self, settings: t.Optional[IntervalChooserSettings] = None):
+    def __init__(self, settings: t.Optional[DeprecatedIntervalChooserSettings] = None):
         if settings is None:
-            settings = IntervalChooserSettings()
+            settings = DeprecatedIntervalChooserSettings()
         super().__init__(settings)
         self._smaller_mel_interval_concentration = (
             settings.smaller_mel_interval_concentration
@@ -255,15 +260,15 @@ class IntervalChooser(_IntervalChooserBase):
 
 
 @dataclass
-class IntervalChooser2Settings(_IntervalChooserBaseSettings):
+class IntervalChooserSettings(_IntervalChooserBaseSettings):
     """
     By default, negative intervals receive the same weight as positive intervals. (This
     occurs in the post-init function.)
-    >>> IntervalChooser2Settings(interval_weights={3: 0.75, 4: 1.0}).interval_weights
+    >>> IntervalChooserSettings(interval_weights={3: 0.75, 4: 1.0}).interval_weights
     {3: 0.75, 4: 1.0, -3: 0.75, -4: 1.0}
 
     However, we can override this behavior by explicitly providing negative intervals:
-    >>> IntervalChooser2Settings(
+    >>> IntervalChooserSettings(
     ...     interval_weights={3: 0.75, 4: 1.0, -3: 1.5}
     ... ).interval_weights
     {3: 0.75, 4: 1.0, -3: 1.5, -4: 1.0}
@@ -302,9 +307,9 @@ class IntervalChooser2Settings(_IntervalChooserBaseSettings):
                 self.interval_weights[-1 * interval] = weight
 
 
-class IntervalChooser2(_IntervalChooserBase):
+class IntervalChooser(_IntervalChooserBase):
     """
-    >>> ic = IntervalChooser2()
+    >>> ic = IntervalChooser()
     >>> intervals = list(range(-12, 13))
 
     To get a single interval, call an instance directly
@@ -352,9 +357,9 @@ class IntervalChooser2(_IntervalChooserBase):
 
     """
 
-    def __init__(self, settings: IntervalChooser2Settings | None = None):
+    def __init__(self, settings: IntervalChooserSettings | None = None):
         if settings is None:
-            settings = IntervalChooser2Settings()
+            settings = IntervalChooserSettings()
         super().__init__(settings)
         self._interval_weights = defaultdict(
             lambda: settings.default_weight, settings.interval_weights

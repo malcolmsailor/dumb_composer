@@ -879,6 +879,8 @@ def voice_lead_chords(
                     candidate_pitches + prespecified_pitches + chord2_suspension_pitches
                 )
             )
+            # if chord1_pitches == (45, 66, 72):
+            #     breakpoint()
             if not validate_spacing(output, spacing_constraints):
                 LOGGER.debug(f"spacing {output} did not validate")
                 continue

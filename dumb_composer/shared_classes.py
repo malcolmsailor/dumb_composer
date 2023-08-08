@@ -26,6 +26,7 @@ from dumb_composer.pitch_utils.put_in_range import put_in_range
 from dumb_composer.pitch_utils.scale import Scale, ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints
 from dumb_composer.pitch_utils.types import (
+    BASS,
     TIME_TYPE,
     InnerVoice,
     Note,
@@ -356,6 +357,10 @@ class _ScoreBase:
         # self.range_constraints = range_constraints
         self._structural: defaultdict[Voice, list[Pitch]] = defaultdict(list)
         self._suspensions: defaultdict[Voice, dict[int, Suspension]] = defaultdict(dict)
+        # TODO: (Malcolm 2023-08-04) I'm not sure if using the "structural unit" as
+        #   key for suspension resolutions (quasi-bar number) still works. What if
+        #   a soprano suspension leads to splitting a chord and then a tenor
+        #   suspension leads to splitting the chord still further?
         self._suspension_resolutions: t.DefaultDict[
             Voice, t.Dict[int, int]
         ] = defaultdict(dict)
@@ -374,93 +379,93 @@ class _ScoreBase:
     def validate_state(self) -> bool:
         return len({len(pitches) for pitches in self._structural.values()}) == 1
 
-    @property
-    def i(self):
-        return len(self.structural_bass)
+    # @property
+    # def i(self):
+    #     return len(self.structural_bass)
 
-    @property
-    def empty(self) -> bool:
-        assert self.validate_state()
-        return len(self.structural_bass) == 0
+    # @property
+    # def empty(self) -> bool:
+    #     assert self.validate_state()
+    #     return len(self.structural_bass) == 0
 
-    @property
-    def complete(self) -> bool:
-        assert self.validate_state()
-        return len(self.structural_bass) == len(self.chords)
+    # @property
+    # def complete(self) -> bool:
+    #     assert self.validate_state()
+    #     return len(self.structural_bass) == len(self.chords)
 
-    @property
-    def current_chord(self) -> Chord:
-        return self.chords[self.i]
+    # @property
+    # def current_chord(self) -> Chord:
+    #     return self.chords[self.i]
 
-    @property
-    def prev_chord(self) -> Chord:
-        assert self.i > 0
-        return self.chords[self.i - 1]
+    # @property
+    # def prev_chord(self) -> Chord:
+    #     assert self.i > 0
+    #     return self.chords[self.i - 1]
 
-    @property
-    def next_chord(self) -> Chord | None:
-        if self.i + 1 >= len(self.chords):
-            return None
-        return self.chords[self.i + 1]
+    # @property
+    # def next_chord(self) -> Chord | None:
+    #     if self.i + 1 >= len(self.chords):
+    #         return None
+    #     return self.chords[self.i + 1]
 
-    @property
-    def prev_foot_pc(self) -> PitchClass:
-        """The "notional" bass pitch-class.
+    # @property
+    # def prev_foot_pc(self) -> PitchClass:
+    #     """The "notional" bass pitch-class.
 
-        It is "notional" because the pitch-class of the *actual* bass may be a
-        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
-        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
-        the foot is the third B.
-        """
-        if self.i < 1:
-            raise ValueError()
-        return self.pc_bass[self.i - 1]
+    #     It is "notional" because the pitch-class of the *actual* bass may be a
+    #     suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+    #     the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+    #     the foot is the third B.
+    #     """
+    #     if self.i < 1:
+    #         raise ValueError()
+    #     return self.pc_bass[self.i - 1]
 
-    @property
-    def current_foot_pc(self) -> PitchClass:
-        """The "notional" bass pitch-class.
+    # @property
+    # def current_foot_pc(self) -> PitchClass:
+    #     """The "notional" bass pitch-class.
 
-        It is "notional" because the pitch-class of the *actual* bass may be a
-        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
-        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
-        the foot is the third B.
-        """
-        return self.pc_bass[self.i]
+    #     It is "notional" because the pitch-class of the *actual* bass may be a
+    #     suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+    #     the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+    #     the foot is the third B.
+    #     """
+    #     return self.pc_bass[self.i]
 
-    @property
-    def next_foot_pc(self) -> PitchClass | None:
-        """The "notional" bass pitch-class.
+    # @property
+    # def next_foot_pc(self) -> PitchClass | None:
+    #     """The "notional" bass pitch-class.
 
-        It is "notional" because the pitch-class of the *actual* bass may be a
-        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
-        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
-        the foot is the third B.
-        """
-        if self.i + 1 >= len(self.chords):
-            return None
-        return self.pc_bass[self.i + 1]
+    #     It is "notional" because the pitch-class of the *actual* bass may be a
+    #     suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+    #     the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+    #     the foot is the third B.
+    #     """
+    #     if self.i + 1 >= len(self.chords):
+    #         return None
+    #     return self.pc_bass[self.i + 1]
 
-    @property
-    def prev_bass_pitch(self) -> Pitch:
-        if self.i < 1:
-            raise ValueError()
-        return self.structural_bass[self.i - 1]
+    # @property
+    # def prev_bass_pitch(self) -> Pitch:
+    #     if self.i < 1:
+    #         raise ValueError()
+    #     return self.structural_bass[self.i - 1]
 
-    @property
-    def prev_melody_pitch(self) -> Pitch:
-        if self.i < 1:
-            raise ValueError()
-        return self.structural_soprano[self.i - 1]
+    # @property
+    # def prev_melody_pitch(self) -> Pitch:
+    #     if self.i < 1:
+    #         raise ValueError()
+    #     return self.structural_soprano[self.i - 1]
 
-    def prev_pitch(self, voice: Voice, offset_from_current: int = 1) -> Pitch:
-        if self.i < offset_from_current:
-            raise ValueError
-        return self._structural[voice][self.i - offset_from_current]
+    # def prev_pitch(self, voice: Voice, offset_from_current: int = 1) -> Pitch:
+    #     if self.i < offset_from_current:
+    #         raise ValueError
+    #     return self._structural[voice][self.i - offset_from_current]
 
-    def prev_pitches(self) -> tuple[Pitch]:
-        assert self.i > 0
-        out = (pitches[self.i - 1] for pitches in self._structural.values())
-        return tuple(sorted(out))
+    # def prev_pitches(self) -> tuple[Pitch]:
+    #     assert self.i > 0
+    #     out = (pitches[self.i - 1] for pitches in self._structural.values())
+    #     return tuple(sorted(out))
 
     # ----------------------------------------------------------------------------------
     # Properties and helper functions
@@ -477,176 +482,175 @@ class _ScoreBase:
     def pc_bass(self) -> t.List[int]:
         return [chord.foot for chord in self._chords]  # type:ignore
 
-    def prev_suspension(
-        self, voice: Voice, offset_from_current: int = 1
-    ) -> Suspension | None:
-        if self.i < offset_from_current:
-            raise ValueError
-        return self._suspensions[voice].get(self.i - offset_from_current, None)
+    def get_suspension(self, i: int, voice: Voice) -> Suspension | None:
+        return self._suspensions[voice].get(i, None)
 
-    def prev_is_suspension(self, voice: Voice) -> bool:
-        return self.prev_suspension(voice) is not None
+    def is_suspension(self, i: int, voice: Voice) -> bool:
+        return self.get_suspension(i, voice) is not None
 
-    def prev_resolution(self, voice: Voice) -> Pitch | None:
-        assert self.i > 0
-        return self._suspension_resolutions[voice].get(self.i - 1, None)
+    # def prev_suspension(
+    #     self, voice: Voice, offset_from_current: int = 1
+    # ) -> Suspension | None:
+    #     if self.i < offset_from_current:
+    #         raise ValueError
+    #     return self._suspensions[voice].get(self.i - offset_from_current, None)
 
-    def prev_is_resolution(self, voice: Voice) -> bool:
-        return self.prev_resolution(voice) is not None
+    # def prev_is_suspension(self, voice: Voice) -> bool:
+    #     return self.prev_suspension(voice) is not None
 
-    def current_suspension(self, voice: Voice) -> Suspension | None:
-        return self._suspensions[voice].get(self.i, None)
+    # def prev_resolution(self, voice: Voice) -> Pitch | None:
+    #     assert self.i > 0
+    #     return self._suspension_resolutions[voice].get(self.i - 1, None)
 
-    def current_is_suspension(self, voice: Voice) -> bool:
-        return self.current_suspension(voice) is not None
+    # def prev_is_resolution(self, voice: Voice) -> bool:
+    #     return self.prev_resolution(voice) is not None
 
-    def current_resolution(self, voice: Voice) -> Pitch | None:
-        return self._suspension_resolutions[voice].get(self.i, None)
+    # def current_suspension(self, voice: Voice) -> Suspension | None:
+    #     return self._suspensions[voice].get(self.i, None)
 
-    def current_is_resolution(self, voice: Voice) -> bool:
-        return self.current_resolution(voice) is not None
+    # def current_is_suspension(self, voice: Voice) -> bool:
+    #     return self.current_suspension(voice) is not None
 
-    def prev_is_preparation(self, voice: Voice) -> bool:
-        suspension = self.current_suspension
-        if suspension is None:
-            return False
-        return self._structural[voice] == suspension.pitch
+    # def current_resolution(self, voice: Voice) -> Pitch | None:
+    #     return self._suspension_resolutions[voice].get(self.i, None)
 
-    def current_resolution_pcs(self):
-        out = set()
-        for voice in self._suspension_resolutions:
-            if self.i in self._suspension_resolutions[voice]:
-                out.add(self._suspension_resolutions[voice][self.i] % 12)
-        return out
+    # def current_is_resolution(self, voice: Voice) -> bool:
+    #     return self.current_resolution(voice) is not None
 
-    def add_suspension(self, voice: Voice, suspension: Suspension):
-        suspensions = self._suspensions[voice]
-        assert self.i not in suspensions
-        suspensions[self.i] = suspension
+    # def prev_is_preparation(self, voice: Voice) -> bool:
+    #     suspension = self.current_suspension
+    #     if suspension is None:
+    #         return False
+    #     return self._structural[voice] == suspension.pitch
 
-    def remove_suspension(self, voice: Voice):
-        suspensions = self._suspensions[voice]
-        suspensions.pop(self.i)  # raises KeyError if missing
+    # def current_resolution_pcs(self):
+    #     out = set()
+    #     for voice in self._suspension_resolutions:
+    #         if self.i in self._suspension_resolutions[voice]:
+    #             out.add(self._suspension_resolutions[voice][self.i] % 12)
+    #     return out
 
-    def annotate_suspension(self, voice: Voice):
-        raise NotImplementedError
-        annotations_label = (
-            "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
-        )
-        self._score.annotations[annotations_label].append(
-            Annotation(self.current_chord.onset, "S")
-        )
+    # def add_suspension(self, voice: Voice, suspension: Suspension):
+    #     suspensions = self._suspensions[voice]
+    #     assert self.i not in suspensions
+    #     suspensions[self.i] = suspension
 
-    def remove_suspension_annotation(self, voice: Voice):
-        raise NotImplementedError
-        annotations_label = (
-            "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
-        )
-        popped_annotation = self._score.annotations[annotations_label].pop()
-        assert popped_annotation.onset == self.current_chord.onset
+    # def remove_suspension(self, voice: Voice):
+    #     suspensions = self._suspensions[voice]
+    #     suspensions.pop(self.i)  # raises KeyError if missing
 
-    def split_current_chord_at(self, time: TimeStamp):
-        LOGGER.debug(
-            f"Splitting chord at {time=} w/ duration "
-            f"{self.current_chord.release - self.current_chord.onset}"
-        )
-        self.split_ith_chord_at(self.i, time)
-        LOGGER.debug(
-            f"After split chord has duration "
-            f"{self.current_chord.release - self.current_chord.onset}"
-        )
-        self._split_chords.append(self.i)
+    # def annotate_suspension(self, voice: Voice):
+    #     raise NotImplementedError
+    #     annotations_label = (
+    #         "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
+    #     )
+    #     self._score.annotations[annotations_label].append(
+    #         Annotation(self.current_chord.onset, "S")
+    #     )
 
-    def merge_current_chords_if_they_were_previously_split(self):
-        if self._split_chords and self._split_chords[-1] == self.i:
-            assert self.next_chord is not None
-            assert is_same_harmony(self.current_chord, self.next_chord)
-            self.merge_ith_chords(self.i)
-            self._split_chords.pop()
+    # def remove_suspension_annotation(self, voice: Voice):
+    #     raise NotImplementedError
+    #     annotations_label = (
+    #         "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
+    #     )
+    #     popped_annotation = self._score.annotations[annotations_label].pop()
+    #     assert popped_annotation.onset == self.current_chord.onset
 
-    def add_suspension_resolution(self, voice: Voice, pitch: Pitch):
-        assert not self.i + 1 in self._suspension_resolutions[voice]
-        self._suspension_resolutions[voice][self.i + 1] = pitch
+    # def split_current_chord_at(self, time: TimeStamp):
+    #     LOGGER.debug(
+    #         f"Splitting chord at {time=} w/ duration "
+    #         f"{self.current_chord.release - self.current_chord.onset}"
+    #     )
+    #     self.split_ith_chord_at(self.i, time)
+    #     LOGGER.debug(
+    #         f"After split chord has duration "
+    #         f"{self.current_chord.release - self.current_chord.onset}"
+    #     )
+    #     self._split_chords.append(self.i)
 
-    def remove_suspension_resolution(self, voice: Voice):
-        assert self.i + 1 in self._suspension_resolutions[voice]
-        del self._suspension_resolutions[voice][self.i + 1]
+    # def merge_current_chords_if_they_were_previously_split(self):
+    #     if self._split_chords and self._split_chords[-1] == self.i:
+    #         assert self.next_chord is not None
+    #         assert is_same_harmony(self.current_chord, self.next_chord)
+    #         self.merge_ith_chords(self.i)
+    #         self._split_chords.pop()
 
-    def suspension_in_any_voice(self) -> bool:
-        for suspensions in self._suspensions.values():
-            if self.i in suspensions:
-                return True
-        return False
+    # def add_suspension_resolution(self, voice: Voice, pitch: Pitch):
+    #     assert not self.i + 1 in self._suspension_resolutions[voice]
+    #     self._suspension_resolutions[voice][self.i + 1] = pitch
 
-    def apply_suspension(
-        self,
-        suspension: Suspension,
-        suspension_release: TimeStamp,
-        voice: Voice,
-        annotate: bool = True,
-    ) -> Pitch:
-        if suspension_release < self.current_chord.release:
-            # If the suspension resolves during the current chord, we need to split
-            #   the current chord to permit that
-            self.split_current_chord_at(suspension_release)
-        else:
-            # Otherwise, make sure the suspension resolves at the onset of the
-            #   next chord
-            assert (
-                self.next_chord is not None
-                and suspension_release == self.next_chord.onset
-            )
+    # def remove_suspension_resolution(self, voice: Voice):
+    #     assert self.i + 1 in self._suspension_resolutions[voice]
+    #     del self._suspension_resolutions[voice][self.i + 1]
 
-        suspended_pitch = self.prev_pitch(voice)
-        self.add_suspension_resolution(voice, suspended_pitch + suspension.resolves_by)
-        self.add_suspension(voice, suspension)
-        if annotate:
-            self.annotate_suspension(voice)
-        return suspended_pitch
+    # def suspension_in_any_voice(self) -> bool:
+    #     for suspensions in self._suspensions.values():
+    #         if self.i in suspensions:
+    #             return True
+    #     return False
 
-    def apply_suspensions(
-        self,
-        suspension_combo: SuspensionCombo,
-        suspension_release: TimeStamp,
-        annotate: bool = True,
-    ):
-        LOGGER.debug(f"applying {suspension_combo=} at {self.i=}")
-        for voice, suspension in suspension_combo.items():
-            self.apply_suspension(
-                suspension,
-                suspension_release=suspension_release,
-                voice=voice,
-                annotate=annotate,
-            )
+    # def apply_suspension(
+    #     self,
+    #     suspension: Suspension,
+    #     suspension_release: TimeStamp,
+    #     voice: Voice,
+    #     annotate: bool = True,
+    # ) -> Pitch:
+    #     if suspension_release < self.current_chord.release:
+    #         # If the suspension resolves during the current chord, we need to split
+    #         #   the current chord to permit that
+    #         self.split_current_chord_at(suspension_release)
+    #     else:
+    #         # Otherwise, make sure the suspension resolves at the onset of the
+    #         #   next chord
+    #         assert (
+    #             self.next_chord is not None
+    #             and suspension_release == self.next_chord.onset
+    #         )
 
-    def undo_suspension(self, voice: Voice, annotate: bool = True) -> None:
-        self.remove_suspension_resolution(voice)
-        self.remove_suspension(voice)
-        if annotate:
-            self.remove_suspension_annotation(voice)
-        if not self.suspension_in_any_voice():
-            self.merge_current_chords_if_they_were_previously_split()
+    #     suspended_pitch = self.prev_pitch(voice)
+    #     self.add_suspension_resolution(voice, suspended_pitch + suspension.resolves_by)
+    #     self.add_suspension(voice, suspension)
+    #     if annotate:
+    #         self.annotate_suspension(voice)
+    #     return suspended_pitch
 
-    def undo_suspensions(
-        self, suspension_combo: SuspensionCombo, annotate: bool = True
-    ):
-        LOGGER.debug(f"undoing {suspension_combo=} at {self.i=}")
-        for voice in suspension_combo:
-            self.undo_suspension(voice, annotate)
+    # def apply_suspensions(
+    #     self,
+    #     suspension_combo: SuspensionCombo,
+    #     suspension_release: TimeStamp,
+    #     annotate: bool = True,
+    # ):
+    #     LOGGER.debug(f"applying {suspension_combo=} at {self.i=}")
+    #     for voice, suspension in suspension_combo.items():
+    #         self.apply_suspension(
+    #             suspension,
+    #             suspension_release=suspension_release,
+    #             voice=voice,
+    #             annotate=annotate,
+    #         )
 
-    # TODO: (Malcolm 2023-08-01) update annotate
-    def undo_all_suspensions(self, annotate: bool = False):
-        LOGGER.debug(f"undoing all suspensions at at {self.i=}")
-        for voice in self._structural:
-            if self.current_is_suspension(voice):
-                self.undo_suspension(voice, annotate=annotate)
+    # def undo_suspension(self, voice: Voice, annotate: bool = True) -> None:
+    #     self.remove_suspension_resolution(voice)
+    #     self.remove_suspension(voice)
+    #     if annotate:
+    #         self.remove_suspension_annotation(voice)
+    #     if not self.suspension_in_any_voice():
+    #         self.merge_current_chords_if_they_were_previously_split()
 
-    def prev_structural_interval_above_bass(self, voice: Voice) -> ScalarInterval:
-        if voice is OuterVoice.BASS:
-            return 0
-        return self.prev_scale.get_reduced_scalar_interval(
-            self.prev_pitch(OuterVoice.BASS), self.prev_pitch(voice)
-        )
+    # def undo_suspensions(
+    #     self, suspension_combo: SuspensionCombo, annotate: bool = True
+    # ):
+    #     LOGGER.debug(f"undoing {suspension_combo=} at {self.i=}")
+    #     for voice in suspension_combo:
+    #         self.undo_suspension(voice, annotate)
+
+    # def prev_structural_interval_above_bass(self, voice: Voice) -> ScalarInterval:
+    #     if voice is OuterVoice.BASS:
+    #         return 0
+    #     return self.prev_scale.get_reduced_scalar_interval(
+    #         self.prev_pitch(OuterVoice.BASS), self.prev_pitch(voice)
+    #     )
 
     @property
     def chords(self) -> t.List[Chord]:
@@ -670,20 +674,20 @@ class _ScoreBase:
     def scales(self) -> ScaleGetter:
         return self._scale_getter
 
-    @property
-    def current_scale(self) -> Scale:
-        return self.scales[self.i]
+    # @property
+    # def current_scale(self) -> Scale:
+    #     return self.scales[self.i]
 
-    @property
-    def prev_scale(self) -> Scale:
-        assert self.i > 0
-        return self.scales[self.i - 1]
+    # @property
+    # def prev_scale(self) -> Scale:
+    #     assert self.i > 0
+    #     return self.scales[self.i - 1]
 
-    @property
-    def next_scale(self) -> Scale | None:
-        if self.i + 1 >= len(self.scales):
-            return None
-        return self.scales[self.i + 1]
+    # @property
+    # def next_scale(self) -> Scale | None:
+    #     if self.i + 1 >= len(self.scales):
+    #         return None
+    #     return self.scales[self.i + 1]
 
     @property
     @abstractmethod
@@ -765,19 +769,19 @@ class _ScoreBase:
             self.structural_soprano.pop(i + 1)
         self._scale_getter.pop_scale_pcs(i + 1)
 
-    def at_chord_change(
-        self,
-        compare_scales: bool = True,
-        compare_inversions: bool = True,
-        allow_subsets: bool = False,
-    ) -> bool:
-        return self.empty or not is_same_harmony(
-            self.prev_chord,
-            self.current_chord,
-            compare_scales,
-            compare_inversions,
-            allow_subsets,
-        )
+    # def at_chord_change(
+    #     self,
+    #     compare_scales: bool = True,
+    #     compare_inversions: bool = True,
+    #     allow_subsets: bool = False,
+    # ) -> bool:
+    #     return self.empty or not is_same_harmony(
+    #         self.prev_chord,
+    #         self.current_chord,
+    #         compare_scales,
+    #         compare_inversions,
+    #         allow_subsets,
+    #     )
 
     @property
     def annotations_as_df(self) -> pd.DataFrame:
@@ -828,6 +832,23 @@ class _ScoreBase:
                 dfs.append(getattr(self, f"{name}_as_df"))
             else:
                 dfs.append(self.as_df(name))
+        df = pd.concat(dfs)
+        return sort_note_df(df)
+
+    def structural_df(self) -> pd.DataFrame:
+        dfs = []
+        for voice, notes in self._structural.items():
+            track = TRACKS["structural"][voice]
+            sub_df = pd.DataFrame(
+                Note(
+                    pitch,
+                    self.chords[i].onset,
+                    self.chords[i].release,
+                    track=track,
+                )
+                for i, pitch in enumerate(notes)
+            )
+            dfs.append(sub_df)
         df = pd.concat(dfs)
         return sort_note_df(df)
 
@@ -939,7 +960,7 @@ class _ChordTransitionInterface:
 
     @property
     def i(self) -> int:
-        return self._score.i - 2
+        return len(self._score._structural[BASS]) - 2
 
     def structural_interval_from_departure_to_arrival(
         self, voice: Voice
@@ -951,15 +972,20 @@ class _ChordTransitionInterface:
         )
 
     def validate_state(self) -> bool:
-        if not self._score.validate_state():
-            return False
-        return self.i + 2 == self._score.i
+        # TODO: (Malcolm 2023-08-04) not sure this is correct any more
+        return self._score.validate_state()
 
     def departure_pitch(self, voice: Voice) -> Pitch:
-        return self._score.prev_pitch(voice, offset_from_current=2)
+        if self.i < 0:
+            raise ValueError
+        return self._score._structural[voice][self.i]
+        # return self._score.prev_pitch(voice, offset_from_current=2)
 
     def arrival_pitch(self, voice: Voice):
-        return self._score.prev_pitch(voice)
+        if self.i < 0:
+            raise ValueError
+        return self._score._structural[voice][self.i + 1]
+        # return self._score.prev_pitch(voice)
 
     def departure_interval_above_bass(self, voice: Voice):
         if voice is OuterVoice.BASS:
@@ -970,41 +996,48 @@ class _ChordTransitionInterface:
 
     @property
     def departure_chord(self):
-        assert self._score.i > 1
+        assert self.i >= 0
         return self._score.chords[self.i]
 
     @property
     def arrival_chord(self):
-        assert self._score.i > 1
+        assert self.i >= 0
         return self._score.chords[self.i + 1]
 
     @property
     def departure_scale(self):
-        assert self._score.i > 1
+        assert self.i >= 0
         return self._score.scales[self.i]
 
     @property
     def arrival_scale(self):
-        assert self._score.i > 1
+        assert self.i >= 0
         return self._score.scales[self.i + 1]
 
     @property
     def arrival_time(self):
-        assert self._score.i > 1
+        assert self.i >= 0
         return self._score.chords[self.i + 1].onset
 
     def departure_is_preparation(self, voice: Voice) -> bool:
-        return self._score.prev_is_suspension(voice)
+        assert self.i >= 0
+        return self._score.is_suspension(self.i + 1, voice)
+        # return self._score.prev_is_suspension(voice)
 
     def departure_suspension(self, voice: Voice) -> Suspension | None:
-        return self._score.prev_suspension(voice=voice, offset_from_current=2)
+        assert self.i >= 0
+        # return self._score.prev_suspension(voice=voice, offset_from_current=2)
+        return self._score.get_suspension(self.i, voice)
 
     def departure_is_suspension(self, voice: Voice) -> bool:
-        return self._score.prev_is_resolution(voice)
+        assert self.i >= 0
+        return self._score.is_suspension(self.i, voice)
+        # return self._score.prev_is_resolution(voice)
 
     def departure_is_resolution(self, voice: Voice) -> bool:
-        assert self._score.i > 1
-        return self._score._suspension_resolutions[voice].get(self.i, None) is None
+        assert self.i >= 0
+        return self._score.is_suspension(self.i - 1, voice)
+        # return self._score._suspension_resolutions[voice].get(self.i, None) is None
 
     def at_chord_change(
         self,
@@ -1021,11 +1054,11 @@ class _ChordTransitionInterface:
         )
 
     def departure_attr(self, attr_name: str, voice: Voice):
-        assert self._score.i > 1
+        assert self.i >= 0
         return getattr(self._score, attr_name)[voice][self.i]
 
     def arrival_attr(self, attr_name: str, voice: Voice):
-        assert self._score.i > 1
+        assert self.i >= 0
         return getattr(self._score, attr_name)[voice][self.i + 1]
 
 
@@ -1132,3 +1165,344 @@ class PrefabInterface(_ChordTransitionInterface):
 
 class AccompanimentInterface(_ChordTransitionInterface):
     pass
+
+
+class ScoreInterface:
+    def __init__(
+        self,
+        score: _ScoreBase,
+        get_i: t.Callable[[_ScoreBase], int],
+        validate: t.Callable[[_ScoreBase], bool],
+    ):
+        self._score = score
+        self._get_i = get_i
+        # TODO: (Malcolm 2023-08-04) perhaps validation can be implemented more for
+        #   user
+        self._validate = validate
+
+    @property
+    def ts(self) -> Meter:
+        return self._score.ts
+
+    @property
+    def score(self):  # pylint: disable=missing-docstring
+        return self._score
+
+    # ----------------------------------------------------------------------------------
+    # State and validation
+    # ----------------------------------------------------------------------------------
+
+    def validate_state(self) -> bool:
+        return self._validate(self._score)
+
+    @property
+    def i(self):
+        return self._get_i(self._score)
+
+    @property
+    def empty(self) -> bool:
+        assert self.validate_state()
+        return self.i == 0
+
+    @property
+    def complete(self) -> bool:
+        assert self.validate_state()
+        return self.i == len(self._score.chords)
+
+    # ----------------------------------------------------------------------------------
+    # Chords, etc.
+    # ----------------------------------------------------------------------------------
+
+    @property
+    def current_chord(self) -> Chord:
+        return self._score.chords[self.i]
+
+    @property
+    def prev_chord(self) -> Chord:
+        assert self.i > 0
+        return self._score.chords[self.i - 1]
+
+    @property
+    def next_chord(self) -> Chord | None:
+        if self.i + 1 >= len(self._score.chords):
+            return None
+        return self._score.chords[self.i + 1]
+
+    @property
+    def current_scale(self) -> Scale:
+        return self._score.scales[self.i]
+
+    @property
+    def prev_scale(self) -> Scale:
+        assert self.i > 0
+        return self._score.scales[self.i - 1]
+
+    @property
+    def next_scale(self) -> Scale | None:
+        if self.i + 1 >= len(self._score.scales):
+            return None
+        return self._score.scales[self.i + 1]
+
+    @property
+    def prev_foot_pc(self) -> PitchClass:
+        """The "notional" bass pitch-class.
+
+        It is "notional" because the pitch-class of the *actual* bass may be a
+        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+        the foot is the third B.
+        """
+        if self.i < 1:
+            raise ValueError()
+        return self._score.pc_bass[self.i - 1]
+
+    @property
+    def current_foot_pc(self) -> PitchClass:
+        """The "notional" bass pitch-class.
+
+        It is "notional" because the pitch-class of the *actual* bass may be a
+        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+        the foot is the third B.
+        """
+        return self._score.pc_bass[self.i]
+
+    @property
+    def next_foot_pc(self) -> PitchClass | None:
+        """The "notional" bass pitch-class.
+
+        It is "notional" because the pitch-class of the *actual* bass may be a
+        suspension, etc. The "foot" differs from the "root" in that it isn't necessarily
+        the root. E.g., in a V6 chord in C major, with a bass suspension C--B, on the C,
+        the foot is the third B.
+        """
+        if self.i + 1 >= len(self._score.chords):
+            return None
+        return self._score.pc_bass[self.i + 1]
+
+    # ----------------------------------------------------------------------------------
+    # Pitches and intervals
+    # ----------------------------------------------------------------------------------
+
+    def prev_pitch(self, voice: Voice, offset_from_current: int = 1) -> Pitch:
+        if self.i < offset_from_current:
+            raise ValueError
+        return self._score._structural[voice][self.i - offset_from_current]
+
+    def current_pitch(self, voice: Voice) -> Pitch | None:
+        try:
+            return self._score._structural[voice][self.i]
+        except IndexError:
+            return None
+
+    def prev_pitches(self) -> tuple[Pitch]:
+        assert self.i > 0
+        out = (pitches[self.i - 1] for pitches in self._score._structural.values())
+        return tuple(sorted(out))
+
+    def prev_structural_interval_above_bass(self, voice: Voice) -> ScalarInterval:
+        if voice is OuterVoice.BASS:
+            return 0
+        return self.prev_scale.get_reduced_scalar_interval(
+            self.prev_pitch(OuterVoice.BASS), self.prev_pitch(voice)
+        )
+
+    # ----------------------------------------------------------------------------------
+    # Inspect suspensions
+    # ----------------------------------------------------------------------------------
+
+    def prev_suspension(
+        self, voice: Voice, offset_from_current: int = 1
+    ) -> Suspension | None:
+        if self.i < offset_from_current:
+            raise ValueError
+        return self._score._suspensions[voice].get(self.i - offset_from_current, None)
+
+    def prev_is_suspension(self, voice: Voice) -> bool:
+        return self.prev_suspension(voice) is not None
+
+    def current_suspension(self, voice: Voice) -> Suspension | None:
+        return self._score._suspensions[voice].get(self.i, None)
+
+    def current_is_suspension(self, voice: Voice) -> bool:
+        return self.current_suspension(voice) is not None
+
+    def suspension_in_any_voice(self) -> bool:
+        for suspensions in self._score._suspensions.values():
+            if self.i in suspensions:
+                return True
+        return False
+
+    # ----------------------------------------------------------------------------------
+    # Suspension resolutions
+    # ----------------------------------------------------------------------------------
+
+    def prev_resolution(self, voice: Voice) -> Pitch | None:
+        assert self.i > 0
+        return self._score._suspension_resolutions[voice].get(self.i - 1, None)
+
+    def prev_is_resolution(self, voice: Voice) -> bool:
+        return self.prev_resolution(voice) is not None
+
+    def current_resolution(self, voice: Voice) -> Pitch | None:
+        return self._score._suspension_resolutions[voice].get(self.i, None)
+
+    def current_is_resolution(self, voice: Voice) -> bool:
+        return self.current_resolution(voice) is not None
+
+    def current_resolution_pcs(self):
+        out = set()
+        for voice in self._score._suspension_resolutions:
+            if self.i in self._score._suspension_resolutions[voice]:
+                out.add(self._score._suspension_resolutions[voice][self.i] % 12)
+        return out
+
+    # ----------------------------------------------------------------------------------
+    # Suspension preparations
+    # ----------------------------------------------------------------------------------
+
+    def prev_is_preparation(self, voice: Voice) -> bool:
+        suspension = self.current_suspension
+        if suspension is None:
+            return False
+        return self._score._structural[voice] == suspension.pitch
+
+    # ----------------------------------------------------------------------------------
+    # Alter chords
+    # ----------------------------------------------------------------------------------
+    def split_current_chord_at(self, time: TimeStamp):
+        # TODO: (Malcolm 2023-08-04) double-check this logic
+        # It's ok if other structural voices have extended *as far as* the chord we
+        #   are currently working on (meaning they will have length i + 1), but not
+        #   if they have extended further
+        assert (
+            max(len(notes) for notes in self._score._structural.values()) <= self.i + 1
+        )
+        LOGGER.debug(
+            f"Splitting chord at {time=} w/ duration "
+            f"{self.current_chord.release - self.current_chord.onset}"
+        )
+        self._score.split_ith_chord_at(self.i, time)
+        LOGGER.debug(
+            f"After split chord has duration "
+            f"{self.current_chord.release - self.current_chord.onset}"
+        )
+        # TODO: (Malcolm 2023-08-04) maybe move this into the Score function?
+        self._score._split_chords.append(self.i)
+
+    def merge_current_chords_if_they_were_previously_split(self):
+        if self._score._split_chords and self._score._split_chords[-1] == self.i:
+            assert self.next_chord is not None
+            assert is_same_harmony(self.current_chord, self.next_chord)
+            self._score.merge_ith_chords(self.i)
+            self._score._split_chords.pop()
+
+    # ----------------------------------------------------------------------------------
+    # Add and remove suspensions
+    # ----------------------------------------------------------------------------------
+
+    def add_suspension(self, voice: Voice, suspension: Suspension):
+        suspensions = self._score._suspensions[voice]
+        assert self.i not in suspensions
+        suspensions[self.i] = suspension
+
+    def remove_suspension(self, voice: Voice):
+        suspensions = self._score._suspensions[voice]
+        suspensions.pop(self.i)  # raises KeyError if missing
+
+    def annotate_suspension(self, voice: Voice):
+        raise NotImplementedError
+        annotations_label = (
+            "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
+        )
+        self._score.annotations[annotations_label].append(
+            Annotation(self.current_chord.onset, "S")
+        )
+
+    def remove_suspension_annotation(self, voice: Voice):
+        raise NotImplementedError
+        annotations_label = (
+            "bass_suspensions" if voice is OuterVoice.BASS else "soprano_suspensions"
+        )
+        popped_annotation = self._score.annotations[annotations_label].pop()
+        assert popped_annotation.onset == self.current_chord.onset
+
+    def add_suspension_resolution(self, voice: Voice, pitch: Pitch):
+        assert not self.i + 1 in self._score._suspension_resolutions[voice]
+        self._score._suspension_resolutions[voice][self.i + 1] = pitch
+
+    def remove_suspension_resolution(self, voice: Voice):
+        assert self.i + 1 in self._score._suspension_resolutions[voice]
+        del self._score._suspension_resolutions[voice][self.i + 1]
+
+    def apply_suspension(
+        self,
+        suspension: Suspension,
+        suspension_release: TimeStamp,
+        voice: Voice,
+        annotate: bool = True,
+    ) -> Pitch:
+        if suspension_release < self.current_chord.release:
+            # If the suspension resolves during the current chord, we need to split
+            #   the current chord to permit that
+            self.split_current_chord_at(suspension_release)
+        else:
+            # Otherwise, make sure the suspension resolves at the onset of the
+            #   next chord
+            assert (
+                self.next_chord is not None
+                and suspension_release == self.next_chord.onset
+            )
+
+        suspended_pitch = self.prev_pitch(voice)
+        self.add_suspension_resolution(voice, suspended_pitch + suspension.resolves_by)
+        self.add_suspension(voice, suspension)
+        if annotate:
+            self.annotate_suspension(voice)
+        return suspended_pitch
+
+    def apply_suspensions(
+        self,
+        suspension_combo: SuspensionCombo,
+        suspension_release: TimeStamp,
+        annotate: bool = True,
+    ):
+        LOGGER.debug(f"applying {suspension_combo=} at {self.i=}")
+        for voice, suspension in suspension_combo.items():
+            self.apply_suspension(
+                suspension,
+                suspension_release=suspension_release,
+                voice=voice,
+                annotate=annotate,
+            )
+
+    def undo_suspension(self, voice: Voice, annotate: bool = True) -> None:
+        self.remove_suspension_resolution(voice)
+        self.remove_suspension(voice)
+        if annotate:
+            self.remove_suspension_annotation(voice)
+        if not self.suspension_in_any_voice():
+            self.merge_current_chords_if_they_were_previously_split()
+
+    def undo_suspensions(
+        self, suspension_combo: SuspensionCombo, annotate: bool = True
+    ):
+        LOGGER.debug(f"undoing {suspension_combo=} at {self.i=}")
+        for voice in suspension_combo:
+            self.undo_suspension(voice, annotate)
+
+    # TODO: (Malcolm 2023-08-04) prev_structural_interval_above_bass?
+
+    def at_chord_change(
+        self,
+        compare_scales: bool = True,
+        compare_inversions: bool = True,
+        allow_subsets: bool = False,
+    ) -> bool:
+        return self.empty or not is_same_harmony(
+            self.prev_chord,
+            self.current_chord,
+            compare_scales,
+            compare_inversions,
+            allow_subsets,
+        )

@@ -1206,7 +1206,7 @@ class Chord:
             pc_counts.append(pc_count)
             penalties.append(penalty)
 
-        diffs = [self.cardinality - pc_count for pc_count in pc_counts]
+        diffs: list[int] = [self.cardinality - pc_count for pc_count in pc_counts]
         min_diff = min(diffs)
         out = [
             float(max_score + min_diff - diff - penalty)

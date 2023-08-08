@@ -4,8 +4,8 @@ import sys
 import pytest
 
 from dumb_composer.pitch_utils.interval_chooser import (
-    IntervalChooser,
-    IntervalChooserSettings,
+    DeprecatedIntervalChooser,
+    DeprecatedIntervalChooserSettings,
 )
 from dumb_composer.utils.shell_plot import print_histogram
 
@@ -16,11 +16,11 @@ def test_interval_chooser(custom_weights):
     n = 10000
     for smaller_mel_interval_concentration in (0, 0.5, 1.0, 2.0):
         for unison_weighted_as in (0, 1, 3):
-            icsettings = IntervalChooserSettings(
+            icsettings = DeprecatedIntervalChooserSettings(
                 smaller_mel_interval_concentration=smaller_mel_interval_concentration,
                 unison_weighted_as=unison_weighted_as,
             )
-            ic = IntervalChooser(icsettings)
+            ic = DeprecatedIntervalChooser(icsettings)
             result = ic.choose_intervals(
                 intervals, n=n * 10, custom_weights=custom_weights
             )
@@ -40,8 +40,8 @@ def test_harmonically_informed_interval_chooser(octave, custom_weights, other_pi
         melodic_interval - other_pitch for melodic_interval in melodic_intervals
     ]
     n = 10000
-    icsettings = IntervalChooserSettings(weight_harmonic_intervals=True)
-    ic = IntervalChooser(icsettings)
+    icsettings = DeprecatedIntervalChooserSettings(weight_harmonic_intervals=True)
+    ic = DeprecatedIntervalChooser(icsettings)
     result = ic.choose_intervals(
         melodic_intervals,
         harmonic_intervals=harmonic_intervals,

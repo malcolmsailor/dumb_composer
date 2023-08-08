@@ -59,6 +59,10 @@ class RangeConstraints:
         )
 
 
+class DynamicRangeConstraints(RangeConstraints):
+    pass
+
+
 @dataclass
 class SpacingConstraints:
     """

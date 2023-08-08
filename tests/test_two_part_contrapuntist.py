@@ -30,8 +30,8 @@ def test_avoid_doubling_tendency_tones(rntxt, structural_soprano_pitches, do_fir
     for melody_pitch in structural_soprano_pitches:
         tpc = mod.TwoPartContrapuntist(chord_data=rntxt, settings=settings)
         # We hack the score so that it starts with the intended pitch
-        tpc._score.structural_bass.append(tpc._score.chords[0].foot + 24)
-        tpc._score.structural_soprano.append(melody_pitch)
+        tpc._score._score.structural_bass.append(tpc._score._score.chords[0].foot + 24)
+        tpc._score._score.structural_soprano.append(melody_pitch)
         try:
             for pitches in tpc._step():
                 assert pitches["melody"] % 12 != pitches["bass"] % 12
@@ -89,8 +89,8 @@ def test_two_part_contrapuntist(time_sig, do_first):
         tpc = mod.TwoPartContrapuntist(chord_data=rn_txt, settings=settings)
         random.seed(seed)
         score = tpc()
-        update_counts(score, counts)
-        out_df = tpc.get_mididf_from_score(score)
+        update_counts(score._score, counts)
+        out_df = tpc.get_mididf_from_score(score._score)
         dfs.append(out_df)
 
     time_adjustment = 0

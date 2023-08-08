@@ -11,8 +11,8 @@ import pandas as pd
 
 from dumb_composer.pitch_utils.chords import Chord, get_chords_from_rntxt
 from dumb_composer.pitch_utils.interval_chooser import (
+    DeprecatedIntervalChooserSettings,
     IntervalChooser,
-    IntervalChooserSettings,
 )
 from dumb_composer.pitch_utils.intervals import interval_finder
 from dumb_composer.pitch_utils.put_in_range import put_in_range
@@ -30,7 +30,7 @@ melodic inertia
 
 
 @dataclass
-class MelodistSettings(IntervalChooserSettings):
+class MelodistSettings(DeprecatedIntervalChooserSettings):
     range_: t.Tuple[int, int] = (60, 78)
     max_interval: int = 12
     initial_chord_tone_prob: float = 1.0

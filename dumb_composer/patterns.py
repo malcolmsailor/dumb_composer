@@ -663,13 +663,19 @@ class PatternMaker:
         return self._1_3_5(2, *args, **kwargs)
 
     def _get_pattern_options(
-        self, pitches_or_pcs, harmony_onset, harmony_release
+        self,
+        pitches_or_pcs,
+        harmony_onset,
+        harmony_release,
+        whitelist: t.Container | None = None,
     ) -> t.List[t.Callable]:
         params = (tuple(pitches_or_pcs), harmony_onset, harmony_release)
         if params in self._memo:
             return self._memo[params]
         patterns = []
         for pattern_name in self._patterns:
+            if whitelist is not None and pattern_name not in whitelist:
+                continue
             pattern_method = getattr(self, pattern_name)
             pattern_fits = True
             for constraint in (
@@ -751,7 +757,13 @@ class PatternMaker:
         return pattern_method.spacing_constraints
 
     def get_pattern(
-        self, pitches_or_pcs, onset, harmony_onset, harmony_release, pattern=None
+        self,
+        pitches_or_pcs,
+        onset,
+        harmony_onset,
+        harmony_release,
+        pattern=None,
+        whitelist: t.Container | None = None,
     ) -> Pattern:
         if pattern is not None:
             self._prev_pattern = pattern
@@ -766,7 +778,7 @@ class PatternMaker:
             LOGGER.debug(f"{self.__class__.__name__} retrieving pattern {pattern}")
         else:
             pattern_options = self._get_pattern_options(
-                pitches_or_pcs, harmony_onset, harmony_release
+                pitches_or_pcs, harmony_onset, harmony_release, whitelist=whitelist
             )
             pattern = random.choice(pattern_options)
             self._prev_pattern = pattern  # type:ignore

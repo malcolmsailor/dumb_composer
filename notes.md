@@ -90,6 +90,9 @@ Alberti:
     - 3 in accompaniment in close position
 - only w/ melody in top voice? or bottom voice too?
 
+1-3-5 patterns:
+- same part constraints as alberti
+    - seems like 5-3-1 or similar might be better in case of bass melody?
 
 Solid chords:
 - 4 "real" parts
@@ -98,3 +101,13 @@ Solid chords:
 Oom-pah etc:
 - 4 real parts
 - optional doublings
+
+Arpeggios:
+- need to think more
+
+Tremolos:
+- independent of bass/melody:
+    - requires 2 different pitches (we need to enforce no unisons)
+- including bass/melody
+    - could be in 3 real parts
+    - or 4 real parts with possible doublings, with multiple notes in one or the other leg of the tremolo

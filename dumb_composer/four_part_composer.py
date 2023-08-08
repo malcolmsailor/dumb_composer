@@ -15,6 +15,7 @@ from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import (
+    MELODY,
     FourPartResult,
     InnerVoice,
     OuterVoice,
@@ -24,7 +25,7 @@ from dumb_composer.pitch_utils.types import (
     Voice,
 )
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
-from dumb_composer.shared_classes import Annotation, FourPartScore
+from dumb_composer.shared_classes import Annotation, FourPartScore, ScoreInterface
 from dumb_composer.structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
@@ -90,12 +91,20 @@ class FourPartWorker(TwoPartContrapuntist):
         self.settings = settings  # redundant, but done so pylance doesn't complain
 
         if chord_data is not None:
-            self._score = FourPartScore(chord_data)
+            score = FourPartScore(chord_data)
         else:
             assert score is not None
-            self._score = score
 
-        super().__init__(chord_data=None, score=self._score, settings=settings)
+        get_i = lambda score: len(score.structural_bass)
+        validate = (
+            lambda score: len({len(pitches) for pitches in score._structural.values()})
+            == 1
+        )
+        self._score = ScoreInterface(score, get_i=get_i, validate=validate)
+
+        # TODO: (Malcolm 2023-08-04) don't pass score here somehow
+
+        super().__init__(chord_data=None, score=score, settings=settings)
         logging.debug(
             textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
         )
@@ -208,7 +217,7 @@ class FourPartWorker(TwoPartContrapuntist):
             resolution_pitch,
             (bass_pitch, melody_pitch),
             self._score.current_chord,
-            prev_melody_pitch=self._score.prev_melody_pitch,
+            prev_melody_pitch=self._score.prev_pitch(MELODY),
             melody_pitch=melody_pitch,
         )
 
@@ -467,6 +476,8 @@ class FourPartWorker(TwoPartContrapuntist):
             melody_pitch, bass_pitch, free_inner_voices
         ):
             if suspensions is not None:
+                # Apply suspensions
+                # -----------------
                 suspension_combo, release_time = suspensions
                 self._score.apply_suspensions(
                     suspension_combo,
@@ -498,6 +509,8 @@ class FourPartWorker(TwoPartContrapuntist):
                     suspension_combo, annotate=self.settings.annotate_suspensions
                 )
             else:
+                # Apply no suspension
+                # -------------------
                 for voicing in voice_lead_chords(
                     self._score.prev_chord,
                     self._score.current_chord,
@@ -637,10 +650,10 @@ class FourPartWorker(TwoPartContrapuntist):
             # TODO: (Malcolm 2023-08-01) update to undo suspensions
             with append_attempt(
                 (
-                    self._score.structural_bass,
-                    self._score._structural[InnerVoice.TENOR],
-                    self._score._structural[InnerVoice.ALTO],
-                    self._score.structural_soprano,
+                    self._score._score.structural_bass,
+                    self._score._score._structural[InnerVoice.TENOR],
+                    self._score._score._structural[InnerVoice.ALTO],
+                    self._score._score.structural_soprano,
                 ),
                 (pitches["bass"], pitches["tenor"], pitches["alto"], pitches["melody"]),
             ):
@@ -683,7 +696,7 @@ class FourPartComposer:
         except DeadEnd:
             raise RecursionFailed("Reached a terminal dead end")
         self._worker = None
-        return score.get_df(
+        return score._score.get_df(
             [
                 "structural_soprano",
                 "structural_tenor",
@@ -708,7 +721,7 @@ class FourPartComposer:
         except DeadEnd:
             raise RecursionFailed("Reached a terminal dead end")
         self._worker = None
-        score_df = score.get_df(
+        score_df = score._score.get_df(
             [
                 "structural_soprano",
                 "structural_tenor",
@@ -717,7 +730,7 @@ class FourPartComposer:
             ]
         )
         deadend_dfs = [
-            deadend["score"].get_df(
+            deadend["score"]._score.get_df(
                 [
                     "structural_soprano",
                     "structural_tenor",
@@ -744,6 +757,3 @@ def pop_structural_pitches(score: FourPartScore):
     score._structural[InnerVoice.TENOR].pop()
     score._structural[InnerVoice.ALTO].pop()
     score._structural[OuterVoice.MELODY].pop()
-    # TODO: (Malcolm 2023-08-01) verify
-    # score.undo_all_suspensions()
-    pass

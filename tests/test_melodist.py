@@ -1,13 +1,17 @@
-import random
 import os
-import dumb_composer.melodist as mod
-from dumb_composer.rhythmist import DumbRhythmist
+import random
 
+import pytest
 from midi_to_notes import df_to_midi
 
+import dumb_composer.melodist as mod
+from dumb_composer.rhythmist import DumbRhythmist
 from tests.test_helpers import TEST_OUT_DIR
 
 
+@pytest.mark.skip(
+    reason="`melodist` is out of date and can probably be removed altogether"
+)
 def test_melodist():
     rhythmist = DumbRhythmist(4.0)
     melodist = mod.Melodist()

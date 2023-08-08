@@ -13,8 +13,6 @@ from dumb_composer.from_ml_out import get_chord_df
 from dumb_composer.pitch_utils.chords import Chord, Tendency, is_same_harmony
 from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
-    IntervalChooser2,
-    IntervalChooser2Settings,
     IntervalChooserSettings,
 )
 from dumb_composer.pitch_utils.intervals import (
@@ -26,13 +24,21 @@ from dumb_composer.pitch_utils.pcs import PitchClass
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import (
+    BASS,
+    MELODY,
     ChromaticInterval,
     Pitch,
     TimeStamp,
     TwoPartResult,
     Weight,
 )
-from dumb_composer.shared_classes import Annotation, OuterVoice, Score, _ScoreBase
+from dumb_composer.shared_classes import (
+    Annotation,
+    OuterVoice,
+    Score,
+    ScoreInterface,
+    _ScoreBase,
+)
 from dumb_composer.suspensions import (
     Suspension,
     find_bass_suspension,
@@ -48,7 +54,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class TwoPartContrapuntistSettings(IntervalChooser2Settings):
+class TwoPartContrapuntistSettings(IntervalChooserSettings):
     forbidden_parallels: t.Sequence[int] = (7, 0)
     forbidden_antiparallels: t.Sequence[int] = (0,)
     unpreferred_direct_intervals: t.Sequence[int] = (7, 0)
@@ -105,14 +111,16 @@ class TwoPartContrapuntist:
         if settings is None:
             settings = TwoPartContrapuntistSettings()
         self.settings = settings
-        # TODO the size of lambda parameter for IntervalChooser should depend on
+        # TODO the size of lambda parameter for DeprecatedIntervalChooser should depend on
         #   how long the chord is. If a chord lasts for a whole note it can move
         #   by virtually any amount. If a chord lasts for an eighth note it
         #   should move by a relatively small amount.
         # TODO: (Malcolm 2023-07-17) and the above in turn should be influenced by the
         #   expected density of ornamentation. If we're embellishing in 16ths then
         #   each note should be free to move relatively widely.
-        self._interval_chooser = IntervalChooser2(settings)
+        # TODO: (Malcolm 2023-08-08) the above comments may be somewhat (completely?)
+        #   out of date
+        self._interval_chooser = IntervalChooser(settings)
         self._lingering_tendencies: t.List[t.Dict[Pitch, Weight]] = []
         self._split_chords: t.List[int] = []
 
@@ -135,11 +143,17 @@ class TwoPartContrapuntist:
             )
 
         if chord_data is not None:
-            self._score = Score(chord_data)
+            score = Score(chord_data)
         else:
             assert score is not None
             # assert score.range_constraints == self.settings.range_constraints
-            self._score = score
+
+        get_i = lambda score: len(score.structural_bass)
+        validate = (
+            lambda score: len({len(pitches) for pitches in score._structural.values()})
+            == 1
+        )
+        self._score = ScoreInterface(score, get_i=get_i, validate=validate)
 
         # For debugging
         self._deadend_args: dict[str, t.Any] = {}
@@ -213,9 +227,8 @@ class TwoPartContrapuntist:
             resolution_chord_pcs_to_avoid: set[PitchClass] = (
                 set() if next_foot_tendency is Tendency.NONE else {next_foot_pc}
             )
-
             next_chord_suspensions = find_suspensions(
-                self._score.prev_melody_pitch,
+                self._score.prev_pitch(MELODY),
                 preparation_chord=self._score.prev_chord,
                 suspension_chord=self._score.current_chord,
                 resolution_chord=self._score.next_chord,
@@ -231,7 +244,7 @@ class TwoPartContrapuntist:
         if release_times:
             # MELODY_ONLY
             suspensions = find_suspensions(
-                self._score.prev_melody_pitch,
+                self._score.prev_pitch(MELODY),
                 preparation_chord=self._score.prev_chord,
                 suspension_chord=self._score.current_chord,
                 suspension_chord_pcs_to_avoid=suspension_chord_pcs_to_avoid,
@@ -323,7 +336,7 @@ class TwoPartContrapuntist:
 
             # BASS ONLY
             next_chord_suspensions = find_bass_suspension(
-                src_pitch=self._score.prev_bass_pitch,
+                src_pitch=self._score.prev_pitch(BASS),
                 preparation_chord=self._score.prev_chord,
                 suspension_chord=self._score.current_chord,
                 resolution_chord=self._score.next_chord,
@@ -337,7 +350,7 @@ class TwoPartContrapuntist:
         if release_times:
             # BASS ONLY
             suspensions = find_bass_suspension(
-                src_pitch=self._score.prev_bass_pitch,
+                src_pitch=self._score.prev_pitch(BASS),
                 preparation_chord=self._score.prev_chord,
                 suspension_chord=self._score.current_chord,
                 resolve_up_by=self._upward_suspension_resolutions_bass,
@@ -390,7 +403,7 @@ class TwoPartContrapuntist:
         self, intervals: t.List[int], bass_has_tendency: bool
     ) -> t.Iterable[int]:
         tendency = self._score.prev_chord.get_pitch_tendency(
-            self._score.prev_melody_pitch
+            self._score.prev_pitch(MELODY)
         )
         if (
             tendency is Tendency.NONE
@@ -403,7 +416,7 @@ class TwoPartContrapuntist:
             steps = (-1, -2)
         for step in steps:
             if step in intervals:
-                candidate_pitch = self._score.prev_melody_pitch + step
+                candidate_pitch = self._score.prev_pitch(MELODY) + step
                 if bass_has_tendency and (
                     candidate_pitch % 12 == self._score.current_foot_pc
                 ):
@@ -412,7 +425,7 @@ class TwoPartContrapuntist:
                 intervals.remove(step)
                 return
         LOGGER.debug(
-            f"resolving tendency-tone with pitch {self._score.prev_melody_pitch} "
+            f"resolving tendency-tone with pitch {self._score.prev_pitch(MELODY)} "
             f"would exceed range"
         )
 
@@ -625,8 +638,8 @@ class TwoPartContrapuntist:
                     forbidden_intervals = []
                 else:
                     forbidden_intervals = get_forbidden_intervals(
-                        self._score.prev_melody_pitch,
-                        [(self._score.prev_bass_pitch, current_bass_pitch)],
+                        self._score.prev_pitch(MELODY),
+                        [(self._score.prev_pitch(BASS), current_bass_pitch)],
                         self.settings.forbidden_parallels,
                         self.settings.forbidden_antiparallels,
                     )
@@ -638,7 +651,7 @@ class TwoPartContrapuntist:
 
                 # Get a list of all available intervals
                 intervals = interval_finder(
-                    self._score.prev_melody_pitch,
+                    self._score.prev_pitch(MELODY),
                     self._score.current_chord.pcs,
                     min_pitch,
                     max_pitch,
@@ -665,9 +678,9 @@ class TwoPartContrapuntist:
                 # If the previous pitch does not have a tendency, or proceeding
                 # according to the tendency doesn't work, try the other intervals
                 yield from self._choose_intervals(
-                    self._score.prev_bass_pitch,
+                    self._score.prev_pitch(BASS),
                     current_bass_pitch,
-                    self._score.prev_melody_pitch,
+                    self._score.prev_pitch(MELODY),
                     dont_double_bass_pc,
                     intervals,
                     voice_to_choose_for=OuterVoice.MELODY,
@@ -714,8 +727,8 @@ class TwoPartContrapuntist:
                     forbidden_intervals = []
                 else:
                     forbidden_intervals = get_forbidden_intervals(
-                        self._score.prev_bass_pitch,
-                        [(self._score.prev_melody_pitch, current_melody_pitch)],
+                        self._score.prev_pitch(BASS),
+                        [(self._score.prev_pitch(MELODY), current_melody_pitch)],
                         self.settings.forbidden_parallels,
                         self.settings.forbidden_antiparallels,
                     )
@@ -727,7 +740,7 @@ class TwoPartContrapuntist:
 
                 # Get a list of all available intervals
                 intervals = interval_finder(
-                    self._score.prev_bass_pitch,
+                    self._score.prev_pitch(BASS),
                     (self._score.current_chord.foot,),
                     min_pitch,
                     max_pitch,
@@ -741,12 +754,13 @@ class TwoPartContrapuntist:
                 # case
 
                 yield from self._choose_intervals(
-                    self._score.prev_melody_pitch,
+                    self._score.prev_pitch(MELODY),
                     current_melody_pitch,
-                    self._score.prev_bass_pitch,
+                    self._score.prev_pitch(BASS),
                     dont_double_melody_pc,
                     intervals,
-                    voice_to_choose_for=OuterVoice.MELODY,
+                    # TODO: (Malcolm 2023-08-04) this was MELODY, shouldn't it be BASS?
+                    voice_to_choose_for=OuterVoice.BASS,
                 )
 
     def _melody_step(self, bass_pitch: Pitch | None = None) -> t.Iterator[Pitch]:
@@ -830,8 +844,9 @@ class TwoPartContrapuntist:
         assert self._score.empty
         while not self._score.complete:
             pitches = next(self._step())
-            self._score.structural_soprano.append(pitches["melody"])
-            self._score.structural_bass.append(pitches["bass"])
+            # TODO: (Malcolm 2023-08-04) better variable names
+            self._score._score.structural_soprano.append(pitches["melody"])
+            self._score._score.structural_bass.append(pitches["bass"])
         return self._score
 
     def get_mididf_from_score(self, score: _ScoreBase):

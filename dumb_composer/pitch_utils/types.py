@@ -50,6 +50,13 @@ TENOR = InnerVoice.TENOR
 ALTO = InnerVoice.ALTO
 
 
+class VoicePair(Voice):
+    TENOR_AND_ALTO = 4
+
+
+TENOR_AND_ALTO = VoicePair.TENOR_AND_ALTO
+
+
 class TwoPartResult(t.TypedDict):
     bass: Pitch
     melody: Pitch
@@ -77,6 +84,7 @@ voice_enum_to_string: dict[Voice, str] = {
     InnerVoice.TENOR: "tenor",
     InnerVoice.ALTO: "alto",
     OuterVoice.MELODY: "melody",
+    VoicePair.TENOR_AND_ALTO: "tenor_and_alto",
 }
 
 
