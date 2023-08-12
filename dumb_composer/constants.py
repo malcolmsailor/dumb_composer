@@ -4,7 +4,7 @@ from types import MappingProxyType
 
 from mspell import Speller, Unspeller
 
-from dumb_composer.pitch_utils.types import InnerVoice, OuterVoice, Voice
+from dumb_composer.pitch_utils.types import AbstractVoice, InnerVoice, OuterVoice, Voice
 
 unspeller_pcs = Unspeller(pitches=False)
 speller_pcs = Speller(pitches=False)
@@ -123,7 +123,10 @@ TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS = {
     12: 0.75,
 }
 
-TRACKS: dict[t.Literal["structural", "prefabs"], dict[Voice, int]] = {
+TRACKS: dict[t.Literal["abstract", "structural", "prefabs"], dict[Voice, int]] = {
+    "abstract": {
+        AbstractVoice.GLOBAL: 0,
+    },
     "structural": {
         OuterVoice.BASS: 2,
         InnerVoice.TENOR: 2,

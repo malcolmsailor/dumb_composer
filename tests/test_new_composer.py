@@ -39,7 +39,7 @@ def test_new_composer(quick, pytestconfig, time_sig):
     test_out_dir = os.path.join(TEST_OUT_DIR, funcname)
     os.makedirs(test_out_dir, exist_ok=True)
 
-    path_wo_ext = os.path.join(test_out_dir, f"ts={ts.replace('/', '-')}_")
+    path_wo_ext = os.path.join(test_out_dir, f"ts={ts.replace('/', '-')}")
     mid_path = path_wo_ext + ".mid"
     log_path = path_wo_ext + ".log"
     logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
@@ -52,7 +52,12 @@ def test_new_composer(quick, pytestconfig, time_sig):
         random.seed(seed)
         settings = NewComposerSettings()
         pfc = NewComposer(settings)
-        out_df = pfc(rn_txt)
+        result = pfc(rn_txt)
+        # TODO: (Malcolm 2023-08-09) get df in better way
+        accompaniment_df = result.accompaniments_as_df
+        melody_df = result.as_df("structural_soprano")
+        out_df = pd.concat([accompaniment_df, melody_df]).sort_values(by="onset")
+        # out_df = result.get_df()
         dfs.append(out_df)
 
     out_df = merge_dfs(dfs, ts)

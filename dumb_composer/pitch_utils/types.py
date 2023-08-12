@@ -28,8 +28,20 @@ RNToken = str
 Weight = float
 
 
+@dataclass
+class SettingsBase:
+    pass
+
+
 class Voice(Enum):
     pass
+
+
+class AbstractVoice(Voice):
+    GLOBAL = 0
+
+
+GLOBAL = AbstractVoice.GLOBAL
 
 
 class OuterVoice(Voice):
@@ -55,6 +67,13 @@ class VoicePair(Voice):
 
 
 TENOR_AND_ALTO = VoicePair.TENOR_AND_ALTO
+
+
+class VoiceGroup(Voice):
+    ACCOMPANIMENTS = 5
+
+
+ACCOMPANIMENTS = VoiceGroup.ACCOMPANIMENTS
 
 
 class TwoPartResult(t.TypedDict):
@@ -92,6 +111,20 @@ voice_enum_to_string: dict[Voice, str] = {
 class DFItem:
     def copy(self):
         return copy(self)
+
+
+@dataclass
+class Annotation(DFItem):
+    onset: TimeStamp
+    text: str
+    track: int = 0
+    # Not to be changed
+    type: t.Literal["text"] = "text"
+
+    def __post_init__(self):
+        # TODO remove the next lines when I've figured out how to get
+        #   text annotations to display correctly
+        self.text = self.text.replace("_", "").replace(" ", "")
 
 
 @dataclass

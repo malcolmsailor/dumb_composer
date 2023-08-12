@@ -21,6 +21,7 @@ from dumb_composer.pitch_utils.types import (
     InnerVoice,
     OuterVoice,
     ScalarInterval,
+    SettingsBase,
     TimeStamp,
     TwoPartResult,
     Voice,
@@ -129,7 +130,7 @@ class PrefabDeadEnd(DeadEnd):
 
 
 @dataclass
-class PrefabApplierSettings:
+class PrefabApplierSettings(SettingsBase):
     # either "soprano", "tenor", or "bass"
     # prefab_voice: str = "soprano"
     prefab_voices: t.Sequence[str] = ("soprano", "tenor", "alto", "bass")
@@ -757,7 +758,7 @@ class PrefabApplier:
         ]
         return voices_to_decorate, voices_not_to_decorate
 
-    def _step(self) -> t.Iterator[dict[Voice, list[Note]]]:
+    def step(self) -> t.Iterator[dict[Voice, list[Note]]]:
         assert self._score_interface.validate_state()
         voices_to_decorate, voices_not_to_decorate = self._sample_voices_to_decorate()
         undecorated_voices = self._fill_in_undecorated_voices(voices_not_to_decorate)

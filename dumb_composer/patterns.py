@@ -1,6 +1,7 @@
 import logging
 import random
 import typing as t
+from abc import abstractmethod
 from enum import Enum, auto
 from fractions import Fraction
 from numbers import Number
@@ -10,13 +11,14 @@ from types import MappingProxyType
 import pandas as pd
 
 from dumb_composer.chord_spacer import SpacingConstraints
-from dumb_composer.pitch_utils.types import TimeStamp
+from dumb_composer.pitch_utils.spacings import RangeConstraints
+from dumb_composer.pitch_utils.types import Pitch, TimeStamp
 from dumb_composer.shared_classes import Allow, Note, notes, print_notes
 from dumb_composer.time import Meter, RhythmFetcher
 
 LOGGER = logging.getLogger(__name__)
 
-Pattern = str | t.Callable
+Pattern = t.Callable[..., list[Note]]
 
 
 class ExtraPitches(Enum):
@@ -34,6 +36,8 @@ def pattern_method(
     min_pitch_count: t.Optional[int] = None,
     min_pitch_count_fallback: str = "simple_chord",
     spacing_constraints: SpacingConstraints = SpacingConstraints(),
+    range_constraints: RangeConstraints = RangeConstraints(),
+    total_voice_count: int = 4,
 ):
     """
     Keyword args:
@@ -50,9 +54,76 @@ def pattern_method(
         setattr(f, "min_pitch_count", min_pitch_count)
         setattr(f, "min_pitch_count_fallback", min_pitch_count_fallback)
         setattr(f, "spacing_constraints", spacing_constraints)
+        setattr(f, "range_constraints", range_constraints)
+        setattr(f, "total_voice_count", total_voice_count)
         return f
 
     return wrap
+
+
+# TODO: (Malcolm 2023-08-08) it would probably be better to rewrite all the
+#   `patternmethod`s below as classes deriving from PatternBase as below.
+# class PatternFallBack(Exception):
+#     def __init__(self, fall_back_to: str, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.fall_back_to = fall_back_to
+
+
+# class PatternBase:
+#     requires_bass: bool = False
+#     allow_compound: Allow = Allow.YES
+#     allow_triple: Allow = Allow.YES
+#     min_dur: TimeStamp | None = None
+#     min_dur_fallback: str = "SimpleChord"
+#     min_pitch_count: t.Optional[int] = None
+#     min_pitch_count_fallback: str = "SimpleChord"
+#     spacing_constraints: SpacingConstraints = SpacingConstraints()
+
+#     @abstractmethod
+#     @staticmethod
+#     def _realize(
+#         pitches: t.Sequence[int],
+#         onset: TimeStamp,
+#         release: TimeStamp,
+#         track: int,
+#         chord_change: bool,
+#     ):
+#         raise NotImplementedError()
+
+#     @classmethod
+#     def __call__(
+#         cls,
+#         pitches: t.Sequence[Pitch],
+#         harmony_onset: TimeStamp,
+#         harmony_release: TimeStamp,
+#         onset: TimeStamp,
+#         release: TimeStamp,
+#         ts: Meter,
+#         track: int,
+#         chord_change: bool,
+#     ):
+#         if cls.min_dur is not None and (
+#             (harmony_release - harmony_onset) / ts.beat_dur < cls.min_dur
+#         ):
+#             raise PatternFallBack(cls.min_dur_fallback)
+
+#         if cls.min_pitch_count is not None and len(pitches) < cls.min_pitch_count:
+#             raise PatternFallBack(cls.min_pitch_count_fallback)
+
+
+# class SimpleChord(PatternBase):
+#     min_dur = None
+#     min_pitch_count = None
+
+#     @staticmethod
+#     def _realize(
+#         pitches: t.Sequence[int],
+#         onset: TimeStamp,
+#         release: TimeStamp,
+#         track: int,
+#         chord_change: bool,
+#     ):
+#         return [Note(pitch, onset, release, track=track) for pitch in pitches]
 
 
 class PatternMaker:
@@ -80,14 +151,14 @@ class PatternMaker:
         self._patterns = self._filter_patterns(ts, include_bass)
         self.rf = RhythmFetcher(ts)
         self._inertia = inertia
-        self._prev_pattern: t.Optional[str] = None
+        self._prev_pattern: Pattern | None = None
         self._downbeats_only = pattern_changes_on_downbeats_only
         self._memo = {}
 
     def _filter_patterns(self, ts: Meter, include_bass: bool) -> t.List[str]:
         out = []
         for pattern_name in self._all_patterns:
-            pattern_method = getattr(self, pattern_name)
+            pattern_method = self.get_pattern_method_from_name(pattern_name)
             go_on = False
             for attr, constraint in (
                 (ts.is_compound, pattern_method.allow_compound),
@@ -245,10 +316,7 @@ class PatternMaker:
         track: int,
         chord_change: bool,
     ):
-        return [
-            Note(pitch, onset, release, track=track)  # type:ignore
-            for pitch in pitches
-        ]
+        return [Note(pitch, onset, release, track=track) for pitch in pitches]
 
     @pattern_method()
     def off_beat_chords(
@@ -389,9 +457,7 @@ class PatternMaker:
         onsets = self.rf.next_n("semibeat", onset, len(pitches), release)
         out = []
         for pitch_onset, pitch in zip(onsets, pitches):
-            out.append(
-                Note(pitch, pitch_onset, release, track=track),  # type:ignore
-            )
+            out.append(Note(pitch, pitch_onset, release, track=track))
         return out
 
     def _tremolo(
@@ -417,7 +483,7 @@ class PatternMaker:
                 if onset_dict["weight"] >= bass_weight:
                     for pitch in pitches[:-1]:
                         out.append(
-                            Note(  # type:ignore
+                            Note(
                                 pitch,
                                 onset_dict["onset"],
                                 onset_dict["release"],
@@ -426,7 +492,7 @@ class PatternMaker:
                         )
                 else:
                     out.append(
-                        Note(  # type:ignore
+                        Note(
                             pitches[-1],
                             onset_dict["onset"],
                             onset_dict["release"],
@@ -437,7 +503,7 @@ class PatternMaker:
             for onset_dict in onsets:
                 if onset_dict["weight"] >= bass_weight:
                     out.append(
-                        Note(  # type:ignore
+                        Note(
                             pitches[0],
                             onset_dict["onset"],
                             onset_dict["release"],
@@ -662,21 +728,24 @@ class PatternMaker:
     def beat_1_3_5(self, *args, **kwargs):
         return self._1_3_5(2, *args, **kwargs)
 
+    def get_pattern_method_from_name(self, name: str) -> Pattern:
+        return getattr(self, name)
+
     def _get_pattern_options(
         self,
         pitches_or_pcs,
         harmony_onset,
         harmony_release,
         whitelist: t.Container | None = None,
-    ) -> t.List[t.Callable]:
+    ) -> t.List[str]:
         params = (tuple(pitches_or_pcs), harmony_onset, harmony_release)
         if params in self._memo:
             return self._memo[params]
-        patterns = []
+        patterns: list[str] = []
         for pattern_name in self._patterns:
             if whitelist is not None and pattern_name not in whitelist:
                 continue
-            pattern_method = getattr(self, pattern_name)
+            pattern_method = self.get_pattern_method_from_name(pattern_name)
             pattern_fits = True
             for constraint in (
                 lambda: (
@@ -701,7 +770,7 @@ class PatternMaker:
 
     def _call_pattern_method(
         self,
-        pattern_name,
+        pattern: Pattern,
         pitches,
         harmony_onset,
         harmony_release,
@@ -709,31 +778,33 @@ class PatternMaker:
         release,
         track,
         chord_change,
-    ):
-        pattern_method = getattr(self, pattern_name)
+    ) -> list[Note]:
+        if isinstance(pattern, str):
+            pattern = self.get_pattern_method_from_name(pattern)
+        # pattern_method = self.get_pattern_method_from_name(pattern_name)
         for constraint, fallback in (
             (
                 lambda: (
-                    pattern_method.min_dur is None
+                    pattern.min_dur is None
                     or (
                         (harmony_release - harmony_onset) / self._ts.beat_dur
-                        >= pattern_method.min_dur
+                        >= pattern.min_dur
                     )
                 ),
-                pattern_method.min_dur_fallback,
+                pattern.min_dur_fallback,
             ),
             (
                 lambda: (
-                    pattern_method.min_pitch_count is None
-                    or len(pitches) >= pattern_method.min_pitch_count
+                    pattern.min_pitch_count is None
+                    or len(pitches) >= pattern.min_pitch_count
                 ),
-                pattern_method.min_pitch_count_fallback,
+                pattern.min_pitch_count_fallback,
             ),
         ):
             if not constraint():
                 LOGGER.debug(
                     f"{self.__class__.__name__} "
-                    f"falling back from {pattern_name} to {fallback}"
+                    f"falling back from {pattern.__name__} to {fallback}"
                 )
                 return self._call_pattern_method(
                     fallback,
@@ -747,13 +818,16 @@ class PatternMaker:
                 )
         LOGGER.debug(
             f"{self.__class__.__name__}: "
-            f"{pattern_name} time:{onset}--{release} "
+            f"{pattern.__name__} time:{onset}--{release} "
             f"chord_change:{'yes' if chord_change else 'no'}"
         )
-        return pattern_method(pitches, onset, release, track, chord_change)
+        return pattern(pitches, onset, release, track, chord_change)
 
-    def get_spacing_constraints(self, pattern_name) -> SpacingConstraints:
-        pattern_method = getattr(self, pattern_name)
+    def get_spacing_constraints(self, pattern: str | Pattern) -> SpacingConstraints:
+        if isinstance(pattern, str):
+            pattern_method = self.get_pattern_method_from_name(pattern)
+        else:
+            pattern_method = pattern
         return pattern_method.spacing_constraints
 
     def get_pattern(
@@ -762,10 +836,16 @@ class PatternMaker:
         onset,
         harmony_onset,
         harmony_release,
-        pattern=None,
+        pattern: Pattern | None | str = None,
         whitelist: t.Container | None = None,
     ) -> Pattern:
         if pattern is not None:
+            if isinstance(pattern, str):
+                pattern = self.get_pattern_method_from_name(pattern)
+            # assert isinstance(pattern, Pattern)  # Exception because Pattern is subscripted
+            # just to get pyright not to complain
+            assert pattern is not None
+            assert not isinstance(pattern, str)
             self._prev_pattern = pattern
             return pattern
         try_to_keep_same_pattern = self._downbeats_only and (
@@ -780,19 +860,23 @@ class PatternMaker:
             pattern_options = self._get_pattern_options(
                 pitches_or_pcs, harmony_onset, harmony_release, whitelist=whitelist
             )
-            pattern = random.choice(pattern_options)
+            pattern_name = random.choice(pattern_options)
             self._prev_pattern = pattern  # type:ignore
             LOGGER.debug(f"{self.__class__.__name__} setting pattern {pattern}")
+            pattern = self.get_pattern_method_from_name(pattern_name)
+        # assert isinstance(pattern, Pattern) # Exception because Pattern is subscripted
+        assert pattern is not None
+        assert not isinstance(pattern, str)
         return pattern
 
     def __call__(
         self,
-        pitches,
-        onset,
-        release,
-        harmony_onset=None,
-        harmony_release=None,
-        pattern=None,
+        pitches: t.Sequence[Pitch],
+        onset: TimeStamp,
+        release: TimeStamp,
+        harmony_onset: TimeStamp | None = None,
+        harmony_release: TimeStamp | None = None,
+        pattern: Pattern | str | None = None,
         track=1,
         chord_change: bool = True,
     ) -> t.List[Note]:

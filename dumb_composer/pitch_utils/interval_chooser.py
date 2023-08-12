@@ -7,12 +7,13 @@ import typing as t
 from abc import abstractmethod
 from collections import Counter, defaultdict  # used by doctests
 from dataclasses import dataclass, field
+from statistics import fmean, harmonic_mean
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from dumb_composer.constants import TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS
-from dumb_composer.pitch_utils.types import ChromaticInterval, Weight
+from dumb_composer.pitch_utils.types import ChromaticInterval, SettingsBase, Weight
 from dumb_composer.utils.math_ import softmax
 from dumb_composer.utils.shell_plot import print_bar  # used by doctests
 
@@ -25,7 +26,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class _IntervalChooserBaseSettings:
+class _IntervalChooserBaseSettings(SettingsBase):
     weight_harmonic_intervals: bool = False
     harmonic_interval_weights: dict[ChromaticInterval, Weight] | None = field(
         default_factory=lambda: TWELVE_TET_HARMONIC_INTERVAL_WEIGHTS.copy()
@@ -39,6 +40,7 @@ class _IntervalChooserBaseSettings:
 class _IntervalChooserBase:
     def __init__(self, settings: _IntervalChooserBaseSettings):
         self._weights_memo = {}
+        self._weight_harmonic_intervals = settings.weight_harmonic_intervals
         harmonic_interval_weights = settings.harmonic_interval_weights
         if harmonic_interval_weights is None:
             self._harmonic_interval_weights = None
@@ -79,7 +81,8 @@ class _IntervalChooserBase:
         """
         filtered_weights = [w for w in weights if w is not None]
         if len(filtered_weights) > 1:
-            consolidated_weights = [math.prod(ws) for ws in zip(*filtered_weights)]
+            # consolidated_weights = [math.prod(ws) for ws in zip(*filtered_weights)]
+            consolidated_weights = [fmean(ws) for ws in zip(*filtered_weights)]
 
         else:
             consolidated_weights = filtered_weights[0]
@@ -102,9 +105,10 @@ class _IntervalChooserBase:
                 self._harmonic_interval_weights[h % 12] for h in harmonic_intervals
             ]
         else:
-            LOGGER.warning(
-                f"{harmonic_intervals=} but {self._harmonic_interval_weights=}"
-            )
+            if self._weight_harmonic_intervals:
+                LOGGER.warning(
+                    f"{harmonic_intervals=} but {self._harmonic_interval_weights=}"
+                )
             harmonic_interval_weights = None
 
         return self._make_weighted_choice(
@@ -298,7 +302,7 @@ class IntervalChooserSettings(_IntervalChooserBaseSettings):
     )
 
     # default_weight is applied to any interval not in interval_weights
-    default_weight: float = 0.01
+    default_interval_weight: float = 0.01
 
     def __post_init__(self):
         super().__post_init__()
@@ -362,7 +366,7 @@ class IntervalChooser(_IntervalChooserBase):
             settings = IntervalChooserSettings()
         super().__init__(settings)
         self._interval_weights = defaultdict(
-            lambda: settings.default_weight, settings.interval_weights
+            lambda: settings.default_interval_weight, settings.interval_weights
         )
 
     def _get_melodic_interval_weight(self, interval) -> float:

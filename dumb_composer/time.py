@@ -223,6 +223,15 @@ class Meter(TimeClass):
             self._min_weight = -100
             self._min_weight = self.weight(min_weight)
 
+    def __eq__(self, other):
+        if type(other) is type(self):
+            self_attrs = vars(self)
+            self_attrs.pop("_weight_memo")
+            other_attrs = vars(other)
+            other_attrs.pop("_weight_memo")
+            return self_attrs == other_attrs
+        return False
+
     @property
     def ts_str(self):
         return self._ts_str

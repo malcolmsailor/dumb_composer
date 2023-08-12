@@ -32,7 +32,7 @@ from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.ranges import Ranger
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
-from dumb_composer.pitch_utils.types import Pitch
+from dumb_composer.pitch_utils.types import ACCOMPANIMENTS, Pitch
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.prefab_applier import (
     PrefabApplier,
@@ -247,7 +247,7 @@ class PrefabComposer:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
         #       context manager handles popping from the list
-        for pitches in self._structural_worker._step():
+        for pitches in self._structural_worker.step():
             LOGGER.debug(f"{pitches=}")
             with recursive_attempt(
                 do_func=self._structural_append_func,
@@ -260,7 +260,7 @@ class PrefabComposer:
                     #   melody pitches
                     return self._recurse(i + 1, score)
                 else:
-                    for prefabs in self._prefab_applier._step():
+                    for prefabs in self._prefab_applier.step():
                         LOGGER.debug(f"{prefabs=}")
                         with recursive_attempt(
                             do_func=append_prefabs,
@@ -268,7 +268,7 @@ class PrefabComposer:
                             undo_func=pop_prefabs,
                             undo_args=(prefabs, score),
                         ):
-                            for pattern in self._dumb_accompanist._step(pitches):
+                            for pattern in self._dumb_accompanist.step(pitches):
                                 LOGGER.debug(f"{pattern=}")
                                 with append_attempt(
                                     self._dumb_accompanist_target,
@@ -369,6 +369,7 @@ class PrefabComposer:
         if self.settings.accompaniment_annotations is AccompAnnots.NONE:
             self._dumb_accompanist_target = score.accompaniments
         else:
+            raise NotImplementedError
             dumb_accompanist_target: t.List[t.Any] = [score.accompaniments]
             if self.settings.accompaniment_annotations in (
                 AccompAnnots.ALL,

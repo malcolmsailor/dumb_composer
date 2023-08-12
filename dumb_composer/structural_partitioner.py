@@ -7,7 +7,7 @@ from enum import Enum, auto
 from numbers import Number
 from types import MappingProxyType
 
-from dumb_composer.pitch_utils.types import TimeStamp
+from dumb_composer.pitch_utils.types import SettingsBase, TimeStamp
 from dumb_composer.shared_classes import Score, _ScoreBase
 from dumb_composer.time import Meter
 from dumb_composer.time_utils import (
@@ -23,7 +23,7 @@ class Shape(Enum):
 
 
 @dataclass
-class StructuralPartitionerSettings:
+class StructuralPartitionerSettings(SettingsBase):
     never_split_dur_in_beats: float = 1.0
     always_split_dur_in_bars: float = 2.0
 
@@ -100,7 +100,7 @@ class StructuralPartitioner:
             * self._ts.bar_dur,  # type:ignore
         )
 
-    def _step(
+    def step(
         self, chord_onset: TimeStamp, chord_release: TimeStamp
     ) -> t.Union[t.Tuple[Number, Number], t.List]:
         assert self._ts is not None
@@ -140,8 +140,8 @@ class StructuralPartitioner:
             choice = random.choices(candidates, weights=probs, k=1)[0]
             split_point = choice["onset"]
         return [
-            self._step(chord_onset, split_point),
-            self._step(split_point, chord_release),
+            self.step(chord_onset, split_point),
+            self.step(split_point, chord_release),
         ]
 
     def __call__(self, score: _ScoreBase):
@@ -170,7 +170,7 @@ class StructuralPartitioner:
             duration_to_process = max(eligible_durations)
             for chord in chords:
                 if chord.release - chord.onset == duration_to_process:
-                    splits = self._step(chord.onset, chord.release)
+                    splits = self.step(chord.onset, chord.release)
                     for start, stop in flatten_list(splits):  # type:ignore
                         new_chord = chord.copy()
                         new_chord.onset = start

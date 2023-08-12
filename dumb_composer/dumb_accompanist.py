@@ -22,6 +22,7 @@ from dumb_composer.pitch_utils.types import (
     InnerVoice,
     OuterVoice,
     Pitch,
+    SettingsBase,
     TwoPartResult,
     Voice,
 )
@@ -186,7 +187,7 @@ class DumbAccompanist:
     def _final_step(self):
         if not self.settings.end_with_solid_chord:
             raise NotImplementedError
-            return self._step()
+            return self.step()
         chord = self._score_interface.departure_chord
         assert self._score_interface.arrival_chord is None
         below = self._get_below()
@@ -223,7 +224,7 @@ class DumbAccompanist:
                 for pitch in pitches
             ]
 
-    def _step(
+    def step(
         self, current_pitches: TwoPartResult | FourPartResult | None
     ) -> t.Iterator[t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]]:
         assert self._pm is not None
@@ -293,7 +294,10 @@ class DumbAccompanist:
                     AccompAnnots.PATTERNS,
                     AccompAnnots.ALL,
                 ):
-                    annotations.append(Annotation(chord.onset, self._pm.prev_pattern))
+                    assert self._pm.prev_pattern is not None
+                    annotations.append(
+                        Annotation(chord.onset, self._pm.prev_pattern.__name__)
+                    )
                 if self.settings.accompaniment_annotations in (
                     AccompAnnots.CHORDS,
                     AccompAnnots.ALL,
@@ -338,7 +342,7 @@ class DumbAccompanist:
         # self.init_new_piece(ts)
         assert self._score_interface.empty
         while not self._score_interface.complete:
-            result = next(self._step())
+            result = next(self.step())
             if self.settings.accompaniment_annotations is not AccompAnnots.NONE:
                 raise NotImplementedError()
                 it = iter(result)

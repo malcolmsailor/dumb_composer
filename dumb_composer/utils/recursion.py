@@ -18,11 +18,12 @@ class UndoRecursiveStep(Exception):
 class DeadEnd(UndoRecursiveStep):
     def __init__(
         self,
-        msg: str,
+        msg: str = "",
         save_deadends_to: list[t.Any] | None = None,
         max_deadends_to_save: int = 100,
         **kwargs,
     ):
+        super().__init__(msg)
         if save_deadends_to is not None:
             if len(save_deadends_to) < max_deadends_to_save:
                 save_deadends_to.append(deepcopy(kwargs))
@@ -80,12 +81,12 @@ def recursive_attempt(
     # | tuple[t.Type[UndoRecursiveStep], ...] = None,
     reraise_if_not: tuple[t.Type[UndoRecursiveStep]] | None = None,
 ):
-    LOGGER.debug(f"making recursive attempt")
+    LOGGER.debug(f"making recursive attempt {do_func=} {do_args=}")
     do_func(*do_args, **do_kwargs)
     try:
         yield
     except UndoRecursiveStep as exc:
-        LOGGER.debug(f"undoing recursive attempt")
+        LOGGER.debug(f"undoing recursive attempt {undo_func=} {undo_args=}")
         LOGGER.debug(f"{exc.__class__.__name__}: {str(exc)}")
         undo_func(*undo_args, **undo_kwargs)
         # if reraise is not None and isinstance(exc, reraise):

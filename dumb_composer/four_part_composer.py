@@ -506,7 +506,9 @@ class FourPartWorker(TwoPartContrapuntist):
                         yield _result_from_voicing(voicing, suspension_combo)
 
                 self._score.undo_suspensions(
-                    suspension_combo, annotate=self.settings.annotate_suspensions
+                    suspension_release=release_time,
+                    suspension_combo=suspension_combo,
+                    annotate=self.settings.annotate_suspensions,
                 )
             else:
                 # Apply no suspension
@@ -604,7 +606,7 @@ class FourPartWorker(TwoPartContrapuntist):
         yield from self._voice_lead_chords(melody_pitch, bass_pitch)
         LOGGER.debug("no more inner voices")
 
-    def _step(self) -> t.Iterator[FourPartResult]:
+    def step(self) -> t.Iterator[FourPartResult]:
         assert self._score.validate_state()
         if self.settings.do_first is OuterVoice.BASS:
             for bass_pitch in self._bass_step():
@@ -646,7 +648,7 @@ class FourPartWorker(TwoPartContrapuntist):
             LOGGER.debug(f"{self.__class__.__name__}._recurse: final step")
             return
 
-        for pitches in self._step():
+        for pitches in self.step():
             # TODO: (Malcolm 2023-08-01) update to undo suspensions
             with append_attempt(
                 (

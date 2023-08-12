@@ -65,7 +65,7 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     # If a bool and True, the only allowed suspension is by semitone.
     allow_upward_suspensions_melody: t.Union[bool, t.Tuple[int]] = False
     allow_upward_suspensions_bass: t.Union[bool, t.Tuple[int]] = False
-    annotate_suspensions: bool = False  # TODO: (Malcolm 2023-07-25) restore
+    annotate_suspensions: bool = True
     # when choosing whether to insert a suspension, we put the "score" of each
     #   suspension (so far, by default 1.0) into a softmax together with the
     #   following "no_suspension_score".
@@ -122,7 +122,6 @@ class TwoPartContrapuntist:
         #   out of date
         self._interval_chooser = IntervalChooser(settings)
         self._lingering_tendencies: t.List[t.Dict[Pitch, Weight]] = []
-        self._split_chords: t.List[int] = []
 
         if not self.settings.allow_upward_suspensions_melody:
             self._upward_suspension_resolutions_melody = ()
@@ -610,15 +609,17 @@ class TwoPartContrapuntist:
         dont_double_bass_pc = foot_tendency is not Tendency.NONE
 
         # "no suspension" is understood as `suspension is None`
-        for suspension in self._choose_suspension(
+        for suspension_args in self._choose_suspension(
             suspension_chord_pcs_to_avoid={self._score.current_foot_pc}
             if dont_double_bass_pc
             else set()
         ):
             self._lingering_tendencies.append({})
-            if suspension is not None:
+            if suspension_args is not None:
+                suspension, release = suspension_args
                 yield self._score.apply_suspension(
-                    *suspension,
+                    suspension=suspension,
+                    suspension_release=release,
                     voice=OuterVoice.MELODY,
                     annotate=self.settings.annotate_suspensions,
                 )
@@ -627,6 +628,7 @@ class TwoPartContrapuntist:
                 #   undo the suspension.
                 self._score.undo_suspension(
                     voice=OuterVoice.MELODY,
+                    suspension_release=release,
                     annotate=self.settings.annotate_suspensions,
                 )
             else:
@@ -704,10 +706,12 @@ class TwoPartContrapuntist:
                 is not Tendency.NONE
             )
 
-        for suspension in self._choose_suspension_bass():
-            if suspension is not None:
+        for suspension_args in self._choose_suspension_bass():
+            if suspension_args is not None:
+                suspension, release = suspension_args
                 yield self._score.apply_suspension(
-                    *suspension,
+                    suspension=suspension,
+                    suspension_release=release,
                     voice=OuterVoice.BASS,
                     annotate=self.settings.annotate_suspensions,
                 )
@@ -716,6 +720,7 @@ class TwoPartContrapuntist:
                 #   fail.
                 self._score.undo_suspension(
                     voice=OuterVoice.BASS,
+                    suspension_release=release,
                     annotate=self.settings.annotate_suspensions,
                 )
             else:
@@ -824,7 +829,7 @@ class TwoPartContrapuntist:
                 LOGGER.debug(f"{self.__class__.__name__} yielding bass {pitch=}")
                 yield pitch
 
-    def _step(self) -> t.Iterator[TwoPartResult]:
+    def step(self) -> t.Iterator[TwoPartResult]:
         assert self._score.validate_state()
         if self.settings.do_first is OuterVoice.BASS:
             for bass_pitch in self._bass_step():
@@ -843,7 +848,7 @@ class TwoPartContrapuntist:
     def __call__(self):
         assert self._score.empty
         while not self._score.complete:
-            pitches = next(self._step())
+            pitches = next(self.step())
             # TODO: (Malcolm 2023-08-04) better variable names
             self._score._score.structural_soprano.append(pitches["melody"])
             self._score._score.structural_bass.append(pitches["bass"])

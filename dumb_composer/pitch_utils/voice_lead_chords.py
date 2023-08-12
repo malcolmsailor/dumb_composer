@@ -21,12 +21,59 @@ from dumb_composer.pitch_utils.parts import (
     outer_voices_have_forbidden_antiparallels,
     succession_has_forbidden_parallels,
 )
+from dumb_composer.pitch_utils.pcs import PitchClass
 from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spacing
 from dumb_composer.pitch_utils.types import Pitch
 from dumb_composer.suspensions import Suspension
 from dumb_composer.utils.recursion import UndoRecursiveStep
 
 LOGGER = logging.getLogger(__name__)
+
+
+def unresolved_tendency_tone(
+    pitch: Pitch,
+    pitch_tendency: Tendency,
+    resolution_pc: PitchClass,
+    chord2: Chord,
+    chord2_suspension_resolution_pcs: t.Container[PitchClass],
+    chord2_melody_pitch: Pitch | None,
+) -> bool:
+    if (chord2_melody_pitch is not None) and (
+        (
+            # Avoid resolving tendency tones to tendency tones already
+            # in the melody
+            tendency_tone_already_in_melody := (
+                (chord2_melody_pitch % 12 == resolution_pc)
+                and (
+                    (
+                        chord2_melody_tendency := chord2.get_pitch_tendency(
+                            chord2_melody_pitch
+                        )
+                    )
+                    is not Tendency.NONE
+                )
+            )
+        )
+        or (
+            # Avoid moving to pitch-classes that are presently delayed
+            # by suspensions
+            pitch_class_has_suspension := (
+                resolution_pc in chord2_suspension_resolution_pcs
+            )
+        )
+    ):
+        if tendency_tone_already_in_melody:
+            LOGGER.debug(
+                f"Can't resolve {pitch=} with {pitch_tendency=} because "
+                f"{chord2_melody_pitch=} w/ {chord2_melody_tendency=}"  # type:ignore
+            )
+        elif pitch_class_has_suspension:  # type:ignore
+            LOGGER.debug(
+                f"Can't resolve {pitch=} with {pitch_tendency=} because "
+                f"of suspension that will resolve to this pitch-class"
+            )
+        return True
+    return False
 
 
 def voice_lead_chords(
@@ -52,6 +99,7 @@ def voice_lead_chords(
     # TODO: (Malcolm 2023-07-22) document
     normalize_voice_assignments: bool = True,
     allow_unresolved_tendencies: bool = False,
+    allow_doubled_tendencies: bool = True,
 ) -> t.Iterator[t.Tuple[Pitch]]:
     """Voice-lead, taking account of tendency tones, etc.
 
@@ -293,6 +341,20 @@ def voice_lead_chords(
     ... )
     >>> next(vl_iter), next(vl_iter), next(vl_iter)
     ((55, 55, 59, 64), (43, 55, 59, 64), (55, 55, 55, 64))
+
+    # TODO: (Malcolm 2023-08-11)
+    # Unprepared suspension which is tendency tone in another voice:
+    # >>> suspension = Suspension(
+    # ...     pitch=65, resolves_by=-1, dissonant=True, interval_above_bass=5
+    # ... )
+    # >>> vl_iter = voice_lead_chords(
+    # ...     V43,
+    # ...     I,
+    # ...     (50, 65, 67),
+    # ...     chord2_melody_pitch=65,
+    # ...     chord2_suspensions={65: suspension},
+    # ... )
+    # >>> next(vl_iter), next(vl_iter), next(vl_iter)
 
 
     Suspension overlapping with melody voice:
@@ -651,7 +713,9 @@ def voice_lead_chords(
     for p in chord2_suspension_pitches_doubled_in_chord1:
         chord2_suspension_pitches_doubled_in_chord1[p] -= 1
 
-    tendency_pcs = set()  # for keeping track of doubled tendency-tones
+    # tendency_pcs = set()  # for keeping track of doubled tendency-tones
+    tendency_pcs: dict[PitchClass, Pitch] = {}
+
     for i, pitch in enumerate(
         chord1_pitches[: (None if chord2_melody_pitch is None else -1)]
     ):
@@ -680,64 +744,47 @@ def voice_lead_chords(
 
             pc = pitch % 12
 
+            # If the pitch needs to resolve, find the resolution
             if resolution is not None:
-                if i != 0 and (
+                # If pitch is not in bass and pitch is not suspended in chord2
+                if (i != 0) and (
                     pitch not in chord2_suspensions
                     or chord2_suspension_pitches_doubled_in_chord1[pitch]
                 ):
                     resolution_pc = resolution.to % 12
-                    if (chord2_melody_pitch is not None) and (
-                        (
-                            # Avoid resolving tendency tones to tendency tones already in the melody
-                            tendency_tone_already_in_melody := (
-                                (chord2_melody_pitch % 12 == resolution_pc)
-                                and (
-                                    (
-                                        chord2_melody_tendency := chord2.get_pitch_tendency(
-                                            chord2_melody_pitch
-                                        )
-                                    )
-                                    is not Tendency.NONE
-                                )
-                            )
-                        )
-                        or (
-                            # Avoid moving to pitch-classes that are presently delayed by suspensions
-                            pitch_class_has_suspension := (
-                                resolution_pc in chord2_suspension_resolution_pcs
-                            )
-                        )
+
+                    # Check for unresolved tendency tones
+                    if unresolved_tendency_tone(
+                        pitch,
+                        pitch_tendency,
+                        resolution_pc,
+                        chord2,
+                        chord2_suspension_resolution_pcs,
+                        chord2_melody_pitch,
                     ):
-                        if tendency_tone_already_in_melody:
-                            LOGGER.debug(
-                                f"Can't resolve {pitch=} with {pitch_tendency=} because "
-                                f"{chord2_melody_pitch=} w/ {chord2_melody_tendency=}"  # type:ignore
-                            )
-                        else:
-                            LOGGER.debug(
-                                f"Can't resolve {pitch=} with {pitch_tendency=} because "
-                                f"of suspension that will resolve to this pitch-class"
-                            )
                         if not allow_unresolved_tendencies:
                             return
                         unresolved_tendencies.append(pitch)
                     else:
                         if pc in tendency_pcs:
-                            # doubled tendency tone handling. We hope not to see these, but we need to handle
-                            # them if we do. For now, arbitrarily, we only include the last doubling
-                            # of each tendency tone.
-                            resolution_pitches = [
-                                p for p in resolution_pitches if p % 12 != resolution_pc
-                            ]
+                            if not allow_doubled_tendencies:
+                                return
 
-                        # we don't include the bass among the resolution pitches because it
-                        # is always already included
+                            # doubled tendency tone handling. We hope not to see these,
+                            # but we need to handle them if we do. For now, arbitrarily,
+                            # we only include the last doubling of each tendency tone,
+                            # by moving any prior instances to `unresolved_tendencies`
+                            unresolved_tendencies.append(tendency_pcs[pc])
+
+                        # we don't include the bass among the resolution pitches because
+                        # it is always already included
                         resolution_pitches.append(resolution.to)
                 else:
                     # I'm a little bit confused by the control flow here but it seems to give the
                     # correct results.
                     # TODO: (Malcolm 2023-07-20) review
                     pass
+
             else:
                 if pc in tendency_pcs:
                     # doubled tendency tone handling. We hope not to see these, but we need to handle
@@ -747,10 +794,12 @@ def voice_lead_chords(
                         p for p in unresolved_tendencies if p % 12 != pc
                     ]
                 unresolved_tendencies.append(pitch)
-            tendency_pcs.add(pc)
+
+            tendency_pcs[pc] = pitch
 
         # ------------------------------------------------------------------------------
-        # Case 1 pitch is not suspension and has no tendency
+        # Case 3 pitch is not suspension and either has no tendency, or has a tendency
+        #   that can't be resolved on the next chord
         # ------------------------------------------------------------------------------
         else:
             if i != 0 and (
@@ -856,6 +905,9 @@ def voice_lead_chords(
         for option in chord2_options
     ]
 
+    # if not len(pitches_to_voice_lead_from) == len(pcs_to_voice_lead_to[0]):
+    #     breakpoint()
+
     try:
         for (
             candidate_pitches,
@@ -892,4 +944,4 @@ def voice_lead_chords(
                 continue
             yield output
     except CardinalityDiffersTooMuch as exc:
-        raise ValueError
+        raise ValueError from exc

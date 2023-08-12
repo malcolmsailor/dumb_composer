@@ -2,10 +2,18 @@ import itertools as it
 import random
 import typing as t
 from collections import Counter  # used by doctest
+from fractions import Fraction
+from numbers import Rational
 
 import numpy as np
 
 T = t.TypeVar("T")
+
+N = t.TypeVar("N", float, Fraction)
+
+
+def harmonic_mean(a: N, b: N) -> N:
+    return 2 * (a * b) / (a + b)
 
 
 def set_seeds(seed: int):

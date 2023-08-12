@@ -7,6 +7,10 @@ from dumb_composer.utils.math_ import softmax
 T = TypeVar("T")
 
 
+def unique_items_in_order(items: Iterable[T]) -> list[T]:
+    return list(dict.fromkeys(items))
+
+
 def _flatten_iterables_sub(x: Any | Iterable[Any]) -> list[Any]:
     if isinstance(x, Iterable):
         out = []
@@ -119,3 +123,22 @@ def yield_sample_from_sequence_of_iters(
         except StopIteration:
             iter_list.pop(choice_i)
             weights.pop(choice_i)
+
+
+def slice_into_sublists(lst: list[T]) -> Iterator[list[T]]:
+    """
+    >>> list(slice_into_sublists([1, 2, 3]))  # doctest: +NORMALIZE_WHITESPACE
+    [[[1], [2], [3]],
+     [[1], [2, 3]],
+     [[1, 2], [3]],
+     [[1, 2, 3]]]
+    """
+    for doslice in itertools.product([True, False], repeat=len(lst) - 1):
+        slices = []
+        start = 0
+        for i, slicehere in enumerate(doslice, 1):
+            if slicehere:
+                slices.append(lst[start:i])
+                start = i
+        slices.append(lst[start:])
+        yield slices

@@ -33,7 +33,7 @@ def test_avoid_doubling_tendency_tones(rntxt, structural_soprano_pitches, do_fir
         tpc._score._score.structural_bass.append(tpc._score._score.chords[0].foot + 24)
         tpc._score._score.structural_soprano.append(melody_pitch)
         try:
-            for pitches in tpc._step():
+            for pitches in tpc.step():
                 assert pitches["melody"] % 12 != pitches["bass"] % 12
         except DeadEnd:
             pass

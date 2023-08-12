@@ -111,3 +111,21 @@ Tremolos:
 - including bass/melody
     - could be in 3 real parts
     - or 4 real parts with possible doublings, with multiple notes in one or the other leg of the tremolo
+
+
+# suspensions
+
+Suspensions to avoid:
+
+General:
+- 6/4 to 6/3
+
+Bass:
+7-8
+
+Inner voices:
+6-5 unless there is a 4-3 or something elsewhere
+4-3 when 3 is already in melody or other voice
+Maybe: 
+- certain pitches on diminished 7th chords
+- 9-8 on a change of harmony?

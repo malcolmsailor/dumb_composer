@@ -22,6 +22,7 @@ from dumb_composer.constants import (
 )
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
 from dumb_composer.pitch_utils.spacings import SpacingConstraints, validate_spacing
+from dumb_composer.pitch_utils.types import SettingsBase
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.shared_classes import Allow
 from dumb_composer.utils.attr_compiler import attr_compiler
@@ -352,7 +353,7 @@ def spacing_method(f):
 
 
 @dataclass
-class SimpleSpacerSettings:
+class SimpleSpacerSettings(SettingsBase):
     bass_range: t.Tuple[int, int] = (33, 53)
     accomp_range: t.Tuple[int, int] = None  # type:ignore
 

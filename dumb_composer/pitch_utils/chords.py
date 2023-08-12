@@ -325,6 +325,25 @@ class Chord:
     def non_foot_pcs(self):
         return self.pcs[1:]
 
+    @cached_property
+    def root_position_pcs(self) -> tuple[PitchClass]:
+        """
+        >>> rntxt = "m1 C: I b3 I6"
+        >>> I, I6 = get_chords_from_rntxt(rntxt)
+        >>> I.root_position_pcs
+        (0, 4, 7)
+        >>> I6.root_position_pcs
+        (0, 4, 7)
+        """
+        return tuple(
+            self.pcs[self.chord_factor_to_bass_factor[i]]
+            for i in range(self.cardinality)
+        )
+
+    @property
+    def in_root_position(self):
+        return self.inversion == 0
+
     @property
     def scalar_intervals_including_bass(self) -> t.Tuple[ScalarInterval, ...]:
         return (0,) + self.scalar_intervals_above_bass
@@ -462,6 +481,23 @@ class Chord:
         """
         return self._pc_to_chord_factor[pitch % 12]
 
+    def chord_factor_to_pc(self, chord_factor: ChordFactor) -> PitchClass:
+        """
+        >>> rntxt = "m1 C: I b2 I6 b3 V43"
+        >>> I, I6, V43 = get_chords_from_rntxt(rntxt)
+        >>> I.chord_factor_to_pc(Root)
+        0
+        >>> I6.chord_factor_to_pc(Root)
+        0
+        >>> V43.chord_factor_to_pc(Seventh)
+        5
+
+        >>> I6.chord_factor_to_pc(Seventh)
+        Traceback (most recent call last):
+        IndexError: tuple index out of range
+        """
+        return self.root_position_pcs[chord_factor]
+
     def pitch_to_bass_factor(self, pitch: PitchOrPitchClass) -> BassFactor:
         """
         >>> rntxt = "m1 C: I b3 I6"
@@ -472,6 +508,24 @@ class Chord:
         2
         """
         return self._pc_to_bass_factor[pitch % 12]
+
+    def pitch_is_chord_factor(
+        self, pitch: PitchOrPitchClass, chord_factor: ChordFactor
+    ) -> bool:
+        """
+        >>> rntxt = "m1 C: I"
+        >>> (I,) = get_chords_from_rntxt(rntxt)
+        >>> I.pitch_is_chord_factor(60, Root)
+        True
+        >>> I.pitch_is_chord_factor(64, Root)
+        False
+        >>> I.pitch_is_chord_factor(65, Root)
+        False
+        """
+        try:
+            return self.pitch_to_chord_factor(pitch) == chord_factor
+        except KeyError:
+            return False
 
     @property
     def is_consonant(self) -> bool:
@@ -1664,6 +1718,7 @@ def get_chords_from_rntxt(
 # doctests in cached_property methods are not discovered and need to be
 #   added explicitly to __test__; see https://stackoverflow.com/a/72500890/10155119
 __test__ = {
+    "Chord.root_position_pcs": Chord.root_position_pcs,
     "Chord.scalar_intervals_above_bass": Chord.scalar_intervals_above_bass,
     "Chord.chromatic_intervals_above_bass": Chord.chromatic_intervals_above_bass,
     "Chord.augmented_second_adjustments": Chord.augmented_second_adjustments,

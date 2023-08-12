@@ -1,10 +1,12 @@
 import logging
 import random
 import typing as t
+from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain, product, repeat
 from statistics import mean
 
+from dumb_composer.pitch_utils.aliases import Third
 from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
@@ -33,7 +35,7 @@ from dumb_composer.pitch_utils.types import (
     VoicePair,
 )
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
-from dumb_composer.shared_classes import ScoreInterface, _ScoreBase
+from dumb_composer.shared_classes import FourPartScore, ScoreInterface, _ScoreBase
 from dumb_composer.suspensions import (
     Suspension,
     SuspensionCombo,
@@ -45,7 +47,12 @@ from dumb_composer.suspensions import (
 )
 from dumb_composer.utils.display import Spinner
 from dumb_composer.utils.math_ import softmax, weighted_sample_wo_replacement
-from dumb_composer.utils.recursion import StructuralDeadEnd, recursive_attempt
+from dumb_composer.utils.recursion import (
+    DeadEnd,
+    StructuralDeadEnd,
+    UndoRecursiveStep,
+    recursive_attempt,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +69,8 @@ class IncrementalContrapuntistSettings(IntervalChooserSettings):
     max_interval: int = 12
     max_suspension_weight_diff: int = 1
     max_suspension_dur: t.Union[TimeStamp, str] = "bar"
-    annotate_suspensions: bool = False  # TODO: (Malcolm 2023-07-25) restore
+    annotate_suspensions: bool = False  # TODO: (Malcolm 2023-08-12) restore
+    annotate_chords: bool = True
     allow_steps_outside_of_range: bool = True
     # when choosing whether to insert a suspension, we put the "score" of each
     #   suspension (so far, by default 1.0) into a softmax together with the
@@ -72,6 +80,7 @@ class IncrementalContrapuntistSettings(IntervalChooserSettings):
     #   will become zero after the softmax) or even float("-inf").
     no_suspension_score: float = 2.0
     allow_avoid_intervals: bool = False
+    allow_direct_intervals: bool = False
     weight_harmonic_intervals: bool = True
 
     inner_voice_suspensions_dont_cross_melody: bool = True
@@ -116,11 +125,16 @@ class IncrementalContrapuntist:
         self._validate_voices(self._prior_voices + self._voices)
 
         # TODO: (Malcolm 2023-08-08) is this a robust way of setting get_i?
-        get_i = lambda score: len(score._structural[voices[0]])
+        voice_to_monitor = voices[0]
+        if voice_to_monitor is TENOR_AND_ALTO:
+            voice_to_monitor = TENOR
+        get_i = lambda score: len(score._structural[voice_to_monitor])
 
         self._score = ScoreInterface(
             score, get_i=get_i, validate=_validate(self._prior_voices + self._voices)
         )
+        if self.settings.annotate_chords:
+            self._score.annotate_chords()
 
     # ==================================================================================
     # Utilities
@@ -151,6 +165,12 @@ class IncrementalContrapuntist:
                     - self.settings.spacing_constraints.min_total_interval,
                 )
 
+            # We also need to avoid crossing over any suspension resolutions
+            current_resolutions = self._score.all_current_resolutions()
+            for other_voice, other_pitch in current_resolutions.items():
+                if other_voice is not BASS and other_pitch is not None:
+                    max_pitch = min(max_pitch, other_pitch)
+
         elif voice is MELODY:
             min_pitch = self.settings.range_constraints.min_melody_pitch
             max_pitch = self.settings.range_constraints.max_melody_pitch
@@ -166,6 +186,12 @@ class IncrementalContrapuntist:
                     + self.settings.spacing_constraints.max_total_interval,
                 )
 
+            # We also need to avoid crossing over any suspension resolutions
+            current_resolutions = self._score.all_current_resolutions()
+            for other_voice, other_pitch in current_resolutions.items():
+                if other_voice is not MELODY and other_pitch is not None:
+                    min_pitch = max(min_pitch, other_pitch)
+
         else:
             raise ValueError()
 
@@ -176,7 +202,7 @@ class IncrementalContrapuntist:
     # ==================================================================================
 
     def _get_melody_tendency(
-        self, intervals: t.List[int], bass_has_tendency: bool
+        self, intervals: t.List[int], dont_double_foot: bool
     ) -> t.Iterable[int]:
         tendency = self._score.prev_chord.get_pitch_tendency(
             self._score.prev_pitch(MELODY)
@@ -193,7 +219,7 @@ class IncrementalContrapuntist:
         for step in steps:
             if step in intervals:
                 candidate_pitch = self._score.prev_pitch(MELODY) + step
-                if bass_has_tendency and (
+                if dont_double_foot and (
                     candidate_pitch % 12 == self._score.current_foot_pc
                 ):
                     return
@@ -310,6 +336,8 @@ class IncrementalContrapuntist:
         # -------------------------------------------------------------------------------
         # Try direct intervals
         # -------------------------------------------------------------------------------
+        if not self.settings.allow_direct_intervals:
+            return
         while direct_intervals:
             interval_i = self._interval_chooser.get_interval_indices(
                 direct_intervals, direct_harmonic_intervals, n=1
@@ -329,6 +357,8 @@ class IncrementalContrapuntist:
             max_suspension_dur=self.settings.max_suspension_dur,
             include_stop=self._score.next_chord is not None,
         )
+        # if any(t > self._score.current_chord.release for t in release_times):
+        #     breakpoint()
         if not release_times:
             yield None
             return
@@ -440,20 +470,34 @@ class IncrementalContrapuntist:
         )
 
     def _get_melody_pitch(self, current_bass_pitch: Pitch | None) -> t.Iterator[Pitch]:
-        foot_tendency = self._score.current_chord.get_pitch_tendency(
-            self._score.current_foot_pc
+        # We don't want to double the foot pc in the following cases:
+        #   1. If it is a tendency tone
+        #   2. If there is a suspension in the bass (in this case the foot pc is the
+        #       resolution, not the suspension) and the foot is not the root
+        foot_has_tendency = (
+            self._score.current_chord.get_pitch_tendency(self._score.current_foot_pc)
+            is not Tendency.NONE
         )
-        dont_double_bass_pc = foot_tendency is not Tendency.NONE
+
+        bass_suspension_to_non_root = (
+            self._score.current_is_suspension(BASS)
+            and not self._score.current_chord.in_root_position
+        )
+
+        dont_double_foot_pc = foot_has_tendency or bass_suspension_to_non_root
 
         # "no suspension" is understood as `suspension is None`
-        for suspension in self._choose_melody_suspension(
+        for suspension_args in self._choose_melody_suspension(
             suspension_chord_pcs_to_avoid={self._score.current_foot_pc}
-            if dont_double_bass_pc
+            if dont_double_foot_pc
             else set()
         ):
-            if suspension is not None:
+            if suspension_args is not None:
+                suspension, release = suspension_args
+                lengths = [len(v) for v in self._score._score._structural.values()]
                 yield self._score.apply_suspension(
-                    *suspension,
+                    suspension=suspension,
+                    suspension_release=release,
                     voice=MELODY,
                     annotate=self.settings.annotate_suspensions,
                 )
@@ -462,8 +506,12 @@ class IncrementalContrapuntist:
                 #   undo the suspension.
                 self._score.undo_suspension(
                     voice=MELODY,
+                    suspension_release=release,
                     annotate=self.settings.annotate_suspensions,
                 )
+                # TODO: (Malcolm 2023-08-09) remove
+                lengths2 = [len(v) for v in self._score._score._structural.values()]
+                assert lengths == lengths2
             else:
                 # no suspension (suspension is None)
 
@@ -500,7 +548,7 @@ class IncrementalContrapuntist:
 
                 # First, try to proceed according to the tendency of the previous
                 # pitch
-                for pitch in self._get_melody_tendency(intervals, dont_double_bass_pc):
+                for pitch in self._get_melody_tendency(intervals, dont_double_foot_pc):
                     # self._get_tendency removes intervals
                     LOGGER.debug(
                         f"{self.__class__.__name__} using tendency resolution pitch {pitch}"
@@ -521,13 +569,15 @@ class IncrementalContrapuntist:
                     prev_bass_pitch,
                     current_bass_pitch,
                     self._score.prev_pitch(MELODY),
-                    dont_double_bass_pc,
+                    dont_double_foot_pc,
                     intervals,
                     voice_to_choose_for=MELODY,
                     notional_other_pc=self._score.current_foot_pc,
                 )
 
     def _melody_step(self, bass_pitch: Pitch | None) -> t.Iterator[Pitch]:
+        # TODO: (Malcolm 2023-08-12) if there is a suspension in bass, only allow
+        #   doubling the resolution pc in the melody if it is the root of the chord
         if bass_pitch is None:
             # If there is no bass pitch in progress, we check if bass pitch
             #   has already been saved to the score
@@ -543,15 +593,24 @@ class IncrementalContrapuntist:
                     f"{self.__class__.__name__} yielding first melody pitch {pitch}"
                 )
                 yield pitch
+            return
 
         # -------------------------------------------------------------------------------
-        # Condition 2: there is an ongoing suspension to resolve
+        # Condition 2: there is an ongoing suspension, to resolve or continue
         # -------------------------------------------------------------------------------
-        elif (pitch := self._score.current_resolution(MELODY)) is not None:
+
+        ongoing_suspension = self._score.current_suspension(MELODY)
+
+        if (pitch := self._score.current_resolution(MELODY)) is not None:
+            # Suspension resolution
+            assert not ongoing_suspension
             LOGGER.debug(
                 f"{self.__class__.__name__} yielding melody suspension resolution pitch {pitch}"
             )
             yield pitch
+
+        elif ongoing_suspension:
+            yield ongoing_suspension.pitch
 
         # -------------------------------------------------------------------------------
         # Condition 3: choose a note freely
@@ -696,10 +755,13 @@ class IncrementalContrapuntist:
                 is not Tendency.NONE
             )
 
-        for suspension in self._choose_suspension_bass():
-            if suspension is not None:
+        for suspension_args in self._choose_suspension_bass():
+            if suspension_args is not None:
+                suspension, release = suspension_args
+                lengths = [len(v) for v in self._score._score._structural.values()]
                 yield self._score.apply_suspension(
-                    *suspension,
+                    suspension=suspension,
+                    suspension_release=release,
                     voice=BASS,
                     annotate=self.settings.annotate_suspensions,
                 )
@@ -708,8 +770,12 @@ class IncrementalContrapuntist:
                 #   fail.
                 self._score.undo_suspension(
                     voice=BASS,
+                    suspension_release=release,
                     annotate=self.settings.annotate_suspensions,
                 )
+                # TODO: (Malcolm 2023-08-09) remove
+                lengths2 = [len(v) for v in self._score._score._structural.values()]
+                assert lengths == lengths2
             else:
                 # no suspension (suspension is None)
 
@@ -764,7 +830,7 @@ class IncrementalContrapuntist:
 
     def _bass_step(self, melody_pitch: Pitch | None = None) -> t.Iterator[Pitch]:
         if melody_pitch is None:
-            # If there is no bass pitch in progress, we check if bass pitch
+            # If there is no melody pitch in progress, we check if melody pitch
             #   has already been saved to the score
             melody_pitch = self._score.current_pitch(MELODY)
         # -------------------------------------------------------------------------------
@@ -776,16 +842,23 @@ class IncrementalContrapuntist:
                     f"{self.__class__.__name__} yielding first bass pitch {pitch}"
                 )
                 yield pitch
+                return
 
         # -------------------------------------------------------------------------------
-        # Condition 2: there is an ongoing suspension to resolve
+        # Condition 2: there is an ongoing suspension, to resolve or continue
         # -------------------------------------------------------------------------------
 
-        elif (pitch := self._score.current_resolution(BASS)) is not None:
+        ongoing_suspension = self._score.current_suspension(BASS)
+
+        if (pitch := self._score.current_resolution(BASS)) is not None:
+            assert not ongoing_suspension
             LOGGER.debug(
                 f"{self.__class__.__name__} yielding bass suspension resolution pitch {pitch}"
             )
             yield pitch
+
+        elif ongoing_suspension:
+            yield ongoing_suspension.pitch
 
         # -------------------------------------------------------------------------------
         # Condition 3: choose a note freely
@@ -884,6 +957,20 @@ class IncrementalContrapuntist:
         free_inner_voices: t.Sequence[InnerVoice],
     ) -> t.Iterator[None | tuple[SuspensionCombo, TimeStamp]]:
         assert free_inner_voices
+
+        # If bass pitch is above either of the previous inner voice pitches, we don't
+        # want to create a suspension (because the voices would cross in an undesirable
+        # way).
+        # TODO: (Malcolm 2023-08-12) should it be same for melody?
+        temp = []
+        for voice in free_inner_voices:
+            if self._score.prev_pitch(voice) > bass_pitch:
+                temp.append(voice)
+        free_inner_voices = temp
+        if not free_inner_voices:
+            yield None
+            return
+
         release_times = find_suspension_release_times(
             self._score.current_chord.onset,
             self._score.current_chord.release,
@@ -913,6 +1000,18 @@ class IncrementalContrapuntist:
             )
             | self._score.current_resolution_pcs()
         )
+
+        # Avoid suspensions to the third when the third is in the melody
+        # TODO: (Malcolm 2023-08-12) I think there may be other similar cases, like
+        #   - avoiding suspensions to 5th or root? (maybe we just want to avoid all 9-8
+        #       or 7-8 where bass is not involved?)
+        # Also, this doesn't account for the case where the forbidden suspensions are
+        #   between the inner voices.
+        if (
+            self._score.current_chord.in_root_position
+            and self._score.current_chord.pitch_is_chord_factor(melody_pitch, Third)
+        ):
+            suspension_chord_pcs_to_avoid.add(melody_pitch % 12)
 
         # -------------------------------------------------------------------------------
         # Step 1. Find suspensions that resolve on next chord
@@ -1087,10 +1186,20 @@ class IncrementalContrapuntist:
             # melody in the first place.
             return
 
-        # TODO: (Malcolm 2023-08-04) if we call this function current_resolution()
-        #   should not be None. Remove this comment eventually.
+        # if we call this function current_resolution()
+        #   should not be None.
         out = self._score.current_resolution(voice)
         assert out is not None
+
+        # Another condition that leads to bugs is if the resolution pitch is higher
+        # than the melody pitch. We try not to generate such melody
+        # pitches in the first place by checking for resolutions in
+        # _get_outervoice_boundary_pitches, but to be safe we also enforce the condition
+        # here.
+
+        if melody_pitch < out:
+            return
+
         return out
 
     def _voice_lead_chords(
@@ -1120,11 +1229,14 @@ class IncrementalContrapuntist:
             free_inner_voices.remove(ALTO)
 
         if not free_inner_voices:
-            yield tuple(
+            item = tuple(
                 p
                 for p in (tenor_resolution_pitch, alto_resolution_pitch)
                 if p is not None
             )
+            if voice_or_voices is TENOR_AND_ALTO and len(item) < 2:
+                raise ValueError
+            yield item
             return
 
         # ------------------------------------------------------------------------------
@@ -1180,8 +1292,8 @@ class IncrementalContrapuntist:
                 else:
                     return (other_pitch, suspension.pitch)
 
-            # if not pitch_pair:
-            #     breakpoint()
+            if voice_or_voices is TENOR_AND_ALTO and len(pitch_pair) < 2:
+                breakpoint()
 
             return pitch_pair
 
@@ -1192,18 +1304,41 @@ class IncrementalContrapuntist:
                 # Apply suspensions
                 # -----------------
                 suspension_combo, release_time = suspensions
+                lengths = [len(v) for v in self._score._score._structural.values()]
                 self._score.apply_suspensions(
                     suspension_combo,
                     release_time,
                     annotate=self.settings.annotate_suspensions,
                 )
+
                 if len(suspension_combo) == len(free_inner_voices):
+                    # If both alto and tenor have resolution pitches we should have
+                    #   returned earlier.
                     assert not alto_resolution_pitch or not tenor_resolution_pitch
-                    yield tuple(
-                        suspension_combo[voice].pitch
-                        for voice in (TENOR, ALTO)
-                        if voice in suspension_combo
-                    )
+
+                    if voice_or_voices in (TENOR, TENOR_AND_ALTO):
+                        if TENOR in suspension_combo:
+                            tenor_pitch = suspension_combo[TENOR].pitch
+                        else:
+                            assert tenor_resolution_pitch is not None
+                            tenor_pitch = tenor_resolution_pitch
+
+                    if voice_or_voices in (ALTO, TENOR_AND_ALTO):
+                        if ALTO in suspension_combo:
+                            alto_pitch = suspension_combo[ALTO].pitch
+                        else:
+                            assert alto_resolution_pitch is not None
+                            alto_pitch = alto_resolution_pitch
+
+                    if voice_or_voices is TENOR_AND_ALTO:
+                        item = (tenor_pitch, alto_pitch)  # type:ignore
+                    elif voice_or_voices is TENOR:
+                        item = (tenor_pitch,)  # type:ignore
+                    elif voice_or_voices is ALTO:
+                        item = (alto_pitch,)  # type:ignore
+                    else:
+                        raise ValueError
+                    yield item
                 else:
                     these_chord2_suspensions = chord2_suspensions | {
                         s.pitch: s for s in suspension_combo.values()
@@ -1217,11 +1352,19 @@ class IncrementalContrapuntist:
                         chord2_bass_pitch=bass_pitch,
                         chord2_suspensions=these_chord2_suspensions,
                     ):
-                        yield _result_from_voicing(voicing, suspension_combo)
+                        item = _result_from_voicing(voicing, suspension_combo)
+                        if voice_or_voices is TENOR_AND_ALTO and len(item) < 2:
+                            breakpoint()
+                        yield item
 
                 self._score.undo_suspensions(
-                    suspension_combo, annotate=self.settings.annotate_suspensions
+                    suspension_release=release_time,
+                    suspension_combo=suspension_combo,
+                    annotate=self.settings.annotate_suspensions,
                 )
+                # TODO: (Malcolm 2023-08-09) remove
+                lengths2 = [len(v) for v in self._score._score._structural.values()]
+                assert lengths == lengths2
             else:
                 # Apply no suspension
                 # -------------------
@@ -1234,7 +1377,11 @@ class IncrementalContrapuntist:
                     chord2_bass_pitch=bass_pitch,
                     chord2_suspensions=chord2_suspensions,
                 ):
-                    yield _result_from_voicing(voicing)
+                    item = _result_from_voicing(voicing)
+                    if voice_or_voices is TENOR_AND_ALTO and len(item) < 2:
+                        breakpoint()
+                    yield item
+                    # yield _result_from_voicing(voicing)
 
     def _inner_voice_step(
         self,
@@ -1278,21 +1425,35 @@ class IncrementalContrapuntist:
         tenor_resolution_pitch = None
         alto_resolution_pitch = None
         if voice_or_voices in (TENOR, TENOR_AND_ALTO):
+            ongoing_tenor_suspension = self._score.current_suspension(TENOR)
             tenor_resolves = self._score.current_resolution(TENOR) is not None
             if tenor_resolves:
+                assert not ongoing_tenor_suspension
                 tenor_resolution_pitch = self._resolve_inner_voice_suspension_step(
                     TENOR, melody_pitch, bass_pitch
                 )
                 if tenor_resolution_pitch is None:
                     return
+            elif ongoing_tenor_suspension:
+                # As it currently stands, there is never an ongoing tenor suspension.
+                # However, if the implementation changes such that there can be,
+                # this should be implemented similar to MELODY and BASS.
+                raise ValueError()
         if voice_or_voices in (ALTO, TENOR_AND_ALTO):
+            ongoing_alto_suspension = self._score.current_suspension(ALTO)
             alto_resolves = self._score.current_resolution(ALTO) is not None
             if alto_resolves:
+                assert not ongoing_alto_suspension
                 alto_resolution_pitch = self._resolve_inner_voice_suspension_step(
                     ALTO, melody_pitch, bass_pitch
                 )
                 if alto_resolution_pitch is None:
                     return
+            elif ongoing_alto_suspension:
+                # As it currently stands, there is never an ongoing alto suspension.
+                # However, if the implementation changes such that there can be,
+                # this should be implemented similar to MELODY and BASS.
+                raise ValueError()
 
         # -------------------------------------------------------------------------------
         # Condition 3: voice-lead the inner-voices freely
@@ -1304,7 +1465,7 @@ class IncrementalContrapuntist:
             tenor_resolution_pitch,
             alto_resolution_pitch,
         ):
-            if not item:
+            if voice_or_voices is TENOR_AND_ALTO and len(item) < 2:
                 breakpoint()
             yield item
         LOGGER.debug("no more inner voices")
@@ -1363,7 +1524,7 @@ class IncrementalContrapuntist:
                 "There should be at least one voice, either the bass or melody"
             )
 
-    def _step(
+    def _step_recursive_helper(
         self,
         voices: t.Sequence[Voice],
         result_so_far: IncrementalResult | None = None,
@@ -1377,12 +1538,47 @@ class IncrementalContrapuntist:
         voice_or_voices, *remaining_voices = voices
         for pitch_or_pitches in self._handle_step(voice_or_voices, result_so_far):
             if voice_or_voices is TENOR_AND_ALTO:
-                new_result = dict(zip((TENOR, ALTO), pitch_or_pitches))  # type:ignore
+                assert isinstance(pitch_or_pitches, tuple)
+                new_result = dict(zip((TENOR, ALTO), pitch_or_pitches))
             else:
+                assert isinstance(pitch_or_pitches, Pitch)
                 new_result = {voice_or_voices: pitch_or_pitches}
-            yield from self._step(
-                remaining_voices, result_so_far | new_result  # type:ignore
+            yield from self._step_recursive_helper(
+                remaining_voices, result_so_far | new_result
             )
+
+    def step(self) -> t.Iterator[IncrementalResult]:
+        yield from self._step_recursive_helper(self._voices)
+        raise DeadEnd()
+
+    @contextmanager
+    def append_attempt(self, incremental_result: IncrementalResult):
+        voices = list(incremental_result)
+        lengths = set(len(self._score._score._structural[v]) for v in voices)
+        assert len(lengths) == 1
+        LOGGER.debug(f"before append: {voices=} {lengths=}")
+        original_lengths = lengths
+        try:
+            with recursive_attempt(
+                do_func=append_structural,
+                do_args=(incremental_result, self._score.score),
+                undo_func=pop_structural,
+                undo_args=(incremental_result, self._score.score),
+            ):
+                lengths = set(len(self._score._score._structural[v]) for v in voices)
+                assert len(lengths) == 1
+                LOGGER.debug(f"during append: {voices=} {lengths=}")
+                yield
+        except UndoRecursiveStep:
+            lengths = set(len(self._score._score._structural[v]) for v in voices)
+            assert len(lengths) == 1
+            LOGGER.debug(f"after append: {voices=} {lengths=}")
+            assert lengths == original_lengths
+            raise
+
+    @property
+    def finished(self) -> bool:
+        return self._score.complete
 
     def _recurse(self) -> None:
         self._spinner()
@@ -1392,13 +1588,14 @@ class IncrementalContrapuntist:
             LOGGER.debug(f"{self.__class__.__name__}._recurse: final step")
             return
 
-        for incremental_result in self._step(self._voices):
-            with recursive_attempt(
-                do_func=append_structural,
-                do_args=(incremental_result, self._score.score),
-                undo_func=pop_structural,
-                undo_args=(incremental_result, self._score.score),
-            ):
+        for incremental_result in self.step():
+            with self.append_attempt(incremental_result):
+                # with recursive_attempt(
+                #     do_func=append_structural,
+                #     do_args=(incremental_result, self._score.score),
+                #     undo_func=pop_structural,
+                #     undo_args=(incremental_result, self._score.score),
+                # ):
                 LOGGER.debug(f"append attempt {incremental_result}")
                 return self._recurse()
         LOGGER.debug(f"reached dead end at {self._score.i=}")
@@ -1421,4 +1618,56 @@ def append_structural(incremental_result: IncrementalResult, score: _ScoreBase):
 
 def pop_structural(voices: t.Iterable[Voice], score: _ScoreBase):
     for voice in voices:
+        LOGGER.debug(f"{voice=} length before pop = {len(score._structural[voice])}")
         score._structural[voice].pop()
+        LOGGER.debug(f"{voice=} length after pop = {len(score._structural[voice])}")
+
+
+def build_incrementally(
+    voice_tups: t.Sequence[tuple[Voice, ...]],
+    score: FourPartScore,
+    settings: IncrementalContrapuntistSettings = IncrementalContrapuntistSettings(),
+):
+    def _recurse_through_contrapuntists(
+        contrapuntists: list[IncrementalContrapuntist],
+    ):
+        if not contrapuntists:
+            if all(c.finished for c in all_contrapuntists):
+                yield
+                return
+            contrapuntists = all_contrapuntists
+
+        contrapuntist, *remaining_contrapuntists = contrapuntists
+
+        if remaining_contrapuntists:
+            assert contrapuntist._score.i >= max(
+                c._score.i for c in remaining_contrapuntists
+            )
+
+        # If a later contrapuntist creates a suspension, it may split the notes in
+        #   the prior voices of the earlier contrapuntists. In this case, the next
+        #   notes of the earlier contrapuntists already exist, and so we need to skip
+        #   them.
+        if remaining_contrapuntists and contrapuntist._score.i > min(
+            c._score.i for c in remaining_contrapuntists
+        ):
+            yield from _recurse_through_contrapuntists(remaining_contrapuntists)
+            raise DeadEnd()
+
+        for pitches in contrapuntist.step():
+            LOGGER.debug(f"making append attempt")
+            with contrapuntist.append_attempt(pitches):
+                yield from _recurse_through_contrapuntists(remaining_contrapuntists)
+        raise DeadEnd()
+
+    prior_voices = ()
+    all_contrapuntists = []
+    for voices in voice_tups:
+        contrapuntist = IncrementalContrapuntist(
+            score=score, voices=voices, prior_voices=prior_voices, settings=settings
+        )
+        all_contrapuntists.append(contrapuntist)
+        prior_voices += voices
+
+    # _recurse_through_contrapuntists is a generator so we need to call next() on it
+    next(_recurse_through_contrapuntists([]))

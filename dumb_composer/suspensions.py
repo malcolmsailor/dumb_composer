@@ -620,9 +620,13 @@ def find_suspension_release_times(
             out.append(res_onset)
         if res_weight == meter.min_weight:
             break
-        stop, _ = meter.get_onset_of_greatest_weight_between(
-            start, stop, include_start=False, return_first=meter.is_compound
-        )
+        try:
+            stop, _ = meter.get_onset_of_greatest_weight_between(
+                start, stop, include_start=False, return_first=meter.is_compound
+            )
+        except MeterError:
+            break
+
     # TODO suspensions releases should have a "score" that indicates
     #   how likely they are to be employed.
     return out
