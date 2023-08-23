@@ -7,8 +7,8 @@ from enum import Enum, auto
 from numbers import Number
 from types import MappingProxyType
 
+from dumb_composer.classes.scores import Score, _ScoreBase  # Score used in doctests
 from dumb_composer.pitch_utils.types import SettingsBase, TimeStamp
-from dumb_composer.shared_classes import Score, _ScoreBase
 from dumb_composer.time import Meter
 from dumb_composer.time_utils import (
     get_barline_times_within_duration,

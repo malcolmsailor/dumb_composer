@@ -1,3 +1,4 @@
+import os
 import typing as t
 from fractions import Fraction
 from types import MappingProxyType
@@ -70,6 +71,10 @@ KEYBOARD_STYLE_REGISTERS = MappingProxyType(
             3: (("C4", "C5"), ("E5", "A6")),
         }
     )
+)
+
+DEFAULT_CONFIG_PATH = os.path.join(
+    os.path.dirname((os.path.realpath(__file__))), "..", "settings"
 )
 
 ##################

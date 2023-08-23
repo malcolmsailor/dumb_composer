@@ -1,0 +1,39 @@
+- total_dur: 4.0
+  onsets: [0.0, 1.5, 2.0, 2.5, 3.0]
+  metric_strength_str: "swsws"
+  allow_preparation: "YES"
+- total_dur: 4.0
+  onsets: [0.0, 1.0, 2.0, 3.0]
+  metric_strength_str: "swsw"
+- total_dur: 4.0
+  onsets: [0.0, 1.5, 2.0, 3.0]
+  metric_strength_str: "swsw"
+- total_dur: 4.0
+  onsets: [0.0, 1.0, 2.0]
+  metric_strength_str: "s_s"
+  allow_preparation: "YES"
+- total_dur: 3.0
+  onsets: [0.0, 1.0, 2.0]
+  metric_strength_str: "s__"
+  allow_preparation: "YES"
+- total_dur: 3.0
+  onsets: [0.0, 1.0, 1.5, 2.0]
+  metric_strength_str: "s___"
+- total_dur: 3.0
+  onsets: [0.0, 1.5, 2.0, 2.5]
+  metric_strength_str: "s___"
+- total_dur: 2.0
+  onsets: [0.0, 1.5]
+  metric_strength_str: "sw"
+- total_dur: 2.0
+  onsets: [1.0, 1.5]
+  metric_strength_str: "__"
+- total_dur: 2.0
+  onsets: [0.0, 1.0, 1.5]
+  metric_strength_str: "s__"
+- total_dur: 2.0
+  onsets: [0.0, 1.0]
+  metric_strength_str: "__"
+- total_dur: 2.0
+  onsets: [0.0]
+  metric_strength_str: "_"

@@ -2,6 +2,8 @@ import logging
 import typing as t
 from dataclasses import dataclass
 
+from dumb_composer.classes.score_interfaces import ScoreInterface
+from dumb_composer.classes.scores import PrefabScore, PrefabScoreWithAccompaniments
 from dumb_composer.incremental_contrapuntist import (
     IncrementalContrapuntist,
     append_structural,
@@ -10,7 +12,6 @@ from dumb_composer.incremental_contrapuntist import (
 from dumb_composer.pattern_handler import PatternHandler, PatternHandlerSettings
 from dumb_composer.pitch_utils.spacings import RangeConstraints
 from dumb_composer.pitch_utils.types import ALTO, BASS, MELODY, TENOR, TENOR_AND_ALTO
-from dumb_composer.shared_classes import PrefabScore, ScoreInterface
 from dumb_composer.structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
@@ -132,7 +133,7 @@ class NewComposer:
 
     def __call__(self, rntxt: str):
         assert self._score is None
-        score = PrefabScore(rntxt)
+        score = PrefabScoreWithAccompaniments(rntxt)
         get_i = lambda score: len(score._structural[BASS])
         validate = lambda score: True  # We rely on other views of the score to validate
 

@@ -2,13 +2,10 @@ import typing as t
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from dumb_composer.classes.score_interfaces import ScoreInterface
+from dumb_composer.classes.scores import ScoreWithAccompaniments, _ScoreBase
 from dumb_composer.patterns import Pattern, PatternMaker
 from dumb_composer.pitch_utils.types import Note, Pitch, SettingsBase
-from dumb_composer.shared_classes import (
-    ScoreInterface,
-    ScoreWithAccompaniments,
-    _ScoreBase,
-)
 from dumb_composer.utils.iterables import unique_items_in_order
 from dumb_composer.utils.recursion import recursive_attempt
 

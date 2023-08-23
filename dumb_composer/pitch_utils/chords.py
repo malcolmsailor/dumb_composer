@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from functools import cached_property
-from itertools import chain
+from itertools import chain, count, cycle, repeat
 from types import MappingProxyType
 
 import music21
@@ -86,6 +86,10 @@ class Resolution:
     to: PitchClass
 
 
+# TODO: (Malcolm 2023-08-16) treat sevenths on chords other than dominants as
+#   presumptive suspensions when the preparation occurs in the preceding chord
+#   (This will likely take a lot of work).
+
 TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingProxyType(
     {
         # V: 3rd: up; 7th: down
@@ -97,6 +101,9 @@ TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingPr
         "Ger": {Root: Tendency.UP, Third: Tendency.DOWN},
         "Fr": {Third: Tendency.UP, Fifth: Tendency.DOWN},
         "iv": {Third: Tendency.DOWN},
+        # TODO: (Malcolm 2023-08-16) do we need to set the seventh tendency explicitly
+        # for every chord?
+        "ii": {Seventh: Tendency.DOWN},
         # To get the correct tendencies for the cadential 64 chord we need
         #   to index into it as I. Sorry Schenkerians!
         "Cad": {Root: Tendency.DOWN, Third: Tendency.DOWN},
@@ -294,6 +301,9 @@ class Chord:
         if self.is_consonant:
             # By default we permit tripling the root of consonant triads
             self._max_doublings[self.chord_factor_to_bass_factor[0]] = 3
+
+    def __contains__(self, pitch_or_pc: PitchOrPitchClass) -> bool:
+        return pitch_or_pc % 12 in self.pcs
 
     @classmethod
     def from_music21_rn(
@@ -1713,6 +1723,80 @@ def get_chords_from_rntxt(
         chord.update_tendencies_from_context(prev_chord, next_chord)
 
     return out_list
+
+
+def ascending_chord_intervals(
+    intervals: t.Sequence[ScalarInterval], n_steps_per_octave: int = 7
+) -> t.Iterator[ScalarInterval]:
+    """
+    >>> [i for _, i in zip(range(8), ascending_chord_intervals([0, 2, 4]))]
+    [0, 2, 4, 7, 9, 11, 14, 16]
+    >>> [i for _, i in zip(range(8), ascending_chord_intervals([0, 1, 3, 5]))]
+    [0, 1, 3, 5, 7, 8, 10, 12]
+    >>> [i for _, i in zip(range(8), ascending_chord_intervals([1, 2, 4]))]
+    [1, 2, 4, 8, 9, 11, 15, 16]
+    """
+    card = len(intervals)
+    for interval, octave in zip(
+        cycle(intervals), chain.from_iterable(repeat(o, card) for o in count())
+    ):
+        yield interval + octave * n_steps_per_octave
+
+
+def ascending_chord_intervals_within_range(
+    intervals: t.Sequence[ScalarInterval],
+    inclusive_endpoint: ScalarInterval,
+    n_steps_per_octave: int = 7,
+):
+    """
+    >>> list(ascending_chord_intervals_within_range([0, 2, 4], 0))
+    [0]
+    >>> list(ascending_chord_intervals_within_range([0, 2, 4], 15))
+    [0, 2, 4, 7, 9, 11, 14]
+    """
+    for x in ascending_chord_intervals(intervals, n_steps_per_octave):
+        if x > inclusive_endpoint:
+            return
+        yield x
+
+
+def descending_chord_intervals(
+    intervals: t.Sequence[ScalarInterval], n_steps_per_octave: int = 7
+) -> t.Iterator[ScalarInterval]:
+    """
+    >>> [i for _, i in zip(range(8), descending_chord_intervals([0, 2, 4]))]
+    [0, -3, -5, -7, -10, -12, -14, -17]
+    >>> [i for _, i in zip(range(8), descending_chord_intervals([0, 1, 3, 5]))]
+    [0, -2, -4, -6, -7, -9, -11, -13]
+    >>> [i for _, i in zip(range(8), descending_chord_intervals([1, 2, 4]))]
+    [-3, -5, -6, -10, -12, -13, -17, -19]
+    """
+    if intervals[0] == 0:
+        yield 0
+
+    card = len(intervals)
+    for interval, octave in zip(
+        cycle(reversed(intervals)),
+        chain.from_iterable(repeat(o, card) for o in count(start=1)),
+    ):
+        yield interval - octave * n_steps_per_octave
+
+
+def descending_chord_intervals_within_range(
+    intervals: t.Sequence[ScalarInterval],
+    inclusive_endpoint: ScalarInterval,
+    n_steps_per_octave: int = 7,
+):
+    """
+    >>> list(descending_chord_intervals_within_range([0, 2, 4], 0))
+    [0]
+    >>> list(descending_chord_intervals_within_range([0, 2, 4], -15))
+    [0, -3, -5, -7, -10, -12, -14]
+    """
+    for x in descending_chord_intervals(intervals, n_steps_per_octave):
+        if x < inclusive_endpoint:
+            return
+        yield x
 
 
 # doctests in cached_property methods are not discovered and need to be

@@ -70,8 +70,10 @@ def append_attempt(
 @contextmanager
 def recursive_attempt(
     *,
-    do_func: t.Callable,
-    undo_func: t.Callable,
+    # do_func and undo_func should both return the lengths before and after the
+    #   recursive attempts
+    do_func: t.Callable[..., tuple[int | tuple[int, ...], int | tuple[int, ...]]],
+    undo_func: t.Callable[..., tuple[int | tuple[int, ...], int | tuple[int, ...]]],
     do_args: t.Sequence[t.Any] = (),
     do_kwargs: t.Mapping[str, t.Any] = MappingProxyType({}),
     undo_args: t.Sequence[t.Any] = (),
@@ -82,13 +84,15 @@ def recursive_attempt(
     reraise_if_not: tuple[t.Type[UndoRecursiveStep]] | None = None,
 ):
     LOGGER.debug(f"making recursive attempt {do_func=} {do_args=}")
-    do_func(*do_args, **do_kwargs)
+    before_do_len, after_do_len = do_func(*do_args, **do_kwargs)
     try:
         yield
     except UndoRecursiveStep as exc:
         LOGGER.debug(f"undoing recursive attempt {undo_func=} {undo_args=}")
         LOGGER.debug(f"{exc.__class__.__name__}: {str(exc)}")
-        undo_func(*undo_args, **undo_kwargs)
+        before_undo_len, after_undo_len = undo_func(*undo_args, **undo_kwargs)
+        assert after_do_len == before_undo_len
+        assert before_do_len == after_undo_len
         # if reraise is not None and isinstance(exc, reraise):
         #     raise
         if reraise_if_not and not isinstance(exc, reraise_if_not):

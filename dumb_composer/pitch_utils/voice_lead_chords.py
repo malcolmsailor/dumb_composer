@@ -138,6 +138,24 @@ def voice_lead_chords(
     # ... )
     # >>> next(vl_iter)
 
+    >>> rntxt = "m1 a: iv6 b3 C: V2"
+    >>> iv6, V2 = get_chords_from_rntxt(rntxt)
+    >>> suspension1 = Suspension(
+    ...     pitch=69, resolves_by=-2, dissonant=True, interval_above_bass=4
+    ... )
+    >>> vl_iter = voice_lead_chords(
+    ...     iv6,
+    ...     V2,
+    ...     (41, 62, 69, 69),
+    ...     chord2_bass_pitch=41,
+    ...     chord2_melody_pitch=71,
+    ...     chord2_suspensions={69: suspension1},
+    ... )
+    >>> next(vl_iter)
+    (41, 62, 69, 71)
+
+
+
     >>> rntxt = '''m1 C: I b2 I6 b3 V6 b4 ii
     ... m2 V43 b2 V/IV b3 IV b4 V'''
     >>> I, I6, V6, ii, V43, V_of_IV, IV, V = get_chords_from_rntxt(rntxt)
@@ -700,7 +718,7 @@ def voice_lead_chords(
         (p + s.resolves_by) % 12 for (p, s) in chord2_suspensions.items()
     }
 
-    within_harmony = is_same_harmony(chord1, chord2)
+    # within_harmony = is_same_harmony(chord1, chord2)
 
     resolution_pitches = []
     unresolved_suspensions = []
@@ -735,11 +753,16 @@ def voice_lead_chords(
             else:
                 unresolved_suspensions.append(pitch)
         # ------------------------------------------------------------------------------
-        # Case 2 pitch has tendency *and* chord changes
+        # Case 2 pitch has tendency *and* pitch is not in next chord (NB this covers
+        # the case where there is no change of harmony too)
+        # We also ignore the tendency where it is in the bass and the next bass pitch
+        #   is provided
         # ------------------------------------------------------------------------------
-        elif (not within_harmony) and (
-            pitch_tendency := chord1.get_pitch_tendency(pitch)
-        ) is not Tendency.NONE:
+        elif (
+            ((pitch_tendency := chord1.get_pitch_tendency(pitch)) is not Tendency.NONE)
+            and (pitch not in chord2)
+            and not (chord2_bass_pitch is not None and pitch == chord1_pitches[0])
+        ):
             resolution = chord2.get_tendency_resolutions(pitch, pitch_tendency)
 
             pc = pitch % 12

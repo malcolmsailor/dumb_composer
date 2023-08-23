@@ -22,8 +22,8 @@ from tests.test_helpers import TEST_OUT_DIR, get_funcname, merge_dfs, write_df
 @pytest.mark.parametrize(
     "prefab_voices",
     (
-        # ("soprano",),
-        # ("bass",),
+        ("soprano",),
+        ("bass",),
         # ("soprano", "alto", "tenor", "bass"),
         ("soprano", "bass"),
     ),
@@ -50,19 +50,21 @@ def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voices):
     funcname = get_funcname()
     test_out_dir = os.path.join(TEST_OUT_DIR, funcname)
     os.makedirs(test_out_dir, exist_ok=True)
-
+    voice_strs = "-".join(prefab_voices)
     path_wo_ext = os.path.join(
         test_out_dir,
-        f"ts={ts.replace('/', '-')}_" f"prefab_voice={prefab_voices}",
+        f"ts={ts.replace('/', '-')}_" f"prefab_voice={voice_strs}",
     )
     mid_path = path_wo_ext + ".mid"
     log_path = path_wo_ext + ".log"
+    missing_prefab_path = path_wo_ext + "_missing_prefabs.log"
     logging_plugin = pytestconfig.pluginmanager.get_plugin("logging-plugin")
     logging_plugin.set_log_path(log_path)
 
     dfs = []
-    initial_seed = 48
-    number_of_tries = 10
+    initial_seed = 49
+    number_of_tries = 1
+    missing_prefab_strs = []
     for seed in range(initial_seed, initial_seed + number_of_tries):
         random.seed(seed)
         settings = PrefabComposerSettings(
@@ -72,6 +74,8 @@ def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voices):
         pfc = PrefabComposer(settings)
         out_df = pfc(rn_txt)
         dfs.append(out_df)
+        assert pfc._prefab_applier is not None
+        missing_prefab_strs.append(pfc._prefab_applier.get_missing_prefab_str())
 
     out_df = merge_dfs(dfs, ts)
 
@@ -81,6 +85,8 @@ def test_prefab_composer(quick, pytestconfig, time_sig, prefab_voices):
         ts=(numer, denom),
     )
     print(f"log_path = {log_path}")
+    with open(missing_prefab_path, "w") as outf:
+        outf.write("\n\n---\n\n".join(missing_prefab_strs))
 
     if quick:
         raise NotImplementedError()

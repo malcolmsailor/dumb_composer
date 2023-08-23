@@ -5,9 +5,11 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from functools import cached_property, partial
 from numbers import Number
+from pathlib import Path
 
-from dumb_composer.pitch_utils.types import TIME_TYPE, TimeStamp
-from dumb_composer.shared_classes import Allow
+import yaml
+
+from dumb_composer.pitch_utils.types import TIME_TYPE, AllowLiteral, TimeStamp
 from dumb_composer.time_utils import get_max_ioi, get_min_ioi
 from dumb_composer.utils.recursion import UndoRecursiveStep
 
@@ -33,10 +35,10 @@ class SingletonRhythm(PrefabRhythmBase):
     onsets: t.Tuple[TIME_TYPE] = (TIME_TYPE(0),)
     releases: t.Sequence[TimeStamp] | None = None
     metric_strength_str: str = "_"
-    allow_suspension: Allow = Allow.NO
-    allow_preparation: Allow = Allow.NO
+    allow_suspension: AllowLiteral = "NO"
+    allow_preparation: AllowLiteral = "NO"
     allow_after_tie: bool = False
-    allow_next_to_start_with_rest: Allow = Allow.NO
+    allow_next_to_start_with_rest: AllowLiteral = "NO"
 
     def matches_criteria(self, *args, **kwargs):
         return True
@@ -54,18 +56,18 @@ class PrefabRhythms(PrefabRhythmBase):
     # E.g., if it goes from beat 1 to beat 1, should be "ss"
     #   if it goes from beat 2 to beat 1, should be "ws"
     endpoint_metric_strength_str: str = "ss"
-    allow_suspension: t.Optional[Allow] = None
-    allow_preparation: Allow = Allow.NO
-    allow_resolution: t.Optional[Allow] = None
-    allow_after_tie: t.Optional[Allow] = None
+    allow_suspension: AllowLiteral | None = None
+    allow_preparation: AllowLiteral = "NO"
+    allow_resolution: t.Optional[AllowLiteral] = None
+    allow_after_tie: t.Optional[AllowLiteral] = None
 
     # if allow_ext_to_start_with_rest is None, we set it according to the
     #   following heuristic:
-    #       - if the rhythm ends with a rest, set to Allow.YES
+    #       - if the rhythm ends with a rest, set to "YES"
     #       - else if last onset is <= 1/4 the length of the rhythm, or less
     #           than MIN_DEFAULT_RHYTHM_BEFORE_REST set to allow.NO
     #       - else, set to allow.YES
-    allow_next_to_start_with_rest: t.Optional[Allow] = None
+    allow_next_to_start_with_rest: t.Optional[AllowLiteral] = None
 
     # we scale the prefab rhythms by factors of 2 to increase the vocabulary.
     # So, e.g., (0.0, 1.0, 3.0 )could also become (0.0, 0.5, 1.5), or
@@ -77,33 +79,33 @@ class PrefabRhythms(PrefabRhythmBase):
     def __post_init__(self):
         if self.allow_after_tie is None:
             if not self.onsets[0] == 0.0:
-                self.allow_after_tie = Allow.NO
+                self.allow_after_tie = "NO"
             else:
-                self.allow_after_tie = Allow.YES
+                self.allow_after_tie = "YES"
         if self.allow_suspension is None:
             if not self.onsets[0] == 0.0:
-                self.allow_suspension = Allow.NO
+                self.allow_suspension = "NO"
             else:
-                self.allow_suspension = Allow.YES
+                self.allow_suspension = "YES"
         if self.allow_resolution is None:
             if not self.onsets[0] == 0.0:
-                self.allow_resolution = Allow.NO
+                self.allow_resolution = "NO"
             else:
-                self.allow_resolution = Allow.YES
+                self.allow_resolution = "YES"
         if self.releases is None:
             self.releases = self.onsets[1:] + [self.total_dur]
         if self.allow_next_to_start_with_rest is None:
             if self.releases[-1] < self.total_dur:  # type:ignore
-                self.allow_next_to_start_with_rest = Allow.YES
+                self.allow_next_to_start_with_rest = "YES"
             else:
                 last_dur = self.total_dur - self.onsets[-1]  # type:ignore
                 if (
                     last_dur < MIN_DEFAULT_RHYTHM_BEFORE_REST
                     or last_dur / self.total_dur <= 1 / 4
                 ):
-                    self.allow_next_to_start_with_rest = Allow.NO
+                    self.allow_next_to_start_with_rest = "NO"
                 else:
-                    self.allow_next_to_start_with_rest = Allow.YES
+                    self.allow_next_to_start_with_rest = "YES"
         assert len(self.metric_strength_str) == len(self.onsets)
 
     def __len__(self):
@@ -117,16 +119,16 @@ class PrefabRhythms(PrefabRhythmBase):
         is_preparation: bool = False,
         is_resolution: bool = False,
         is_after_tie: bool = False,
-        start_with_rest: Allow = Allow.YES,
+        start_with_rest: AllowLiteral = "YES",
     ):
         if not (
             self.total_dur == total_dur
             and self.endpoint_metric_strength_str == endpoint_metric_strength_str
         ):
             return False
-        if start_with_rest is Allow.NO and self.onsets[0] != 0:
+        if start_with_rest == "NO" and self.onsets[0] != 0:
             return False
-        elif start_with_rest is Allow.ONLY and self.onsets[0] == 0:
+        elif start_with_rest == "ONLY" and self.onsets[0] == 0:
             return False
         for is_so, allowed in (
             (is_suspension, self.allow_suspension),
@@ -134,9 +136,9 @@ class PrefabRhythms(PrefabRhythmBase):
             (is_resolution, self.allow_resolution),
             (is_after_tie, self.allow_after_tie),
         ):
-            if is_so and allowed == Allow.NO:
+            if is_so and allowed == "NO":
                 return False
-            if not is_so and allowed == Allow.ONLY:
+            if not is_so and allowed == "ONLY":
                 return False
         return True
 
@@ -204,29 +206,31 @@ def match_metric_strength_strs(
     return True
 
 
-PR = PrefabRhythms
+# TODO: (Malcolm 2023-08-14) say a chord lasts for the first 8 eighth notes of a
+# measure of 12/8. How do we prevent PrefabRhythms of total_dur=4 from matching?
+# PR = PrefabRhythms
 
-PR4 = partial(PR, total_dur=4)
-PR3 = partial(PR, total_dur=3)
-PR2 = partial(PR, total_dur=2)
+# PR4 = partial(PR, total_dur=4)
+# PR3 = partial(PR, total_dur=3)
+# PR2 = partial(PR, total_dur=2)
 
-PREFABS = [
-    PR4([0.0, 1.5, 2.0, 2.5, 3.0], "swsws", allow_preparation=Allow.YES),
-    PR4([0.0, 1.0, 2.0, 3.0], "swsw"),
-    PR4([0.0, 1.5, 2.0, 3.0], "swsw"),
-    PR4([0.0, 1.0, 2.0], "s_s", allow_preparation=Allow.YES),
-    PR3([0.0, 1.0, 2.0], "s__", allow_preparation=Allow.YES),
-    PR3([0.0, 1.0, 1.5, 2.0], "s___"),
-    PR3([0.0, 1.5, 2.0, 2.5], "s___"),
-    PR2([0.0, 1.5], "sw"),
-    PR2([1.0, 1.5], "__"),
-    PR2([0.0, 1.0, 1.5], "s__"),
-    PR2([0.0, 1.0], "__"),
-    PR2([0.0], "_"),
-]
+# PREFABS = [
+#     PR4([0.0, 1.5, 2.0, 2.5, 3.0], "swsws", allow_preparation="YES"),
+#     PR4([0.0, 1.0, 2.0, 3.0], "swsw"),
+#     PR4([0.0, 1.5, 2.0, 3.0], "swsw"),
+#     PR4([0.0, 1.0, 2.0], "s_s", allow_preparation="YES"),
+#     PR3([0.0, 1.0, 2.0], "s__", allow_preparation="YES"),
+#     PR3([0.0, 1.0, 1.5, 2.0], "s___"),
+#     PR3([0.0, 1.5, 2.0, 2.5], "s___"),
+#     PR2([0.0, 1.5], "sw"),
+#     PR2([1.0, 1.5], "__"),
+#     PR2([0.0, 1.0, 1.5], "s__"),
+#     PR2([0.0, 1.0], "__"),
+#     PR2([0.0], "_"),
+# ]
 
 
-def scale_prefabs(prefabs: t.Sequence[PrefabRhythms]) -> t.List[PrefabRhythms]:
+def apply_scale_prefabs(prefabs: t.Sequence[PrefabRhythms]) -> t.List[PrefabRhythms]:
     out = []
     for prefab_rhythm in prefabs:
         out.append(prefab_rhythm)
@@ -245,29 +249,41 @@ def scale_prefabs(prefabs: t.Sequence[PrefabRhythms]) -> t.List[PrefabRhythms]:
     return out
 
 
-PREFABS = scale_prefabs(PREFABS)
+# PREFABS = scale_prefabs(PREFABS)
 
 
 class PrefabRhythmDirectory:
     """A directory of prefab rhythms.
 
-    >>> prefab_rhythm_dir = PrefabRhythmDirectory()
-    >>> eight_beat_rhythms = prefab_rhythm_dir(8.0)
+    >>> prefab_rhythm_dir = PrefabRhythmDirectory(PATH_TO_CONFIG)  # doctest: +SKIP
+    >>> eight_beat_rhythms = prefab_rhythm_dir(8.0)  # doctest: +SKIP
     >>> len(eight_beat_rhythms)  # doctest: +SKIP
     7
     >>> eight_beat_rhythms[0]  # doctest: +SKIP
     PrefabRhythms(
         onsets=[0.0, 3.0, 4.0, 5.0, 6.0],
         metric_strength_str='swsws', total_dur=8, releases=[3.0, 4.0, 5.0, 6.0, 8],
-        endpoint_metric_strength_str='ss', allow_suspension=<Allow.YES: 2>,
-        allow_preparation=<Allow.NO: 1>, allow_resolution=<Allow.YES: 2>,
-        allow_after_tie=<Allow.YES: 2>, allow_next_to_start_with_rest=<Allow.NO: 1>,
+        endpoint_metric_strength_str='ss', allow_suspension=<"YES": 2>,
+        allow_preparation=<"NO": 1>, allow_resolution=<"YES": 2>,
+        allow_after_tie=<"YES": 2>, allow_next_to_start_with_rest=<"NO": 1>,
         min_scaled_ioi=0.25, max_scaled_ioi=4.0)
     """
 
-    def __init__(self, allow_singleton_rhythm: bool = True):
+    def __init__(
+        self,
+        config_path: str | Path,
+        allow_singleton_rhythm: bool = True,
+        scale_prefabs: bool = True,
+    ):
         self._memo = {}
         self._singleton = SingletonRhythm() if allow_singleton_rhythm else None
+        with open(config_path, "r") as yaml_file:
+            config_list = yaml.safe_load(yaml_file)
+        self._prefabs: list[PrefabRhythms] = []
+        for prefab_kwargs in config_list:
+            self._prefabs.append(PrefabRhythms(**prefab_kwargs))
+        if scale_prefabs:
+            self._prefabs = apply_scale_prefabs(self._prefabs)
 
     def __call__(
         self,
@@ -277,7 +293,7 @@ class PrefabRhythmDirectory:
         is_preparation: bool = False,
         is_resolution: bool = False,
         is_after_tie: bool = False,
-        start_with_rest: Allow = Allow.YES,
+        start_with_rest: AllowLiteral = "YES",
     ) -> t.Union[t.List[PrefabRhythms], t.List[SingletonRhythm]]:
         tup = (
             total_dur,
@@ -290,7 +306,7 @@ class PrefabRhythmDirectory:
         )
         if tup in self._memo:
             return self._memo[tup].copy()
-        out = [prefab for prefab in PREFABS if prefab.matches_criteria(*tup)]
+        out = [prefab for prefab in self._prefabs if prefab.matches_criteria(*tup)]
         if not out:
             if self._singleton is not None:
                 # TODO store missing rhythms for reference

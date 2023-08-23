@@ -1,15 +1,21 @@
 import logging
+import os
 import random
 import typing as t
 import warnings
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
 from itertools import accumulate
 from numbers import Number
+from pathlib import Path
 
 import pandas as pd
 
+from dumb_composer.classes.chord_transition_interfaces import PrefabInterface
+from dumb_composer.classes.scores import PrefabScore, _ScoreBase
+from dumb_composer.constants import DEFAULT_CONFIG_PATH
 from dumb_composer.pitch_utils.intervals import (
     get_scalar_intervals_to_other_chord_factors,
     reduce_compound_interval,
@@ -20,6 +26,7 @@ from dumb_composer.pitch_utils.types import (
     FourPartResult,
     InnerVoice,
     OuterVoice,
+    RecursiveWorker,
     ScalarInterval,
     SettingsBase,
     TimeStamp,
@@ -41,12 +48,12 @@ from dumb_composer.prefabs.prefab_rhythms import (
     PrefabRhythms,
     SingletonRhythm,
 )
-from dumb_composer.shared_classes import Note, PrefabInterface, PrefabScore
+from dumb_composer.shared_classes import Note
 
 from .pitch_utils.chords import Allow, Chord, Inflection
 from .pitch_utils.scale import Scale, ScaleDict
 from .utils.math_ import weighted_sample_wo_replacement
-from .utils.recursion import DeadEnd
+from .utils.recursion import DeadEnd, recursive_attempt
 
 # TODO prefab "inertia" is implemented but it might be nice to make it more likely
 #    to choose with greater probability from previous N prefabs
@@ -131,6 +138,13 @@ class PrefabDeadEnd(DeadEnd):
 
 @dataclass
 class PrefabApplierSettings(SettingsBase):
+    prefab_rhythms_config: str | Path = os.path.join(
+        DEFAULT_CONFIG_PATH, "prefabs", "default_rhythm_prefabs.yaml"
+    )
+    prefab_pitches_config: str | Path = os.path.join(
+        DEFAULT_CONFIG_PATH, "prefabs", "default_pitch_prefabs.yaml"
+    )
+    auto_add_prefab_scales: bool = True
     # either "soprano", "tenor", or "bass"
     # prefab_voice: str = "soprano"
     prefab_voices: t.Sequence[str] = ("soprano", "tenor", "alto", "bass")
@@ -194,17 +208,19 @@ class PrefabApplierSettings(SettingsBase):
             )
 
 
-class PrefabApplier:
-    prefab_rhythm_dir = PrefabRhythmDirectory()
-    prefab_pitch_dir = PrefabPitchDirectory()
-
+class PrefabApplier(RecursiveWorker):
     def __init__(
         self,
-        score_interface: PrefabInterface,
-        settings: t.Optional[PrefabApplierSettings] = None,
+        score: PrefabScore,
+        settings: PrefabApplierSettings = PrefabApplierSettings(),
     ):
-        if settings is None:
-            settings = PrefabApplierSettings()
+        self.prefab_rhythm_dir: PrefabRhythmDirectory = PrefabRhythmDirectory(
+            settings.prefab_rhythms_config,
+        )
+        self.prefab_pitch_dir: PrefabPitchDirectory = PrefabPitchDirectory(
+            settings.prefab_pitches_config,
+            auto_add_scales=settings.auto_add_prefab_scales,
+        )
         self.settings = settings
         self._prefab_rhythm_stacks: t.DefaultDict[
             TIME_TYPE, t.List[PrefabRhythmBase]
@@ -214,7 +230,7 @@ class PrefabApplier:
         ] = defaultdict(list)
         # TODO: (Malcolm 2023-07-28) NB four-part composer settings has range
         # constraints in settings. Does this matter?
-        self._score_interface = score_interface
+        self._score_interface = PrefabInterface(score)
         self.missing_prefabs: Counter[str] = Counter()
 
     def _get_parallel_prefab_candidates(
@@ -359,7 +375,7 @@ class PrefabApplier:
         prefabs_so_far: dict[Voice, tuple[PrefabRhythmBase, PrefabPitchBase]],
         parallel_prefab_candidates: dict[Voice, list[ParallelCandidate]],
     ) -> t.Iterator[dict[Voice, list[Note]]]:
-        srcs = random.sample(prefabs_so_far.items(), k=len(prefabs_so_far))
+        srcs = random.sample(list(prefabs_so_far.items()), k=len(prefabs_so_far))
         for src_voice, (src_prefab_rhythm, src_prefab_pitch) in srcs:
             candidates = parallel_prefab_candidates[src_voice]
             random.shuffle(candidates)
@@ -589,7 +605,7 @@ class PrefabApplier:
 
         is_suspension = self._score_interface.departure_is_suspension(decorated_voice)
         is_preparation = self._score_interface.departure_is_preparation(decorated_voice)
-        segment_dur = (
+        segment_dur = TIME_TYPE(
             self._score_interface.departure_chord.release
             - self._score_interface.departure_chord.onset
         )
@@ -612,7 +628,7 @@ class PrefabApplier:
         )
         for rhythm in weighted_sample_wo_replacement(rhythm_options, rhythm_weights):
             LOGGER.debug(f"{decorated_voice=} trying rhythm {str(rhythm)}")
-            self._prefab_rhythm_stacks[segment_dur].append(rhythm)
+            self._prefab_rhythm_stacks[TIME_TYPE(segment_dur)].append(rhythm)
             self._score_interface.set_arrival_can_start_with_rest(
                 decorated_voice,
                 rhythm.allow_next_to_start_with_rest,  # type:ignore
@@ -762,6 +778,10 @@ class PrefabApplier:
         assert self._score_interface.validate_state()
         voices_to_decorate, voices_not_to_decorate = self._sample_voices_to_decorate()
         undecorated_voices = self._fill_in_undecorated_voices(voices_not_to_decorate)
+        if self.step_i == self.final_step_i:
+            yield from self._final_step()
+            return
+
         for result, prefabs in self._recurse(
             voices_to_decorate, result_so_far=undecorated_voices
         ):
@@ -776,6 +796,32 @@ class PrefabApplier:
 
             yield result
         raise PrefabDeadEnd("reached end of prefab _step()")
+
+    @property
+    def step_i(self) -> int:
+        return self._score_interface.i
+
+    @property
+    def final_step_i(self) -> int:
+        return len(self._score_interface._score.chords) - 1
+
+    @property
+    def ready(self) -> bool:
+        return self._score_interface.i >= 0
+
+    @property
+    def finished(self) -> bool:
+        return self.step_i > self.final_step_i
+
+    @contextmanager
+    def append_attempt(self, prefabs: dict[Voice, list[Note]]):
+        with recursive_attempt(
+            do_func=append_prefabs,
+            do_args=(prefabs, self._score_interface.score),
+            undo_func=pop_prefabs,
+            undo_args=(prefabs, self._score_interface.score),
+        ):
+            yield
 
     def _has_forbidden_parallels(
         self,
@@ -843,17 +889,17 @@ class PrefabApplier:
 
         return False
 
-    def _final_step(self):
+    def _final_step(self) -> t.Iterator[dict[Voice, list[Note]]]:
         # TODO eventually it would be nice to be able to decorate the last note
         #   etc.
         out = {}
         for voice in self.decorated_voices:
-            pitch = self._score_interface.arrival_pitch(voice)
+            pitch = self._score_interface.departure_pitch(voice)
             out[voice] = [
                 Note(
                     pitch,
-                    self._score_interface.arrival_chord.onset,  # type:ignore
-                    self._score_interface.arrival_chord.release,  # type:ignore
+                    self._score_interface.departure_chord.onset,
+                    self._score_interface.departure_chord.release,
                 )
             ]
         LOGGER.debug(f"{self.__class__.__name__} yielding {out=}")
@@ -871,13 +917,36 @@ class PrefabApplier:
         return "\n".join(out)
 
 
+def _get_lens_then_perform_op(
+    op: t.Callable[[], None], get_lens: t.Callable[[], tuple[int, ...]]
+):
+    before_lens = get_lens()
+    assert len(set(before_lens)) == 1
+
+    op()
+
+    after_lens = get_lens()
+    assert len(set(after_lens)) == 1
+    return before_lens[0], after_lens[0]
+
+
 def append_prefabs(prefabs: dict[Voice, list[Note]], score: PrefabScore):
-    for voice, notes in prefabs.items():
-        if score.prefabs[voice]:
-            assert notes[0].onset >= score.prefabs[voice][-1][-1].release
-        score.prefabs[voice].append(notes)
+    get_lens = lambda: tuple(len(score._structural[v]) for v in prefabs)
+
+    def _perform_append():
+        for voice, notes in prefabs.items():
+            if score.prefabs[voice]:
+                assert notes[0].onset >= score.prefabs[voice][-1][-1].release
+            score.prefabs[voice].append(notes)
+
+    return _get_lens_then_perform_op(_perform_append, get_lens)
 
 
 def pop_prefabs(voices: t.Iterable[Voice], score: PrefabScore):
-    for voice in voices:
-        score.prefabs[voice].pop()
+    get_lens = lambda: tuple(len(score._structural[v]) for v in voices)
+
+    def _perform_pop():
+        for voice in voices:
+            score.prefabs[voice].pop()
+
+    return _get_lens_then_perform_op(_perform_pop, get_lens)

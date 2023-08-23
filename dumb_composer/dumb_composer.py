@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from dumb_composer.chord_spacer import NoSpacings, SimpleSpacer, SimpleSpacerSettings
+from dumb_composer.classes.chord_transition_interfaces import AccompanimentInterface
+from dumb_composer.classes.scores import PrefabScore, PrefabScoreWithAccompaniments
 from dumb_composer.constants import (
     DEFAULT_BASS_RANGE,
     DEFAULT_TENOR_ACCOMP_RANGE,
@@ -27,12 +29,23 @@ from dumb_composer.four_part_composer import (
 from dumb_composer.four_part_composer import (
     pop_structural_pitches as pop_four_part_pitches,
 )
+from dumb_composer.incremental_contrapuntist import (
+    IncrementalContrapuntist,
+    IncrementalContrapuntistSettings,
+)
 from dumb_composer.pitch_utils.chords import Chord
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.ranges import Ranger
 from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
-from dumb_composer.pitch_utils.types import ACCOMPANIMENTS, Pitch
+from dumb_composer.pitch_utils.types import (
+    ACCOMPANIMENTS,
+    BASS,
+    MELODY,
+    TENOR_AND_ALTO,
+    Pitch,
+    Voice,
+)
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.prefab_applier import (
     PrefabApplier,
@@ -42,13 +55,6 @@ from dumb_composer.prefab_applier import (
     pop_prefabs,
 )
 from dumb_composer.prefabs.prefab_pitches import MissingPrefabError
-from dumb_composer.shared_classes import (
-    AccompanimentInterface,
-    FourPartScore,
-    Note,
-    PrefabInterface,
-    PrefabScore,
-)
 from dumb_composer.structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
@@ -82,7 +88,8 @@ LOGGER.setLevel(logging.DEBUG)
 class PrefabComposerSettings(
     DumbAccompanistSettings,
     PrefabApplierSettings,
-    FourPartComposerSettings,
+    IncrementalContrapuntistSettings,
+    StructuralPartitionerSettings,
 ):
     bass_range: t.Optional[t.Tuple[int, int]] = None
     mel_range: t.Optional[t.Tuple[int, int]] = None
@@ -96,7 +103,8 @@ class PrefabComposerSettings(
     #   next lesser key in the dict. (If there is no such key, then the note
     #   is not tied.)
     top_down_tie_prob: t.Optional[t.Union[float, t.Dict[int, float]]] = None
-    structural_worker: t.Literal["two_part", "four_part"] = "four_part"
+    # structural_worker: t.Literal["two_part", "four_part"] = "four_part"
+    structural_voices: tuple[Voice, ...] = (BASS, MELODY, TENOR_AND_ALTO)
 
     def __post_init__(self):
         # We need to reconcile DumbAccompanistSettings'
@@ -142,18 +150,19 @@ class PrefabComposer:
             settings = PrefabComposerSettings()
         self.settings = settings
         self.structural_partitioner = StructuralPartitioner(settings)
-        self._structural_worker: None | TwoPartContrapuntist | FourPartWorker = None
+        self._structural_worker: None | IncrementalContrapuntist = None
+        # self._structural_worker: None | TwoPartContrapuntist | FourPartWorker = None
 
-        if self.settings.structural_worker == "two_part":
-            self._structural_worker_cls = TwoPartContrapuntist
-            self._structural_append_func = append_two_part_pitches
-            self._structural_pop_func = pop_two_part_pitches
-        elif self.settings.structural_worker == "four_part":
-            self._structural_worker_cls = FourPartWorker
-            self._structural_append_func = append_four_part_pitches
-            self._structural_pop_func = pop_four_part_pitches
-        else:
-            raise ValueError()
+        # if self.settings.structural_worker == "two_part":
+        #     self._structural_worker_cls = TwoPartContrapuntist
+        #     self._structural_append_func = append_two_part_pitches
+        #     self._structural_pop_func = pop_two_part_pitches
+        # elif self.settings.structural_worker == "four_part":
+        #     self._structural_worker_cls = FourPartWorker
+        #     self._structural_append_func = append_four_part_pitches
+        #     self._structural_pop_func = pop_four_part_pitches
+        # else:
+        #     raise ValueError()
 
         self._prefab_applier: None | PrefabApplier = None
         self._dumb_accompanist: None | DumbAccompanist = None
@@ -249,12 +258,13 @@ class PrefabComposer:
         #       context manager handles popping from the list
         for pitches in self._structural_worker.step():
             LOGGER.debug(f"{pitches=}")
-            with recursive_attempt(
-                do_func=self._structural_append_func,
-                do_args=(pitches, score),
-                undo_func=self._structural_pop_func,
-                undo_args=(score,),
-            ):
+            with self._structural_worker.append_attempt(pitches):
+                # with recursive_attempt(
+                #     do_func=self._structural_append_func,
+                #     do_args=(pitches, score),
+                #     undo_func=self._structural_pop_func,
+                #     undo_args=(score,),
+                # ):
                 if i == 0:
                     # appending prefab requires at least two structural
                     #   melody pitches
@@ -268,6 +278,9 @@ class PrefabComposer:
                             undo_func=pop_prefabs,
                             undo_args=(prefabs, score),
                         ):
+                            return self._recurse(
+                                i + 1, score
+                            )  # TODO: (Malcolm 2023-08-14) remove
                             for pattern in self._dumb_accompanist.step(pitches):
                                 LOGGER.debug(f"{pattern=}")
                                 with append_attempt(
@@ -350,41 +363,43 @@ class PrefabComposer:
         self._n_recurse_calls = 0
 
         print("Reading score... ", end="", flush=True)
-        score = PrefabScore(chord_data, transpose=transpose)
+        score = PrefabScoreWithAccompaniments(chord_data, transpose=transpose)
         print("done.")
         self.structural_partitioner(score)
-        self._structural_worker = self._structural_worker_cls(
-            score=score, settings=self.settings
+        self._structural_worker = IncrementalContrapuntist(
+            score=score, voices=self.settings.structural_voices, settings=self.settings
         )
-        prefab_interface = PrefabInterface(score)
-        self._prefab_applier = PrefabApplier(
-            score_interface=prefab_interface, settings=self.settings
-        )
+        self._prefab_applier = PrefabApplier(score=score, settings=self.settings)
         accompanist_interface = AccompanimentInterface(score)
         self._dumb_accompanist = DumbAccompanist(
             score_interface=accompanist_interface,
             settings=self.settings,
             voices_to_accompany=self._prefab_applier.decorated_voices,
         )
+
         if self.settings.accompaniment_annotations is AccompAnnots.NONE:
             self._dumb_accompanist_target = score.accompaniments
         else:
-            raise NotImplementedError
-            dumb_accompanist_target: t.List[t.Any] = [score.accompaniments]
-            if self.settings.accompaniment_annotations in (
-                AccompAnnots.ALL,
-                AccompAnnots.PATTERNS,
-            ):
-                dumb_accompanist_target.append(score.annotations["patterns"])
-            if self.settings.accompaniment_annotations in (
-                AccompAnnots.ALL,
-                AccompAnnots.CHORDS,
-            ):
-                dumb_accompanist_target.append(score.annotations["chords"])
-            # It's important that _dumb_accompanist_target be a tuple because
-            #   this is how append_attempt() infers that it needs to unpack it
-            #   (rather than append to it)
-            self._dumb_accompanist_target = tuple(dumb_accompanist_target)
+            # raise NotImplementedError
+            LOGGER.warning("accompaniment annotations not implemented")
+            self.settings.accompaniment_annotations = AccompAnnots.NONE
+            self._dumb_accompanist_target = score.accompaniments
+            # TODO: (Malcolm 2023-08-12)
+            # dumb_accompanist_target: t.List[t.Any] = [score.accompaniments]
+            # if self.settings.accompaniment_annotations in (
+            #     AccompAnnots.ALL,
+            #     AccompAnnots.PATTERNS,
+            # ):
+            #     dumb_accompanist_target.append(score.annotations["patterns"])
+            # if self.settings.accompaniment_annotations in (
+            #     AccompAnnots.ALL,
+            #     AccompAnnots.CHORDS,
+            # ):
+            #     dumb_accompanist_target.append(score.annotations["chords"])
+            # # It's important that _dumb_accompanist_target be a tuple because
+            # #   this is how append_attempt() infers that it needs to unpack it
+            # #   (rather than append to it)
+            # self._dumb_accompanist_target = tuple(dumb_accompanist_target)
         try:
             self._recurse(0, score)
         except DeadEnd:
@@ -408,20 +423,13 @@ class PrefabComposer:
                 score.get_df(["prefabs", "accompaniments", "annotations"]),
                 score.ts.ts_str,
             )
-        if self.settings.structural_worker == "two_part":
-            structural_voices = ["structural_bass", "structural_soprano"]
-        else:
-            structural_voices = [
-                "structural_bass",
-                "structural_tenor",
-                "structural_alto",
-                "structural_soprano",
-            ]
         return score.get_df(
-            structural_voices
-            + [
+            # structural_voices
+            [
+                "structural",
                 "prefabs",
                 "accompaniments",
-                "annotations",  # TODO: (Malcolm 2023-08-01) restore
+                # TODO: (Malcolm 2023-08-12) restore
+                # "annotations",
             ]
         )

@@ -6,7 +6,15 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from functools import cached_property
 from numbers import Number
+from pathlib import Path
 
+import yaml
+
+from dumb_composer.pitch_utils.chords import (
+    ascending_chord_intervals,
+    ascending_chord_intervals_within_range,
+    descending_chord_intervals_within_range,
+)
 from dumb_composer.pitch_utils.types import TIME_TYPE, ScalarInterval, Voice
 from dumb_composer.prefabs.prefab_rhythms import (
     MissingPrefabError,
@@ -161,15 +169,15 @@ class PrefabPitches(PrefabPitchBase):
     allow_suspension: Allow = Allow.YES
     allow_preparation: Allow = Allow.NO
     # allow_resolution: Allow = Allow.YES # Not yet implemented
-
     avoid_interval_to_next: t.Sequence[int] = ()
+    avoid_voices: t.Container[Voice] = frozenset()
+
     # __post_init__ defines the following attributes:
     alterations: t.Dict[int, str] = field(default_factory=dict, init=False)
     tie_to_next: bool = field(default=False, init=False)
     intervals: t.Optional[t.List[int]] = field(default=None, init=False)
     min_iois: t.Dict[int, TIME_TYPE] = field(default_factory=dict, init=False)
     max_iois: t.Dict[int, TIME_TYPE] = field(default_factory=dict, init=False)
-    avoid_voices: t.Container[Voice] = frozenset()
 
     def __post_init__(self):
         assert len(self.relative_degrees) == len(self.metric_strength_str)
@@ -302,125 +310,237 @@ class PrefabPitches(PrefabPitchBase):
         return 0 == self.relative_degrees[-1] == self.relative_degrees[0]
 
 
-PP = PrefabPitches
+# PP = PrefabPitches
 
-TWO_PREFABS = (
-    PP([0], "__", relative_degrees=[0, -1], negative_constraints=[-1]),
-    PP([0], "__", relative_degrees=[0, 1]),
-    PP([-1, 2, 3], "__", [0, -2], [-2]),
-    PP(
-        [-1, -2, 2],
-        "__",
-        [0, -3],
-        [-3],
-        allow_suspension=Allow.NO,
-        negative_constraints=[-5],
-    ),
-    PP([1, 3, 4, 5, -2, -3], "__", [0, 2], [2]),
-    PP(
-        [1, 2, 5],
-        "__",
-        [0, 3],
-        [3],
-        negative_constraints=[1],
-        allow_suspension=Allow.NO,
-    ),
-)
+# TWO_PREFABS = (
+#     PP([0], "__", relative_degrees=[0, -1], negative_constraints=[-1]),
+#     PP([0], "__", relative_degrees=[0, 1]),
+#     PP([-1, 2, 3], "__", [0, -2], [-2]),
+#     PP(
+#         [-1, -2, 2],
+#         "__",
+#         [0, -3],
+#         [-3],
+#         allow_suspension=Allow.NO,
+#         negative_constraints=[-5],
+#     ),
+#     PP([1, 3, 4, 5, -2, -3], "__", [0, 2], [2]),
+#     PP(
+#         [1, 2, 5],
+#         "__",
+#         [0, 3],
+#         [3],
+#         negative_constraints=[1],
+#         allow_suspension=Allow.NO,
+#     ),
+# )
 
-THREE_PREFABS = (
-    PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3], negative_constraints=[-2]),
-    PP([-2], "__w", [0, -3, -1], [-3]),
-    PP(
-        None,
-        "___",
-        [0, -1, 0],
-        allow_preparation=Allow.YES,
-        # TODO: (Malcolm 2023-08-01) likely remove this condition
-        avoid_interval_to_next=(-1,),
-    ),
-    PP(
-        None,
-        "___",
-        [0, "#-1", 0],
-        allow_preparation=Allow.YES,
-        allow_suspension=Allow.NO,
-        # TODO: (Malcolm 2023-08-01) likely remove this condition
-        avoid_interval_to_next=(-1,),
-    ),
-    PP(
-        [4],
-        "___",
-        [0, 2, "4t"],
-        constraints=[2, 4],
-        allow_preparation=Allow.YES,
-    ),
-    PP([2], "___", [0, 1, "2t"], constraints=[2], allow_preparation=Allow.YES),
-    PP(
-        [2],
-        "___",
-        [0, -2, "2t"],
-        constraints=[-2, 2],
-        allow_preparation=Allow.YES,
-    ),
-    PP(
-        [2],
-        "___",
-        [0, -3, "2t"],
-        constraints=[-3, 2],
-        allow_preparation=Allow.YES,
-    ),
-)
+# THREE_PREFABS = (
+#     PP([0, -2, -3, 1, 2], "___", [0, -3, 0], [-3], negative_constraints=[-2]),
+#     PP([-2], "__w", [0, -3, -1], [-3]),
+#     PP(
+#         None,
+#         "___",
+#         [0, -1, 0],
+#         allow_preparation=Allow.YES,
+#         avoid_interval_to_next=(-1,),
+#     ),
+#     # TODO: (Malcolm 2023-08-13) I'm wondering if rather than explicitly specifying
+#     #   sharps in cases like this there should be a flag to indicate "lower auxiliary"
+#     #   and a probability of chromatically raising lower auxiliaries in cases where
+#     #   they are less than a certain length.
+#     #   It would also be useful to set a certain maximum length for lower auxiliaries
+#     #   regardless.
+#     PP(
+#         None,
+#         "___",
+#         [0, "#-1", 0],
+#         allow_preparation=Allow.YES,
+#         allow_suspension=Allow.NO,
+#         avoid_interval_to_next=(-1,),
+#     ),
+#     PP(
+#         [4],
+#         "___",
+#         [0, 2, "4t"],
+#         constraints=[2, 4],
+#         allow_preparation=Allow.YES,
+#     ),
+#     PP([2], "___", [0, 1, "2t"], constraints=[2], allow_preparation=Allow.YES),
+#     PP(
+#         [2],
+#         "___",
+#         [0, -2, "2t"],
+#         constraints=[-2, 2],
+#         allow_preparation=Allow.YES,
+#     ),
+#     PP(
+#         [2],
+#         "___",
+#         [0, -3, "2t"],
+#         constraints=[-3, 2],
+#         allow_preparation=Allow.YES,
+#     ),
+# )
 
-FOUR_PREFABS = (
-    PP([0], "s___", [0, 1, 0, "#-1"]),
-    PP([-2], "s___", [0, 1, 0, -1]),
-    PP([0, 2], "s___", [0, "#-1", 0, 1]),
-    PP([0, -2], "s___", [0, -3, -2, -1], [-3], negative_constraints=[-5]),
-    PP([1, -2, -3], "_w__", [0, 1, "#-1", 0], allow_suspension=Allow.NO),
-    PP([-1, 1, 3, 4, 5, 7], "_w__", [0, 1, 2, 0], [2]),
-    PP([-1, 1, 3, 4], "____", [0, 2, 1, 0], constraints=[2]),
-    PP([-1], "____", [0, 2, 1, 0], constraints=[1, 3]),
-    PP([-1, -3, 1], "____", [0, -2, -4, 0], constraints=[-2, -4]),
-    PP([-1, -3, 0], "____", [0, -2, -4, -2], constraints=[-2, -4]),
-    # PP([-6], )
-    # triad arpeggiations up
-    PP([2], "___w", [0, 2, 4, 3], constraints=[2, 4]),
-    PP([3], "___w", [0, 2, 5, 4], constraints=[2, 5]),
-    PP([3], "___w", [0, 3, 5, 4], constraints=[3, 5]),
-    PP(
-        [7],
-        "___w",
-        [0, 2, 4, "#6"],
-        constraints=[2, 4],
-        negative_constraints=[6],
-    ),
-    PP([7], "___w", [0, 2, 5, "#6"], constraints=[2, 5]),
-    PP([7], "___w", [0, 3, 5, "#6"], constraints=[3, 5]),
-    PP([6, 9], "____", [0, 2, 5, 7], constraints=[2, 5]),
-    PP([6], "____", [0, 3, 5, 7], constraints=[3, 5]),
-    PP([4, 6, 9], "____", [0, 2, 4, 7], constraints=[2, 4]),
-    # triad arpeggiations down
-    PP([-6, -3, -5], "____", [0, -3, -5, -7], constraints=[-3, -5]),
-    PP([-7, -4], "____", [0, -2, -4, -2], constraints=[-2, -4]),
-)
+# FOUR_PREFABS = (
+#     PP([0], "s___", [0, 1, 0, "#-1"]),
+#     PP([-2], "s___", [0, 1, 0, -1]),
+#     PP([0, 2], "s___", [0, "#-1", 0, 1]),
+#     PP([0, -2], "s___", [0, -3, -2, -1], [-3], negative_constraints=[-5]),
+#     PP([1, -2, -3], "_w__", [0, 1, "#-1", 0], allow_suspension=Allow.NO),
+#     PP([-1, 1, 3, 4, 5, 7], "_w__", [0, 1, 2, 0], [2]),
+#     PP([-1, 1, 3, 4], "____", [0, 2, 1, 0], constraints=[2]),
+#     PP([-1], "____", [0, 2, 1, 0], constraints=[1, 3]),
+#     PP([-1, -3, 1], "____", [0, -2, -4, 0], constraints=[-2, -4]),
+#     PP([-1, -3, 0], "____", [0, -2, -4, -2], constraints=[-2, -4]),
+#     # PP([-6], )
+#     # triad arpeggiations up
+#     PP([2], "___w", [0, 2, 4, 3], constraints=[2, 4]),
+#     PP([3], "___w", [0, 2, 5, 4], constraints=[2, 5]),
+#     PP([3], "___w", [0, 3, 5, 4], constraints=[3, 5]),
+#     PP(
+#         [7],
+#         "___w",
+#         [0, 2, 4, "#6"],
+#         constraints=[2, 4],
+#         negative_constraints=[6],
+#     ),
+#     PP([7], "___w", [0, 2, 5, "#6"], constraints=[2, 5]),
+#     PP([7], "___w", [0, 3, 5, "#6"], constraints=[3, 5]),
+#     PP([6, 9], "____", [0, 2, 5, 7], constraints=[2, 5]),
+#     PP([6], "____", [0, 3, 5, 7], constraints=[3, 5]),
+#     PP([4, 6, 9], "____", [0, 2, 4, 7], constraints=[2, 4]),
+#     # triad arpeggiations down
+#     PP([-6, -3, -5], "____", [0, -3, -5, -7], constraints=[-3, -5]),
+#     PP([-7, -4], "____", [0, -2, -4, -2], constraints=[-2, -4]),
+# )
 
-ASC_SCALE_FRAGMENTS = tuple(PP([i], "_" * i, list(range(i))) for i in range(1, 12))
-DESC_SCALE_FRAGMENTS = tuple(
-    PP([i], "_" * abs(i), list(range(0, i, -1))) for i in range(-1, -12, -1)
-)
-PREFABS = (
-    TWO_PREFABS
-    + THREE_PREFABS
-    + FOUR_PREFABS
-    + ASC_SCALE_FRAGMENTS
-    + DESC_SCALE_FRAGMENTS
-)
+# ASC_SCALE_FRAGMENTS = tuple(PP([i], "_" * i, list(range(i))) for i in range(1, 12))
+# DESC_SCALE_FRAGMENTS = tuple(
+#     PP([i], "_" * abs(i), list(range(0, i, -1))) for i in range(-1, -12, -1)
+# )
+# PREFABS = (
+#     TWO_PREFABS
+#     + THREE_PREFABS
+#     + FOUR_PREFABS
+#     + ASC_SCALE_FRAGMENTS
+#     + DESC_SCALE_FRAGMENTS
+# )
+
+
+def get_scale_prefabs(max_scale=12):
+    def _get_asc_scales_of_extent(
+        scale_extent: int,
+        chords: tuple[tuple[int, ...], ...] = ((0, 2, 4), (0, 2, 5), (0, 3, 5)),
+    ):
+        out = []
+        steps = list(range(scale_extent))
+        for chord in chords:
+            # We assume that the first item in chord is 0
+            assert chord[0] == 0
+            chord_steps = set(
+                ascending_chord_intervals_within_range(chord, scale_extent)
+            )
+            metric_accumulator = []
+            for i in range(scale_extent):
+                # If the step is a non-chord tone with chord tones on either side,
+                #   it should be weak. (In the case of scalar fourths, we are agnostic
+                #   what the metric strength of the intervening notes should be)
+                if (
+                    i not in chord_steps
+                    and i - 1 in chord_steps
+                    and i + 1 in chord_steps
+                ):
+                    metric_accumulator.append("w")
+                else:
+                    metric_accumulator.append("_")
+            metric_strength_str = "".join(metric_accumulator)
+            out.append(
+                PrefabPitches(
+                    scale_extent,
+                    metric_strength_str,
+                    relative_degrees=steps,
+                    constraints=chord[1:],
+                )
+            )
+        return out
+
+    def _get_desc_scales_of_extent(
+        scale_extent: int,
+        chords: tuple[tuple[int, ...], ...] = ((0, 2, 4), (0, 2, 5), (0, 3, 5)),
+    ):
+        assert scale_extent < 0
+        out = []
+        steps = list(range(0, scale_extent, -1))
+        for chord in chords:
+            # We assume that the first item in chord is 0
+            assert chord[0] == 0
+            chord_steps = set(
+                descending_chord_intervals_within_range(chord, scale_extent)
+            )
+            metric_accumulator = []
+            for i in range(0, scale_extent, -1):
+                # If the step is a non-chord tone with chord tones on either side,
+                #   it should be weak. (In the case of scalar fourths, we are agnostic
+                #   what the metric strength of the intervening notes should be)
+                if (
+                    i not in chord_steps
+                    and i - 1 in chord_steps
+                    and i + 1 in chord_steps
+                ):
+                    metric_accumulator.append("w")
+                else:
+                    metric_accumulator.append("_")
+            metric_strength_str = "".join(metric_accumulator)
+            out.append(
+                PrefabPitches(
+                    scale_extent,
+                    metric_strength_str,
+                    relative_degrees=steps,
+                    constraints=chord[1:],
+                )
+            )
+        return out
+
+    out = []
+    for scale_extent in range(2, max_scale + 1):
+        out += _get_asc_scales_of_extent(scale_extent)
+        out += _get_desc_scales_of_extent(-scale_extent)
+
+    return out
 
 
 class PrefabPitchDirectory:
-    def __init__(self, allow_singleton_pitch: bool = True):
+    def __init__(
+        self,
+        config_path: str | Path,
+        auto_add_scales: bool = True,
+        allow_singleton_pitch: bool = True,
+    ):
         self._memo = {}
         self._singleton = SingletonPitch() if allow_singleton_pitch else None
+        with open(config_path, "r") as yaml_file:
+            config_list = yaml.safe_load(yaml_file)
+        self._prefabs: list[PrefabPitchBase] = []
+        for prefab_kwargs in config_list:
+            metric_stength_arg = prefab_kwargs["metric_strength_str"]
+            if (not isinstance(metric_stength_arg, str)) and len(
+                metric_stength_arg
+            ) > 1:
+                for metric_strength_str in metric_stength_arg:
+                    self._prefabs.append(
+                        PrefabPitches(
+                            **(
+                                prefab_kwargs
+                                | {"metric_strength_str": metric_strength_str}
+                            )
+                        )
+                    )
+            else:
+                self._prefabs.append(PrefabPitches(**prefab_kwargs))
+        if auto_add_scales:
+            self._prefabs += get_scale_prefabs()
 
     def __call__(
         self,
@@ -443,7 +563,7 @@ class PrefabPitchDirectory:
         if tup in self._memo:
             return self._memo[tup].copy()
         out: list[PrefabPitchBase] = [
-            prefab for prefab in PREFABS if prefab.matches_criteria(*tup)
+            prefab for prefab in self._prefabs if prefab.matches_criteria(*tup)
         ]
         if not out:
             if len(metric_strength_str) == 1 and self._singleton is not None:

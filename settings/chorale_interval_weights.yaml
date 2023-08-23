@@ -13,3 +13,4 @@ interval_weights:
   11: 0.0
   12: 0.1
 weight_harmonic_intervals: false
+max_suspension_dur: 1.0

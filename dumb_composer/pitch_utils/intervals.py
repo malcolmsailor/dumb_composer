@@ -83,8 +83,12 @@ def smallest_pitch_class_interval(
     2
     >>> smallest_pitch_class_interval(50, 48)
     -2
+    >>> smallest_pitch_class_interval(50, 60)
+    -2
+    >>> smallest_pitch_class_interval(60, 50)
+    2
 
-    We can miss pitches and pitch-classes
+    We can mix pitches and pitch-classes
     >>> smallest_pitch_class_interval(8, 66)
     -2
     """
@@ -368,3 +372,14 @@ def is_direct_interval(
             and ((lower_melodic_interval > 0) == (upper_melodic_interval > 0))
         )
     )
+
+
+# def adjacent_ascending_intervals(
+#     intervals: tuple[Interval, ...], n_steps_per_octave: int = 12
+# ) -> t.Iterator[Interval]:
+#     """
+#     >>> [i for _, i in zip(range(5), adjacent_ascending_intervals(0, 4, 7))]
+#     [4, 3, 5, 4, 3, 5]
+
+#     """
+#     pass

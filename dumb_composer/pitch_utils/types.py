@@ -1,4 +1,5 @@
 import typing as t
+from abc import ABCMeta, abstractmethod
 from copy import copy
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -26,6 +27,8 @@ MelodicAtom = t.Tuple[Pitch | None, Pitch | None]
 RNToken = str
 
 Weight = float
+
+AllowLiteral = t.Literal["YES", "NO", "ONLY"]
 
 
 @dataclass
@@ -192,3 +195,23 @@ class Note(DFItem):
 Simultaneity = t.Sequence[Note | None]
 NoteChange = tuple[Note | None, Note | None]
 SimultaneousNoteChange = tuple[NoteChange, ...]
+
+
+class RecursiveWorker(t.Protocol):
+    def step(self) -> t.Iterator[t.Any]:
+        raise NotImplementedError
+
+    def append_attempt(self, step_result: t.Any):
+        raise NotImplementedError
+
+    @property
+    def step_i(self) -> int:
+        raise NotImplemented
+
+    @property
+    def finished(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def ready(self) -> bool:
+        raise NotImplementedError

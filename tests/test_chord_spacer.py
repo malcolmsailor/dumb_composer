@@ -8,7 +8,7 @@ from dumb_composer.chord_spacer import (
     SpacingConstraints,
     validate_spacing,
 )
-from dumb_composer.shared_classes import PrefabScore
+from dumb_composer.classes.scores import PrefabScore
 
 
 # # TODO: (Malcolm) implement accounting for voice-leading

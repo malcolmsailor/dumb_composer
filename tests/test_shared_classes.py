@@ -3,8 +3,9 @@ from copy import deepcopy
 
 import pytest
 
+from dumb_composer.classes.score_interfaces import ScoreInterface
+from dumb_composer.classes.scores import FourPartScore, _ScoreBase
 from dumb_composer.pitch_utils.types import ALTO, BASS, MELODY, TENOR, Voice
-from dumb_composer.shared_classes import FourPartScore, ScoreInterface, _ScoreBase
 from dumb_composer.suspensions import Suspension
 
 RULE_OF_OCTAVE = """m1 C: I b2 V43 b3 I6 b4 ii65

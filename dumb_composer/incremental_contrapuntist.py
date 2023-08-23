@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from itertools import chain, product, repeat
 from statistics import mean
 
+from dumb_composer.classes.score_interfaces import ScoreInterface
+from dumb_composer.classes.scores import FourPartScore, _ScoreBase
 from dumb_composer.pitch_utils.aliases import Third
 from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.interval_chooser import (
@@ -30,12 +32,12 @@ from dumb_composer.pitch_utils.types import (
     InnerVoice,
     OuterVoice,
     Pitch,
+    RecursiveWorker,
     TimeStamp,
     Voice,
     VoicePair,
 )
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
-from dumb_composer.shared_classes import FourPartScore, ScoreInterface, _ScoreBase
 from dumb_composer.suspensions import (
     Suspension,
     SuspensionCombo,
@@ -45,6 +47,7 @@ from dumb_composer.suspensions import (
     validate_intervals_among_suspensions,
     validate_suspension_resolution,
 )
+from dumb_composer.utils.composer_helpers import chain_steps
 from dumb_composer.utils.display import Spinner
 from dumb_composer.utils.math_ import softmax, weighted_sample_wo_replacement
 from dumb_composer.utils.recursion import (
@@ -106,7 +109,7 @@ def _validate(voices: t.Sequence[Voice]):
     return f
 
 
-class IncrementalContrapuntist:
+class IncrementalContrapuntist(RecursiveWorker):
     def __init__(
         self,
         *,
@@ -1551,30 +1554,23 @@ class IncrementalContrapuntist:
         yield from self._step_recursive_helper(self._voices)
         raise DeadEnd()
 
+    @property
+    def ready(self) -> bool:
+        return self.step_i <= min(self._score.structural_lengths)
+
+    @property
+    def step_i(self) -> int:
+        return self._score.i
+
     @contextmanager
     def append_attempt(self, incremental_result: IncrementalResult):
-        voices = list(incremental_result)
-        lengths = set(len(self._score._score._structural[v]) for v in voices)
-        assert len(lengths) == 1
-        LOGGER.debug(f"before append: {voices=} {lengths=}")
-        original_lengths = lengths
-        try:
-            with recursive_attempt(
-                do_func=append_structural,
-                do_args=(incremental_result, self._score.score),
-                undo_func=pop_structural,
-                undo_args=(incremental_result, self._score.score),
-            ):
-                lengths = set(len(self._score._score._structural[v]) for v in voices)
-                assert len(lengths) == 1
-                LOGGER.debug(f"during append: {voices=} {lengths=}")
-                yield
-        except UndoRecursiveStep:
-            lengths = set(len(self._score._score._structural[v]) for v in voices)
-            assert len(lengths) == 1
-            LOGGER.debug(f"after append: {voices=} {lengths=}")
-            assert lengths == original_lengths
-            raise
+        with recursive_attempt(
+            do_func=append_structural,
+            do_args=(incremental_result, self._score.score),
+            undo_func=pop_structural,
+            undo_args=(incremental_result, self._score.score),
+        ):
+            yield
 
     @property
     def finished(self) -> bool:
@@ -1610,17 +1606,40 @@ class IncrementalContrapuntist:
         return self._score
 
 
-def append_structural(incremental_result: IncrementalResult, score: _ScoreBase):
-    for voice, pitch in incremental_result.items():
-        assert isinstance(pitch, Pitch)
-        score._structural[voice].append(pitch)
+def _get_lens_then_perform_op(
+    op: t.Callable[[], None], get_lens: t.Callable[[], tuple[int, ...]]
+):
+    before_lens = get_lens()
+    assert len(set(before_lens)) == 1
+
+    op()
+
+    after_lens = get_lens()
+    assert len(set(after_lens)) == 1
+    return before_lens[0], after_lens[0]
+
+
+def append_structural(
+    incremental_result: IncrementalResult, score: _ScoreBase
+) -> tuple[int, int]:
+    get_lens = lambda: tuple(len(score._structural[v]) for v in incremental_result)
+
+    def _perform_append():
+        for voice, pitch in incremental_result.items():
+            assert isinstance(pitch, Pitch)
+            score._structural[voice].append(pitch)
+
+    return _get_lens_then_perform_op(_perform_append, get_lens)
 
 
 def pop_structural(voices: t.Iterable[Voice], score: _ScoreBase):
-    for voice in voices:
-        LOGGER.debug(f"{voice=} length before pop = {len(score._structural[voice])}")
-        score._structural[voice].pop()
-        LOGGER.debug(f"{voice=} length after pop = {len(score._structural[voice])}")
+    get_lens = lambda: tuple(len(score._structural[v]) for v in voices)
+
+    def _perform_pop():
+        for voice in voices:
+            score._structural[voice].pop()
+
+    return _get_lens_then_perform_op(_perform_pop, get_lens)
 
 
 def build_incrementally(
@@ -1628,38 +1647,6 @@ def build_incrementally(
     score: FourPartScore,
     settings: IncrementalContrapuntistSettings = IncrementalContrapuntistSettings(),
 ):
-    def _recurse_through_contrapuntists(
-        contrapuntists: list[IncrementalContrapuntist],
-    ):
-        if not contrapuntists:
-            if all(c.finished for c in all_contrapuntists):
-                yield
-                return
-            contrapuntists = all_contrapuntists
-
-        contrapuntist, *remaining_contrapuntists = contrapuntists
-
-        if remaining_contrapuntists:
-            assert contrapuntist._score.i >= max(
-                c._score.i for c in remaining_contrapuntists
-            )
-
-        # If a later contrapuntist creates a suspension, it may split the notes in
-        #   the prior voices of the earlier contrapuntists. In this case, the next
-        #   notes of the earlier contrapuntists already exist, and so we need to skip
-        #   them.
-        if remaining_contrapuntists and contrapuntist._score.i > min(
-            c._score.i for c in remaining_contrapuntists
-        ):
-            yield from _recurse_through_contrapuntists(remaining_contrapuntists)
-            raise DeadEnd()
-
-        for pitches in contrapuntist.step():
-            LOGGER.debug(f"making append attempt")
-            with contrapuntist.append_attempt(pitches):
-                yield from _recurse_through_contrapuntists(remaining_contrapuntists)
-        raise DeadEnd()
-
     prior_voices = ()
     all_contrapuntists = []
     for voices in voice_tups:
@@ -1669,5 +1656,4 @@ def build_incrementally(
         all_contrapuntists.append(contrapuntist)
         prior_voices += voices
 
-    # _recurse_through_contrapuntists is a generator so we need to call next() on it
-    next(_recurse_through_contrapuntists([]))
+    chain_steps(all_contrapuntists)

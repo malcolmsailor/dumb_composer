@@ -1,11 +1,13 @@
 import itertools
 import os
 import random
+from copy import deepcopy
 
 import pandas as pd
 import pytest
 from midi_to_notes import df_to_midi
 
+from dumb_composer.classes.scores import FourPartScore
 from dumb_composer.incremental_contrapuntist import (
     IncrementalContrapuntist,
     IncrementalContrapuntistSettings,
@@ -20,14 +22,19 @@ from dumb_composer.pitch_utils.types import (
     Voice,
     voice_enum_to_string,
 )
-from dumb_composer.shared_classes import FourPartScore
 from dumb_composer.utils.iterables import slice_into_sublists
 from dumb_composer.utils.recursion import DeadEnd, append_attempt
 from tests.test_helpers import TEST_OUT_DIR, merge_dfs
 
 VALID_VOICE_ORDERS = [
-    (BASS,),
-    (MELODY,),
+    # TODO: (Malcolm 2023-08-16) currently, BASS-only or MELODY-only doesn't
+    #   work because the _structural defaultdict will have an entry
+    #   for the voice that isn't being made (e.g., MELODY, if we are doing BASS
+    #   only) and this will cause the worker to return ready=False infinitely
+    #   since the MELODY entry in the defaultdict will always be shorter
+    #   than the BASS entry
+    # (BASS,),
+    # (MELODY,),
     (BASS, MELODY),
     (MELODY, BASS),
     (BASS, MELODY, TENOR),
@@ -106,37 +113,6 @@ def test_incremental_contrapuntalist(pytestconfig, voices, time_sig=(4, 4)):
     df_to_midi(out_df, mid_path, ts=(numer, denom))
 
 
-# def _recursive_helper(
-#     contrapuntist1: IncrementalContrapuntist,
-#     contrapuntist2: IncrementalContrapuntist,
-#     voices,
-#     prev_voices,
-# ):
-#     # assert contrapuntist1._score.i == contrapuntist2._score.i
-#     if contrapuntist1.finished:
-#         assert contrapuntist2.finished
-#         return
-#     for pitches in contrapuntist1.step():
-#         with contrapuntist1.append_attempt(pitches):
-#             for more_pitches in contrapuntist2.step():
-#                 # assert contrapuntist1._score.i == contrapuntist2._score.i + 1
-#                 with contrapuntist2.append_attempt(more_pitches):
-#                     return _recursive_helper(
-#                         contrapuntist1, contrapuntist2, voices, prev_voices
-#                     )
-#     raise DeadEnd()
-
-
-# @pytest.mark.parametrize(
-#     "voice_tups",
-#     (
-#         ((BASS,), (MELODY,)),
-#         ((BASS,), (MELODY,)),
-#         ((BASS,), (MELODY, TENOR_AND_ALTO)),
-#         ((BASS, MELODY), (TENOR_AND_ALTO,)),
-#         ((BASS,), (MELODY,), (TENOR_AND_ALTO,)),
-#     ),
-# )
 def test_incremental_contrapuntalist_with_prior_voices(
     pytestconfig, voice_tups: tuple[tuple[Voice]]
 ):
@@ -162,7 +138,6 @@ def test_incremental_contrapuntalist_with_prior_voices(
             for voice_tup in voice_tups
         ]
     )
-    # prior_voice_strs = "-".join([voice_enum_to_string[v] for v in prior_voices])
     path_wo_ext = os.path.join(
         TEST_OUT_DIR,
         f"incremental_contapuntalist_with_prior_voices={voice_tup_str}",
@@ -177,10 +152,10 @@ def test_incremental_contrapuntalist_with_prior_voices(
     initial_seed = 42
     number_of_tries = 10
     for seed in range(initial_seed, initial_seed + number_of_tries):
-        random.seed(seed)
         score = FourPartScore(rn_txt)
+        score2 = deepcopy(score)
+        random.seed(seed)
         build_incrementally(voice_tups, score, settings)
-        # out_df = score.structural_as_df()
         out_df = score.get_df(["structural", "annotations"])
 
         dfs.append(out_df)

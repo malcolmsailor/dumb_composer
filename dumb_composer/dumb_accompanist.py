@@ -8,6 +8,8 @@ from itertools import chain
 import pandas as pd
 
 from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
+from dumb_composer.classes.chord_transition_interfaces import AccompanimentInterface
+from dumb_composer.incremental_contrapuntist import IncrementalResult
 from dumb_composer.patterns import PatternMaker
 from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
@@ -26,14 +28,7 @@ from dumb_composer.pitch_utils.types import (
     TwoPartResult,
     Voice,
 )
-from dumb_composer.shared_classes import (
-    AccompanimentInterface,
-    Annotation,
-    Chord,
-    Note,
-    PrefabScore,
-    _ScoreBase,
-)
+from dumb_composer.shared_classes import Annotation, Note
 from dumb_composer.time import Meter
 from dumb_composer.utils.recursion import DeadEnd
 
@@ -225,7 +220,7 @@ class DumbAccompanist:
             ]
 
     def step(
-        self, current_pitches: TwoPartResult | FourPartResult | None
+        self, current_pitches: TwoPartResult | FourPartResult | IncrementalResult | None
     ) -> t.Iterator[t.Union[t.List[Note], t.Tuple[t.List[Note], Annotation]]]:
         assert self._pm is not None
         assert self._score_interface.validate_state()

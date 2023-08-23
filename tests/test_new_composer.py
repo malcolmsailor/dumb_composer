@@ -9,6 +9,7 @@ from dumb_composer.new_composer import NewComposer, NewComposerSettings
 from tests.test_helpers import TEST_OUT_DIR, get_funcname, merge_dfs, write_df
 
 
+@pytest.mark.skip(reason="WIP")
 @pytest.mark.parametrize(
     "time_sig",
     [

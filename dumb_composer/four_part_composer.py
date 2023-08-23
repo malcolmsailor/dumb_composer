@@ -10,6 +10,8 @@ from statistics import mean
 
 import pandas as pd
 
+from dumb_composer.classes.score_interfaces import ScoreInterface
+from dumb_composer.classes.scores import FourPartScore
 from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.scale import ScaleDict
@@ -25,7 +27,6 @@ from dumb_composer.pitch_utils.types import (
     Voice,
 )
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
-from dumb_composer.shared_classes import Annotation, FourPartScore, ScoreInterface
 from dumb_composer.structural_partitioner import (
     StructuralPartitioner,
     StructuralPartitionerSettings,
