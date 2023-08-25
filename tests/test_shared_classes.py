@@ -5,8 +5,7 @@ import pytest
 
 from dumb_composer.classes.score_interfaces import ScoreInterface
 from dumb_composer.classes.scores import FourPartScore, _ScoreBase
-from dumb_composer.pitch_utils.types import ALTO, BASS, MELODY, TENOR, Voice
-from dumb_composer.suspensions import Suspension
+from dumb_composer.pitch_utils.types import ALTO, BASS, MELODY, TENOR, Suspension, Voice
 
 RULE_OF_OCTAVE = """m1 C: I b2 V43 b3 I6 b4 ii65
 m2 V b2 IV6 b3 V65 b4 I"""

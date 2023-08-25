@@ -1,15 +1,16 @@
 import logging
 import random
 import typing as t
+from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain, product, repeat
 from statistics import mean
 
+from dumb_composer.chords.chords import Chord, Tendency
 from dumb_composer.classes.score_interfaces import ScoreInterface
 from dumb_composer.classes.scores import FourPartScore, _ScoreBase
 from dumb_composer.pitch_utils.aliases import Third
-from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
@@ -18,6 +19,7 @@ from dumb_composer.pitch_utils.intervals import (
     get_forbidden_intervals,
     interval_finder,
     is_direct_interval,
+    reduce_compound_interval,
 )
 from dumb_composer.pitch_utils.pcs import PitchClass
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range
@@ -33,13 +35,13 @@ from dumb_composer.pitch_utils.types import (
     OuterVoice,
     Pitch,
     RecursiveWorker,
+    Suspension,
     TimeStamp,
     Voice,
     VoicePair,
 )
 from dumb_composer.pitch_utils.voice_lead_chords import voice_lead_chords
 from dumb_composer.suspensions import (
-    Suspension,
     SuspensionCombo,
     find_bass_suspension,
     find_suspension_release_times,
@@ -62,6 +64,10 @@ LOGGER = logging.getLogger(__name__)
 # TODO: (Malcolm 2023-08-07) find and execute voice exchanges, esp. between outer voices
 #   (note that presently stepwise voice exchanges are if anything discouraged because of
 #   the octaves)
+
+
+class DoubledSuspension(UndoRecursiveStep):
+    pass
 
 
 @dataclass
@@ -127,7 +133,6 @@ class IncrementalContrapuntist(RecursiveWorker):
         self._voices = tuple(voices)
         self._validate_voices(self._prior_voices + self._voices)
 
-        # TODO: (Malcolm 2023-08-08) is this a robust way of setting get_i?
         voice_to_monitor = voices[0]
         if voice_to_monitor is TENOR_AND_ALTO:
             voice_to_monitor = TENOR
@@ -135,6 +140,12 @@ class IncrementalContrapuntist(RecursiveWorker):
 
         self._score = ScoreInterface(
             score, get_i=get_i, validate=_validate(self._prior_voices + self._voices)
+        )
+        # We keep a memory of which recursive dead-ends we've been down so we don't
+        # travel down them again
+        # TODO: (Malcolm 2023-08-25) update type annotation
+        self._failure_memory: defaultdict[int, set[tuple[Pitch, ...]]] = defaultdict(
+            set
         )
         if self.settings.annotate_chords:
             self._score.annotate_chords()
@@ -349,17 +360,76 @@ class IncrementalContrapuntist(RecursiveWorker):
             LOGGER.warning(f"must use direct interval {interval}")
             yield src_pitch + interval
 
+    def _get_abstract_release(self) -> TimeStamp | None:
+        if self._score.current_chord.suspensions is not None:
+            return self._score.current_chord.release
+        return None
+
+    def _realize_abstract_suspension(self, voice: Voice) -> Suspension | None:
+        if self._score.current_chord.suspensions is not None:
+            for abstract_suspension in self._score.current_chord.suspensions:
+                # p_pitch = self._score.prev_pitch(voice)
+                # if (
+                #     self._score.current_chord.token == "iiø6/5"
+                #     and self._score.prev_pitch(voice) % 12 == 2
+                # ):
+                #     breakpoint()
+                if (
+                    (prev_pitch := self._score.prev_pitch(voice)) % 12
+                    == abstract_suspension.pc
+                ) and not any(
+                    s.pitch % 12 == abstract_suspension.pc
+                    for s in self._score.all_current_suspensions()
+                ):
+                    if (
+                        abstract_suspension.begins_on_prev
+                        and not self._score.prev_is_suspension(voice)
+                    ):
+                        return None
+                    # TODO: (Malcolm 2023-08-24) accommodate case where chord has been split
+                    interval_above_bass = reduce_compound_interval(
+                        prev_pitch - self._score.current_chord.foot
+                    )
+                    return Suspension(
+                        prev_pitch,
+                        resolves_by=abstract_suspension.resolves_by,
+                        dissonant=abstract_suspension.dissonant,
+                        interval_above_bass=interval_above_bass,
+                        begins_on_prev=abstract_suspension.begins_on_prev,
+                        resolves_on_next=abstract_suspension.resolves_on_next,
+                    )
+        return None
+
     def _choose_melody_suspension(
         self, suspension_chord_pcs_to_avoid: t.Container[PitchClass]
     ) -> t.Iterator[tuple[Suspension, TimeStamp] | None]:
-        release_times = find_suspension_release_times(
-            self._score.current_chord.onset,
-            self._score.current_chord.release,
-            self._score.ts,
-            max_weight_diff=self.settings.max_suspension_weight_diff,
-            max_suspension_dur=self.settings.max_suspension_dur,
-            include_stop=self._score.next_chord is not None,
-        )
+        abstract_release = self._get_abstract_release()
+        if (
+            realized_abstract_suspension := self._realize_abstract_suspension(MELODY)
+        ) is not None:
+            # TODO: (Malcolm 2023-08-24) maybe add a flag that specifies that this is
+            #   a realized abstract suspension and we should undo to an earlier
+            #   recursive step if it doesn't work
+            assert abstract_release is not None
+            if realized_abstract_suspension.pitch % 12 == self._score.current_foot_pc:
+                raise DoubledSuspension
+            yield realized_abstract_suspension, abstract_release
+            return
+
+        if abstract_release is not None:
+            # TODO: (Malcolm 2023-08-24) for now we only look for suspensions that
+            #   coincide with the abstract release because splitting the chord
+            #   but maintaining the abstract suspension isn't yet supported
+            release_times = [abstract_release]
+        else:
+            release_times = find_suspension_release_times(
+                self._score.current_chord.onset,
+                self._score.current_chord.release,
+                self._score.ts,
+                max_weight_diff=self.settings.max_suspension_weight_diff,
+                max_suspension_dur=self.settings.max_suspension_dur,
+                include_stop=self._score.next_chord is not None,
+            )
         # if any(t > self._score.current_chord.release for t in release_times):
         #     breakpoint()
         if not release_times:
@@ -627,7 +697,7 @@ class IncrementalContrapuntist(RecursiveWorker):
     # ==================================================================================
     # Bass
     # ==================================================================================
-    def _choose_suspension_bass(
+    def _choose_bass_suspension(
         self,
     ) -> t.Iterator[tuple[Suspension, TimeStamp] | None]:
         # BASS ONLY
@@ -637,14 +707,21 @@ class IncrementalContrapuntist(RecursiveWorker):
             yield None
             return
 
-        release_times = find_suspension_release_times(
-            self._score.current_chord.onset,
-            self._score.current_chord.release,
-            self._score.ts,
-            max_weight_diff=self.settings.max_suspension_weight_diff,
-            max_suspension_dur=self.settings.max_suspension_dur,
-            include_stop=self._score.next_chord is not None,
-        )
+        abstract_release = self._get_abstract_release()
+        if abstract_release is not None:
+            # TODO: (Malcolm 2023-08-24) for now we only look for suspensions that
+            #   coincide with the abstract release because splitting the chord
+            #   but maintaining the abstract suspension isn't yet supported
+            release_times = [abstract_release]
+        else:
+            release_times = find_suspension_release_times(
+                self._score.current_chord.onset,
+                self._score.current_chord.release,
+                self._score.ts,
+                max_weight_diff=self.settings.max_suspension_weight_diff,
+                max_suspension_dur=self.settings.max_suspension_dur,
+                include_stop=self._score.next_chord is not None,
+            )
         if not release_times:
             yield None
             return
@@ -758,7 +835,7 @@ class IncrementalContrapuntist(RecursiveWorker):
                 is not Tendency.NONE
             )
 
-        for suspension_args in self._choose_suspension_bass():
+        for suspension_args in self._choose_bass_suspension():
             if suspension_args is not None:
                 suspension, release = suspension_args
                 lengths = [len(v) for v in self._score._score._structural.values()]
@@ -974,14 +1051,42 @@ class IncrementalContrapuntist(RecursiveWorker):
             yield None
             return
 
-        release_times = find_suspension_release_times(
-            self._score.current_chord.onset,
-            self._score.current_chord.release,
-            self._score.ts,
-            max_weight_diff=self.settings.max_suspension_weight_diff,
-            max_suspension_dur=self.settings.max_suspension_dur,
-            include_stop=self._score.next_chord is not None,
-        )
+        abstract_release = self._get_abstract_release()
+        realized_abstract_suspensions: SuspensionCombo = {}
+        for free_i in range(len(free_inner_voices)):
+            # TODO: (Malcolm 2023-08-24) in the case where there's an octave between
+            #   the inner voices we need to create a suspension in just one of them
+            free_voice = free_inner_voices[free_i]
+            if (
+                (realized := self._realize_abstract_suspension(free_voice))
+            ) is not None:
+                assert abstract_release is not None
+                if realized.pitch % 12 in (melody_pitch % 12, bass_pitch % 12):
+                    raise DoubledSuspension
+                realized_abstract_suspensions[free_voice] = realized
+
+        # If there's only one free inner voice and there's a realized abstract
+        #   suspension we can yield and return immediately
+        if realized_abstract_suspensions and len(free_inner_voices) < 1:
+            assert abstract_release is not None
+            yield realized_abstract_suspensions, abstract_release
+            return
+
+        if abstract_release is not None:
+            # In this case we only look at suspensions that release on the next chord.
+            # Potentially there could also be suspensions that release on the current
+            # chord, before the realized abstract suspension release, but that promises
+            # to introduce a lot more complications than it's probably worth.
+            release_times = [abstract_release]
+        else:
+            release_times = find_suspension_release_times(
+                self._score.current_chord.onset,
+                self._score.current_chord.release,
+                self._score.ts,
+                max_weight_diff=self.settings.max_suspension_weight_diff,
+                max_suspension_dur=self.settings.max_suspension_dur,
+                include_stop=self._score.next_chord is not None,
+            )
         if not release_times:
             yield None
             return
@@ -994,6 +1099,11 @@ class IncrementalContrapuntist(RecursiveWorker):
             suspended_bass_pitch = bass_pitch
         else:
             suspended_bass_pitch = None
+
+        if realized_abstract_suspensions:
+            existing_suspension_pitches.extend(
+                [s.pitch for s in realized_abstract_suspensions.values()]
+            )
 
         suspension_chord_pcs_to_avoid = (
             set(
@@ -1079,6 +1189,9 @@ class IncrementalContrapuntist(RecursiveWorker):
         # -------------------------------------------------------------------------------
         # Step 2. Find suspensions that resolve during the current chord
         # -------------------------------------------------------------------------------
+
+        # Above, we remove the next chord onset from release times if it is in release
+        #   times, so we don't need to do that here.
         if release_times:
             suspensions: dict[InnerVoice, list[Suspension]] = {}
             for inner_voice in free_inner_voices:
@@ -1111,9 +1224,15 @@ class IncrementalContrapuntist(RecursiveWorker):
             suspensions = {}
 
         if not suspensions and not next_chord_suspensions:
-            yield None
+            if realized_abstract_suspensions:
+                assert abstract_release is not None
+                yield realized_abstract_suspensions, abstract_release
+            else:
+                yield None
             return
 
+        # TODO: (Malcolm 2023-08-24) anything to do here to accommodate realized
+        # abstract suspensions?
         suspension_combos = self._get_valid_suspension_combinations(
             suspensions, voice_or_voices
         )
@@ -1144,12 +1263,18 @@ class IncrementalContrapuntist(RecursiveWorker):
             suspension_combos_and_release_times, weights
         ):
             if suspension_combo is None:
-                yield None
-                continue
+                # TODO: (Malcolm 2023-08-24) this code is repeated from above
+                if realized_abstract_suspensions:
+                    assert abstract_release is not None
+                    yield realized_abstract_suspensions, abstract_release
+                else:
+                    yield None
+                return
             assert release_times is not None and suspension_combo is not None
             if len(release_times) == 1:
-                yield suspension_combo, release_times[0]
+                yield suspension_combo | realized_abstract_suspensions, release_times[0]
             else:
+                assert not realized_abstract_suspensions
                 # Note: we only try a single release time for each suspension;
                 # should we be more comprehensive?
                 suspension_lengths = [
@@ -1290,13 +1415,12 @@ class IncrementalContrapuntist(RecursiveWorker):
             elif suspension is not None:
                 other_pitch_i = int(pitch_pair[0] == suspension.pitch)
                 other_pitch = pitch_pair[other_pitch_i]
+                if other_pitch == 62 and suspension.pitch == 62:
+                    breakpoint()
                 if suspension_voice is InnerVoice.TENOR:
                     return (suspension.pitch, other_pitch)
                 else:
                     return (other_pitch, suspension.pitch)
-
-            if voice_or_voices is TENOR_AND_ALTO and len(pitch_pair) < 2:
-                breakpoint()
 
             return pitch_pair
 
@@ -1550,8 +1674,38 @@ class IncrementalContrapuntist(RecursiveWorker):
                 remaining_voices, result_so_far | new_result
             )
 
+    def _validate_previous_step(self) -> bool:
+        if self._score.i >= 1:
+            # check if we've already been down this recursive path
+            prev_pitches = self._score.prev_pitches(sort=False)
+            # TODO: (Malcolm 2023-08-25) this is intended to save going down dead-ends
+            #   again, but it doesn't seem to work. I had thought that if the
+            #   `prev_pitches` were the same, then the success/failure would be the
+            #   same. But apparently that isn't true: with this commented out,
+            #   the test of incremental composer with prior voices succeeds where
+            #   it fails otherwise.
+            # if prev_pitches in self._failure_memory[self._score.i]:
+            #     LOGGER.debug(
+            #         f"validate previous step failed: {prev_pitches=} in falure memory"
+            #     )
+            #     return False
+            self._failure_memory[self._score.i].add(prev_pitches)
+            # check suspensions
+            abstract_suspensions = self._score.current_chord.suspensions
+            if abstract_suspensions is not None:
+                prev_pcs = {p % 12 for p in self._score.prev_pitches_except_bass()}
+                for s in abstract_suspensions:
+                    if s.pc not in prev_pcs:
+                        LOGGER.debug(
+                            f"validate previous step failed: {s.pc=} not in {prev_pcs=} "
+                        )
+                        return False
+
+        return True
+
     def step(self) -> t.Iterator[IncrementalResult]:
-        yield from self._step_recursive_helper(self._voices)
+        if self._validate_previous_step():
+            yield from self._step_recursive_helper(self._voices)
         raise DeadEnd()
 
     @property

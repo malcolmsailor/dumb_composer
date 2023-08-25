@@ -4,7 +4,7 @@ from numbers import Number
 
 import pytest
 
-import dumb_composer.pitch_utils.chords as chords
+import dumb_composer.chords.chords
 from dumb_composer.pitch_utils.types import TIME_TYPE
 
 
@@ -22,7 +22,7 @@ from dumb_composer.pitch_utils.types import TIME_TYPE
     ],
 )
 def test_get_chords_from_rntxt_fit_scale(rntxt, expected_pcs, expected_scale_pcs):
-    out_list = chords.get_chords_from_rntxt(rntxt)
+    out_list = dumb_composer.chords.chords.get_chords_from_rntxt(rntxt)
     chord = out_list[0]
     assert expected_pcs == chord.pcs
     assert expected_scale_pcs == chord.scale_pcs
@@ -37,7 +37,7 @@ def test_get_chords_from_rntxt_fit_scale(rntxt, expected_pcs, expected_scale_pcs
     ],
 )
 def test_get_chords_from_rntxt_split_chords(rntxt, expected_onsets):
-    out_list = chords.get_chords_from_rntxt(
+    out_list = dumb_composer.chords.chords.get_chords_from_rntxt(
         rntxt, split_chords_at_metric_strong_points=True
     )
     for chord in out_list:
@@ -77,7 +77,9 @@ def test_get_harmony_onsets_and_releases():
         )
     ]
     for test_case in test_cases:
-        chords.get_harmony_onsets_and_releases(test_case.chords)  # type:ignore
+        dumb_composer.chords.chords.get_harmony_onsets_and_releases(
+            test_case.chords  # type:ignore
+        )
         prev_chord = None
         for chord, (onset, release, _) in zip(test_case.chords, test_case.raw):
             if prev_chord is not None:

@@ -215,3 +215,25 @@ class RecursiveWorker(t.Protocol):
     @property
     def ready(self) -> bool:
         raise NotImplementedError
+
+
+@dataclass
+class Suspension:
+    pitch: Pitch
+    resolves_by: int
+    dissonant: bool
+    interval_above_bass: int
+    # "score" is meant to be used to weight how likely we are to use
+    #   each suspension.
+    score: float = 1.0
+    begins_on_prev: bool = False
+    resolves_on_next: bool = True
+
+
+@dataclass
+class AbstractSuspension:
+    pc: PitchClass
+    resolves_by: ChromaticInterval
+    dissonant: bool
+    begins_on_prev: bool = False
+    resolves_on_next: bool = True

@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from functools import cached_property
-from itertools import chain, count, cycle, repeat
+from itertools import chain
 from types import MappingProxyType
 
 import music21
@@ -29,6 +29,7 @@ from dumb_composer.pitch_utils.spacings import (
 )
 from dumb_composer.pitch_utils.types import (
     TIME_TYPE,
+    AbstractSuspension,
     BassFactor,
     ChordFactor,
     ChromaticInterval,
@@ -38,6 +39,7 @@ from dumb_composer.pitch_utils.types import (
     RNToken,
     ScalarInterval,
     ScaleDegree,
+    Suspension,
     TimeStamp,
     VoiceCount,
 )
@@ -51,16 +53,6 @@ LOGGER = logging.getLogger(__name__)
 #   for example, omitting 5th of tonic triad should bear little penalty; same for dominant triad
 
 
-class Allow(Enum):
-    # For omissions,
-    #   NO means pitch cannot be omitted
-    #   YES means pitch can be omitted
-    #   ONLY means pitch *must* be omitted
-    NO = auto()
-    YES = auto()
-    ONLY = auto()
-
-
 class Tendency(Enum):
     NONE = auto()
     UP = auto()
@@ -69,26 +61,18 @@ class Tendency(Enum):
 
 RNTokenWithoutFigure = str
 
+
 AbstractChordTendencies = t.Mapping[ChordFactor, Tendency]
 ConcreteChordTendencies = t.Mapping[BassFactor, Tendency]
-
-
-class Inflection(Enum):
-    EITHER = auto()
-    NONE = auto()
-    UP = auto()
-    DOWN = auto()
-
-
-@dataclass
-class Resolution:
-    by: ChromaticInterval
-    to: PitchClass
 
 
 # TODO: (Malcolm 2023-08-16) treat sevenths on chords other than dominants as
 #   presumptive suspensions when the preparation occurs in the preceding chord
 #   (This will likely take a lot of work).
+
+DEFAULT_TENDENCIES: t.Mapping[ChordFactor, Tendency] = MappingProxyType(
+    {Seventh: Tendency.DOWN}
+)
 
 TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingProxyType(
     {
@@ -112,34 +96,124 @@ TENDENCIES: t.Mapping[RNTokenWithoutFigure, AbstractChordTendencies] = MappingPr
     }
 )
 
-DEFAULT_CHORD_FACTOR_SUSPENSION_WEIGHT = 0.5
-SUSPENSION_WEIGHTS_BY_SCALAR_INTERVALS: t.Mapping[
-    tuple[ScalarInterval, ...], t.Mapping[ChordFactor, float]
-] = {
-    # TRIADS
-    # 53 chord
-    (2, 4): {Third: 3.0, Fifth: 0.75},
-    # 63 chord
-    (2, 5): {Third: 2.5, Root: 1.0},
-    # 64 chord
-    (3, 5): {},
-    # SEVENTH CHORDS
-    # 73 chord
-    (2, 4, 6): {Third: 2.5, Root: 1.0},
-    # 65 chord
-    (2, 4, 5): {Third: 3.0, Root: 1.0},
-    # 43 chord
-    (2, 3, 5): {Third: 2.5, Root: 1.0},
-    # 42 chord
-    (1, 3, 5): {Third: 2.5, Root: 0.75},
-}
-SUSPENSION_WEIGHTS_BY_CHROMATIC_INTERVALS: t.Mapping[
-    tuple[ChromaticInterval, ...], t.Mapping
-] = {
-    # TRIADS
-    # Diminished 63 chord
-    (3, 9): {Third: 1.0, Root: 3.0},
-}
+
+def is_diminished_63(
+    chord: Chord, previous_chord: Chord | None = None, next_chord: Chord | None = None
+) -> bool:
+    return chord.chromatic_intervals_above_bass == (3, 9)
+
+
+def chord_ascends_by_step(chord: Chord, next_chord: Chord) -> bool:
+    return (next_chord.foot - chord.foot) % 12 in (1, 2)
+
+
+def is_53(chord: Chord, superset_ok: bool = False) -> bool:
+    if superset_ok:
+        return {2, 4} <= set(chord.scalar_intervals_above_bass)
+    return chord.scalar_intervals_above_bass == (2, 4)
+
+
+def is_63(chord: Chord, superset_ok: bool = False) -> bool:
+    if superset_ok:
+        return {2, 5} <= set(chord.scalar_intervals_above_bass)
+    return chord.scalar_intervals_above_bass == (2, 5)
+
+
+def is_64(chord: Chord, superset_ok: bool = False) -> bool:
+    if superset_ok:
+        return {3, 5} <= set(chord.scalar_intervals_above_bass)
+    return chord.scalar_intervals_above_bass == (3, 5)
+
+
+def is_triad(chord: Chord) -> bool:
+    return chord.scalar_intervals_above_root == (2, 4)
+
+
+def is_seventh_chord(chord: Chord) -> bool:
+    return chord.scalar_intervals_above_root == (2, 4, 6)
+
+
+def is_dominant_seventh_chord(
+    chord: Chord, superset_ok: bool = False, alterations_ok: bool = True
+) -> bool:
+    """
+    Note: does not try to match suspensions (like V754).
+
+    >>> rntxt = '''m1 V7 b2 V+7 b3 V9 b4 V+9'''
+    >>> V7, V7s5, V9, V9s5 = get_chords_from_rntxt(rntxt)
+    >>> is_dominant_seventh_chord(V7s5)
+    True
+    >>> is_dominant_seventh_chord(V7)
+    True
+    >>> is_dominant_seventh_chord(V7s5, alterations_ok=False)
+    False
+    >>> is_dominant_seventh_chord(V9)
+    False
+    >>> is_dominant_seventh_chord(V9, superset_ok=True)
+    True
+    >>> is_dominant_seventh_chord(V9s5, superset_ok=True)
+    True
+    >>> is_dominant_seventh_chord(V7s5, superset_ok=True, alterations_ok=False)
+    False
+    """
+    if superset_ok:
+        if alterations_ok:
+            return {4, 10} <= set(chord.chromatic_intervals_above_root)
+        return {4, 7, 10} <= set(chord.chromatic_intervals_above_root)
+    if alterations_ok:
+        match chord.chromatic_intervals_above_root:
+            case (4, _, 10):
+                return True
+            case _:
+                return False
+    return chord.chromatic_intervals_above_root == (4, 7, 10)
+
+
+def is_diminished_seventh_chord(chord: Chord):
+    return chord.chromatic_intervals_above_root == (3, 6, 9)
+
+
+def is_diminished_63_ascending_by_step_to_63(
+    chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
+) -> bool:
+    """
+    >>> rntxt = '''m1 C: I b2 viio6 b3 I6 b4 vi64
+    ... m2 viio6/ii b3 V43/ii'''
+    >>> I, viio6, I6, vi64, viio6_of_ii, V43_of_ii = get_chords_from_rntxt(rntxt)
+    >>> is_diminished_63_ascending_by_step_to_63(viio6, previous_chord=I, next_chord=I6)
+    True
+    >>> is_diminished_63_ascending_by_step_to_63(viio6, previous_chord=I6, next_chord=I)
+    False
+    >>> is_diminished_63_ascending_by_step_to_63(
+    ...     viio6, previous_chord=I, next_chord=vi64
+    ... )
+    False
+    """
+    if next_chord is None:
+        return False
+    return (
+        is_diminished_63(chord)
+        and chord_ascends_by_step(chord, next_chord)
+        and is_63(next_chord, superset_ok=True)
+    )
+
+
+def is_43_ascending_by_step(
+    chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
+) -> bool:
+    """
+    >>> rntxt = "m1 C: I b2 V43 b3 I6"
+    >>> I, V43, I6 = get_chords_from_rntxt(rntxt)
+    >>> is_43_ascending_by_step(V43, previous_chord=I, next_chord=I6)
+    True
+    >>> is_43_ascending_by_step(V43, previous_chord=I6, next_chord=I)
+    False
+    """
+    if next_chord is None:
+        return False
+    return chord.scalar_intervals_above_bass == (2, 3, 5) and chord_ascends_by_step(
+        chord, next_chord
+    )
 
 
 def is_major_or_minor_64(chord: Chord) -> bool:
@@ -182,65 +256,6 @@ def is_stationary_64(
     return False
 
 
-def is_63(chord: Chord, superset_ok: bool = False) -> bool:
-    if superset_ok:
-        return {2, 5} <= set(chord.scalar_intervals_above_bass)
-    return chord.scalar_intervals_above_bass == (2, 5)
-
-
-def chord_ascends_by_step(chord: Chord, next_chord: Chord) -> bool:
-    return (next_chord.foot - chord.foot) % 12 in (1, 2)
-
-
-def is_43_ascending_by_step(
-    chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
-) -> bool:
-    """
-    >>> rntxt = "m1 C: I b2 V43 b3 I6"
-    >>> I, V43, I6 = get_chords_from_rntxt(rntxt)
-    >>> is_43_ascending_by_step(V43, previous_chord=I, next_chord=I6)
-    True
-    >>> is_43_ascending_by_step(V43, previous_chord=I6, next_chord=I)
-    False
-    """
-    if next_chord is None:
-        return False
-    return chord.scalar_intervals_above_bass == (2, 3, 5) and chord_ascends_by_step(
-        chord, next_chord
-    )
-
-
-def is_diminished_63(
-    chord: Chord, previous_chord: Chord | None = None, next_chord: Chord | None = None
-) -> bool:
-    return chord.chromatic_intervals_above_bass == (3, 9)
-
-
-def is_diminished_63_ascending_by_step_to_63(
-    chord: Chord, previous_chord: Chord | None, next_chord: Chord | None
-) -> bool:
-    """
-    >>> rntxt = '''m1 C: I b2 viio6 b3 I6 b4 vi64
-    ... m2 viio6/ii b3 V43/ii'''
-    >>> I, viio6, I6, vi64, viio6_of_ii, V43_of_ii = get_chords_from_rntxt(rntxt)
-    >>> is_diminished_63_ascending_by_step_to_63(viio6, previous_chord=I, next_chord=I6)
-    True
-    >>> is_diminished_63_ascending_by_step_to_63(viio6, previous_chord=I6, next_chord=I)
-    False
-    >>> is_diminished_63_ascending_by_step_to_63(
-    ...     viio6, previous_chord=I, next_chord=vi64
-    ... )
-    False
-    """
-    if next_chord is None:
-        return False
-    return (
-        is_diminished_63(chord)
-        and chord_ascends_by_step(chord, next_chord)
-        and is_63(next_chord, superset_ok=True)
-    )
-
-
 CONDITIONAL_TENDENCIES: t.Mapping[
     t.Callable[[Chord, Chord | None, Chord | None], bool], AbstractChordTendencies
 ] = MappingProxyType(
@@ -254,23 +269,6 @@ CONDITIONAL_TENDENCIES: t.Mapping[
     }
 )
 
-# TODO: (Malcolm) long run we may want to normalize these tokens somehow, so e.g.
-# V643 -> V43
-
-# VOICING_PREREQUISITES specifies chord factors that can only occur if other chord
-#   factors are also present. For example, "V43": {Root: [Seventh]} specifies that
-#   the root (4th above bass) can only occur in a V43 chord if the seventh (3rd above
-#   bass) is also present. NB the bass is always assumed to be the prerequisite
-#   for all other notes.
-VOICING_PREREQUISITES: t.Mapping[
-    RNToken, t.Mapping[ChordFactor, t.Sequence[ChordFactor]]
-] = {"V43": {Root: [Seventh]}}
-
-
-# Can't be a lambda because needs to be pickleable
-def default2():
-    return 2
-
 
 @dataclass
 class Chord:
@@ -281,6 +279,8 @@ class Chord:
     inversion: int
     token: str
     tendencies: ConcreteChordTendencies
+
+    suspensions: None | t.Tuple[AbstractSuspension, ...] = None
 
     # whereas 'onset' and 'release' should be the start of this particular
     #   structural "unit" (which might, for example, break at a barline
@@ -305,6 +305,18 @@ class Chord:
     def __contains__(self, pitch_or_pc: PitchOrPitchClass) -> bool:
         return pitch_or_pc % 12 in self.pcs
 
+    @staticmethod
+    def _get_chord_pcs(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
+        # remove this function after music21's RomanNumeral
+        #   handling is repaired or I figure out another solution
+        def _transpose(pcs, tonic_pc):
+            return tuple((pc + tonic_pc) % 12 for pc in pcs)
+
+        if rn.figure == "bII7":
+            return _transpose((1, 5, 8, 0), rn.key.tonic.pitchClass)  # type:ignore
+        else:
+            return tuple(rn.pitchClasses)
+
     @classmethod
     def from_music21_rn(
         cls,
@@ -312,8 +324,8 @@ class Chord:
         onset: TimeStamp,
         release: TimeStamp,
         token_prefix: str = "",
-    ) -> Chord:
-        chord_pcs = _get_chord_pcs(rn)
+    ) -> "Chord":
+        chord_pcs = cls._get_chord_pcs(rn)
         scale_pcs = fit_scale_to_rn(rn)
         inversion = rn.inversion()
         tendencies = apply_tendencies(rn)
@@ -334,6 +346,10 @@ class Chord:
     @property
     def non_foot_pcs(self):
         return self.pcs[1:]
+
+    @cached_property
+    def root(self) -> PitchClass:
+        return self.root_position_pcs[0]
 
     @cached_property
     def root_position_pcs(self) -> tuple[PitchClass]:
@@ -376,7 +392,24 @@ class Chord:
         )
 
     @cached_property
-    def chromatic_intervals_above_bass(self) -> t.Tuple[ChromaticInterval]:
+    def scalar_intervals_above_root(self) -> t.Tuple[ScalarInterval, ...]:
+        """
+        >>> rntxt = "m1 C: I b3 V43"
+        >>> I, V43 = get_chords_from_rntxt(rntxt)
+        >>> I.scalar_intervals_above_root
+        (2, 4)
+        >>> V43.scalar_intervals_above_root
+        (2, 4, 6)
+        """
+        root = self.root
+        scale_cardinality = len(self.scale_pcs)
+        return tuple(
+            (self.scale_pcs.index(pc) - self.scale_pcs.index(root)) % scale_cardinality
+            for pc in self.root_position_pcs[1:]
+        )
+
+    @cached_property
+    def chromatic_intervals_above_bass(self) -> t.Tuple[ChromaticInterval, ...]:
         """
         >>> rntxt = "m1 Bb: I b3 V43"
         >>> I, V43 = get_chords_from_rntxt(rntxt)
@@ -388,6 +421,19 @@ class Chord:
         foot = self.foot
         return tuple((pc - foot) % 12 for pc in self.pcs[1:])
 
+    @cached_property
+    def chromatic_intervals_above_root(self) -> t.Tuple[ChromaticInterval, ...]:
+        """
+        >>> rntxt = "m1 Bb: I b3 V43"
+        >>> I, V43 = get_chords_from_rntxt(rntxt)
+        >>> I.chromatic_intervals_above_bass
+        (4, 7)
+        >>> V43.chromatic_intervals_above_bass
+        (4, 7, 11)
+        """
+        root = self.root
+        return tuple((pc - root) % 12 for pc in self.root_position_pcs[1:])
+
     def copy(self):
         """
         >>> rntxt = "m1 C: I"
@@ -395,7 +441,7 @@ class Chord:
         >>> I.copy()  # doctest: +NORMALIZE_WHITESPACE
         Chord(pcs=(0, 4, 7), scale_pcs=(0, 2, 4, 5, 7, 9, 11), onset=Fraction(0, 1),
               release=Fraction(4, 1), inversion=0, token='C:I',
-              tendencies={}, harmony_onset=Fraction(0, 1),
+              tendencies={}, suspensions=None, harmony_onset=Fraction(0, 1),
               harmony_release=Fraction(4, 1))
         """
         return deepcopy(self)
@@ -423,7 +469,7 @@ class Chord:
         return bass_factor_prerequisites
 
     @cached_property
-    def bass_factor_to_chord_factor(self) -> t.Tuple[int]:
+    def bass_factor_to_chord_factor(self) -> t.Tuple[int, ...]:
         """
         >>> rntxt = "m1 C: V7 b2 V65 b3 V43 b4 V42"
         >>> V7, V65, V43, V42 = get_chords_from_rntxt(rntxt)
@@ -442,7 +488,7 @@ class Chord:
         )
 
     @cached_property
-    def chord_factor_to_bass_factor(self) -> t.Tuple[int]:
+    def chord_factor_to_bass_factor(self) -> t.Tuple[int, ...]:
         """
         >>> rntxt = "m1 C: V7 b2 V65 b3 V43 b4 V42"
         >>> V7, V65, V43, V42 = get_chords_from_rntxt(rntxt)
@@ -561,7 +607,7 @@ class Chord:
         return pcs_consonant(self.pcs, self.scale_pcs)
 
     def update_tendencies_from_context(
-        self, prev_chord: Chord | None, next_chord: Chord | None
+        self, prev_chord: "Chord" | None, next_chord: "Chord" | None
     ):
         number_of_conditions_that_match = 0
         for condition, tendencies in CONDITIONAL_TENDENCIES.items():
@@ -726,7 +772,10 @@ class Chord:
         <Tendency.NONE: 1>
         """
         bass_factor = self._pc_to_bass_factor[pitch % 12]
-        return self.tendencies.get(bass_factor, Tendency.NONE)
+        chord_factor = self.bass_factor_to_chord_factor[bass_factor]
+
+        default_tendency = DEFAULT_TENDENCIES.get(chord_factor, Tendency.NONE)
+        return self.tendencies.get(bass_factor, default_tendency)
 
     def pc_can_be_doubled(self, pitch_or_pc: int) -> bool:
         """
@@ -955,8 +1004,9 @@ class Chord:
         the first pc, which is always the bass. The sorting is done so that equivalent
         permuted voicings won't be considered unique.
 
-        >>> rntxt = "m1 C: V7 b2 V65 b3 V43 b4 I"
-        >>> V7, V65, V43, I = get_chords_from_rntxt(rntxt)
+        >>> rntxt = '''m1 C: V7 b2 V65 b3 V43 b4 I
+        ... m2 iiø65'''
+        >>> V7, V65, V43, I, ii65 = get_chords_from_rntxt(rntxt)
         >>> I.all_pc_voicings()  # doctest: +NORMALIZE_WHITESPACE
         {4: {(0, 0, 4, 4), (0, 0, 4, 7), (0, 0, 0, 4), (0, 4, 4, 7),
              (0, 4, 7, 7)},
@@ -1152,9 +1202,17 @@ class Chord:
         # ...     other_chord_factors=(66,), bass_suspension=46, min_notes=4, max_notes=4
         # ... )
 
+        # >>> rntxt = "m1 d: i b2 iiø65 b3 V"
+        # >>> i, ii65, V = get_chords_from_rntxt(rntxt)
+        # >>> ii65.get_pcs_needed_to_complete_voicing(
+        # ...     min_notes=4, max_notes=4, suspensions=(62, 69)
+        # ... )
+
         >>> rntxt = '''m1 C: V7 b2 V65 b3 V6 b4 V43
-        ... m2 I'''
-        >>> V7, V65, V6, V43, I = get_chords_from_rntxt(rntxt)
+        ... m2 I b2 ii65 b3 V'''
+        >>> V7, V65, V6, V43, I, ii65, V = get_chords_from_rntxt(rntxt)
+
+
 
         >>> V7.get_pcs_needed_to_complete_voicing()  # doctest: +NORMALIZE_WHITESPACE
         [[5], [11], [5, 11], [5, 7], [7, 11], [2, 5], [2, 11], [2, 2, 5], [2, 2, 11],
@@ -1180,6 +1238,11 @@ class Chord:
         ... )  # doctest: +NORMALIZE_WHITESPACE
         [[2], [2, 2], [5, 7], [2, 7], [2, 5], [5, 7, 7], [2, 5, 7], [2, 2, 5],
          [2, 7, 7], [2, 2, 7]]
+
+        >>> ii65.get_pcs_needed_to_complete_voicing(min_notes=4, max_notes=4)
+        [[5, 9, 9], [0, 2, 9], [0, 9, 9], [2, 2, 9], [0, 2, 2], [0, 2, 5], [2, 5, 9], [2, 2, 5], [2, 9, 9], [0, 5, 9]]
+        >>> ii65.get_pcs_needed_to_complete_voicing(suspensions=[60, 67])
+        [[2], [5], [9]]
         """
 
         all_existing = (
@@ -1206,7 +1269,8 @@ class Chord:
                 except ValueError:
                     pass
                 else:
-                    out.append(pc_complement)
+                    if pc_complement:
+                        out.append(pc_complement)
         return out
 
     def get_voicing_option_weights(
@@ -1351,7 +1415,7 @@ class Chord:
                     out[(i + 1) % len(self.scale_pcs)] = Inflection.EITHER
         return out
 
-    def transpose(self, interval: ChromaticInterval) -> Chord:
+    def transpose(self, interval: ChromaticInterval) -> "Chord":
         """
         >>> rntxt = '''Time Signature: 4/4
         ... m1 C: I
@@ -1409,72 +1473,75 @@ class Chord:
         return down + up
 
 
-def is_same_harmony(
-    chord1: Chord,
-    chord2: Chord,
-    compare_scales: bool = True,
-    compare_inversions: bool = True,
-    allow_subsets: bool = False,
-) -> bool:
-    """
-    >>> rntxt = '''Time Signature: 4/4
-    ... m1 C: I
-    ... m2 I b3 I6
-    ... m3 V7/IV
-    ... m4 F: V'''
-    >>> I, Ib, I6, V7_of_IV, F_V = get_chords_from_rntxt(rntxt)
-    >>> is_same_harmony(I, Ib)
-    True
-    >>> is_same_harmony(I, I6)
-    False
-    >>> is_same_harmony(I, I6, compare_inversions=False)
-    True
-    >>> is_same_harmony(I, V7_of_IV, allow_subsets=True)
-    False
-    >>> is_same_harmony(I, V7_of_IV, compare_scales=False, allow_subsets=True)
-    True
-    >>> is_same_harmony(I, F_V, compare_scales=False)
-    True
-    >>> is_same_harmony(I, F_V, compare_scales=True)
-    False
-    >>> is_same_harmony(V7_of_IV, F_V, allow_subsets=True)
-    True
-    """
-    if compare_inversions:
-        if allow_subsets:
-            if chord1.pcs[0] != chord2.pcs[0] or len(
-                set(chord1.pcs) | set(chord2.pcs)
-            ) > max(len(chord1.pcs), len(chord2.pcs)):
-                return False
-            if compare_scales:
-                if chord1.scale_pcs[0] != chord2.scale_pcs[0] or len(
-                    set(chord1.scale_pcs) | set(chord2.scale_pcs)
-                ) > max(len(chord1.scale_pcs), len(chord2.scale_pcs)):
-                    return False
-        else:
-            if chord1.pcs != chord2.pcs:
-                return False
-            if compare_scales:
-                if chord1.scale_pcs != chord2.scale_pcs:
-                    return False
-    else:
-        if allow_subsets:
-            if len(set(chord1.pcs) | set(chord2.pcs)) > max(
-                len(chord1.pcs), len(chord2.pcs)
-            ):
-                return False
-            if compare_scales:
-                if len(set(chord1.scale_pcs) | set(chord2.scale_pcs)) > max(
-                    len(chord1.scale_pcs), len(chord2.scale_pcs)
-                ):
-                    return False
-        else:
-            if set(chord1.pcs) != set(chord2.pcs):
-                return False
-            if compare_scales:
-                if set(chord1.scale_pcs) != set(chord2.scale_pcs):
-                    return False
-    return True
+class Allow(Enum):
+    # For omissions,
+    #   NO means pitch cannot be omitted
+    #   YES means pitch can be omitted
+    #   ONLY means pitch *must* be omitted
+    NO = auto()
+    YES = auto()
+    ONLY = auto()
+
+
+class Inflection(Enum):
+    EITHER = auto()
+    NONE = auto()
+    UP = auto()
+    DOWN = auto()
+
+
+@dataclass
+class Resolution:
+    by: ChromaticInterval
+    to: PitchClass
+
+
+DEFAULT_CHORD_FACTOR_SUSPENSION_WEIGHT = 0.5
+SUSPENSION_WEIGHTS_BY_SCALAR_INTERVALS: t.Mapping[
+    tuple[ScalarInterval, ...], t.Mapping[ChordFactor, float]
+] = {
+    # TRIADS
+    # 53 chord
+    (2, 4): {Third: 3.0, Fifth: 0.75},
+    # 63 chord
+    (2, 5): {Third: 2.5, Root: 1.0},
+    # 64 chord
+    (3, 5): {},
+    # SEVENTH CHORDS
+    # 73 chord
+    (2, 4, 6): {Third: 2.5, Root: 1.0},
+    # 65 chord
+    (2, 4, 5): {Third: 3.0, Root: 1.0},
+    # 43 chord
+    (2, 3, 5): {Third: 2.5, Root: 1.0},
+    # 42 chord
+    (1, 3, 5): {Third: 2.5, Root: 0.75},
+}
+SUSPENSION_WEIGHTS_BY_CHROMATIC_INTERVALS: t.Mapping[
+    tuple[ChromaticInterval, ...], t.Mapping
+] = {
+    # TRIADS
+    # Diminished 63 chord
+    (3, 9): {Third: 1.0, Root: 3.0},
+}
+
+
+# TODO: (Malcolm) long run we may want to normalize these tokens somehow, so e.g.
+# V643 -> V43
+
+# VOICING_PREREQUISITES specifies chord factors that can only occur if other chord
+#   factors are also present. For example, "V43": {Root: [Seventh]} specifies that
+#   the root (4th above bass) can only occur in a V43 chord if the seventh (3rd above
+#   bass) is also present. NB the bass is always assumed to be the prerequisite
+#   for all other notes.
+VOICING_PREREQUISITES: t.Mapping[
+    RNToken, t.Mapping[ChordFactor, t.Sequence[ChordFactor]]
+] = {"V43": {Root: [Seventh]}}
+
+
+# Can't be a lambda because needs to be pickleable
+def default2():
+    return 2
 
 
 def get_rn_without_figure(rn: music21.roman.RomanNumeral):
@@ -1619,16 +1686,220 @@ def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
     return tuple(scale_pcs)
 
 
-def _get_chord_pcs(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
-    # remove this function after music21's RomanNumeral
-    #   handling is repaired or I figure out another solution
-    def _transpose(pcs, tonic_pc):
-        return tuple((pc + tonic_pc) % 12 for pc in pcs)
+def strip_added_tones(rn_data: str) -> str:
+    """
+    >>> rntxt = '''m1 f: i b2 V7[no3][add4] b2.25 V7[no5][no3][add6][add4]
+    ... m2 Cad64 b1.75 V b2 i[no3][add#7][add4] b2.5 i[add9] b2.75 i'''
+    >>> print(strip_added_tones(rntxt))
+    m1 f: i b2 V7 b2.25 V7
+    m2 Cad64 b1.75 V b2 i b2.5 i b2.75 i
+    """
 
-    if rn.figure == "bII7":
-        return _transpose((1, 5, 8, 0), rn.key.tonic.pitchClass)  # type:ignore
+    if os.path.exists(rn_data):
+        with open(rn_data) as inf:
+            rn_data = inf.read()
+    return re.sub(r"\[(no|add)[^\]]+\]", "", rn_data)
+
+
+def is_same_harmony(
+    chord1: Chord,
+    chord2: Chord,
+    compare_scales: bool = True,
+    compare_inversions: bool = True,
+    allow_subsets: bool = False,
+) -> bool:
+    """
+    >>> rntxt = '''Time Signature: 4/4
+    ... m1 C: I
+    ... m2 I b3 I6
+    ... m3 V7/IV
+    ... m4 F: V'''
+    >>> I, Ib, I6, V7_of_IV, F_V = get_chords_from_rntxt(rntxt)
+    >>> is_same_harmony(I, Ib)
+    True
+    >>> is_same_harmony(I, I6)
+    False
+    >>> is_same_harmony(I, I6, compare_inversions=False)
+    True
+    >>> is_same_harmony(I, V7_of_IV, allow_subsets=True)
+    False
+    >>> is_same_harmony(I, V7_of_IV, compare_scales=False, allow_subsets=True)
+    True
+    >>> is_same_harmony(I, F_V, compare_scales=False)
+    True
+    >>> is_same_harmony(I, F_V, compare_scales=True)
+    False
+    >>> is_same_harmony(V7_of_IV, F_V, allow_subsets=True)
+    True
+    """
+    if compare_inversions:
+        if allow_subsets:
+            if chord1.pcs[0] != chord2.pcs[0] or len(
+                set(chord1.pcs) | set(chord2.pcs)
+            ) > max(len(chord1.pcs), len(chord2.pcs)):
+                return False
+            if compare_scales:
+                if chord1.scale_pcs[0] != chord2.scale_pcs[0] or len(
+                    set(chord1.scale_pcs) | set(chord2.scale_pcs)
+                ) > max(len(chord1.scale_pcs), len(chord2.scale_pcs)):
+                    return False
+        else:
+            if chord1.pcs != chord2.pcs:
+                return False
+            if compare_scales:
+                if chord1.scale_pcs != chord2.scale_pcs:
+                    return False
     else:
-        return tuple(rn.pitchClasses)
+        if allow_subsets:
+            if len(set(chord1.pcs) | set(chord2.pcs)) > max(
+                len(chord1.pcs), len(chord2.pcs)
+            ):
+                return False
+            if compare_scales:
+                if len(set(chord1.scale_pcs) | set(chord2.scale_pcs)) > max(
+                    len(chord1.scale_pcs), len(chord2.scale_pcs)
+                ):
+                    return False
+        else:
+            if set(chord1.pcs) != set(chord2.pcs):
+                return False
+            if compare_scales:
+                if set(chord1.scale_pcs) != set(chord2.scale_pcs):
+                    return False
+    return True
+
+
+def can_resolve_diss(
+    chord: Chord, pitch: PitchOrPitchClass, allowed_resolutions: t.Iterable = (-1, -2)
+) -> ChromaticInterval | None:
+    """
+    # TODO: (Malcolm 2023-08-24) this function should check that the resolution pitch
+    #   is *consonant* (and that should be done more broadly in the codebase).
+    >>> rntxt = '''m1 C: I'''
+    >>> (I,) = get_chords_from_rntxt(rntxt)
+    >>> can_resolve_diss(I, 5)
+    -1
+    >>> can_resolve_diss(I, 3)
+    >>> can_resolve_diss(I, 3, allowed_resolutions=(-1, -2, 1))
+    1
+    """
+    if pitch in chord:
+        return None
+    for allowed_resolution in allowed_resolutions:
+        if (pitch + allowed_resolution) in chord:
+            return allowed_resolution
+    return None
+
+
+def get_new_chord_with_suspensions(
+    chord: Chord, suspensions: tuple[AbstractSuspension, ...]
+) -> Chord:
+    new_pcs = tuple(pc for pc in chord.pcs if pc not in suspensions)
+    return Chord(
+        pcs=new_pcs,
+        scale_pcs=chord.scale_pcs,
+        onset=chord.onset,
+        release=chord.release,
+        inversion=chord.inversion,
+        token=chord.token,
+        tendencies=chord.tendencies,
+        harmony_onset=chord.harmony_onset,
+        harmony_release=chord.harmony_release,
+        suspensions=suspensions,
+    )
+
+
+def find_apparent_suspension(
+    chord: Chord,
+    prev_chord: Chord | None,
+    next_chord: Chord | None,
+) -> None | AbstractSuspension:
+    """
+
+    If this function is called on a chord whose suspensions attribute is not None it
+    will raise an exception.
+
+    >>> rntxt = '''m1 C: I b2 ii65 b3 V42 b4 I6
+    ... m2 iv b2 viio7 b3 viiø7'''
+    >>> I, ii65, V42, I6, iv, viio7, vii7 = get_chords_from_rntxt(
+    ...     rntxt, process_apparent_suspensions=False
+    ... )
+    >>> find_apparent_suspension(ii65, prev_chord=I, next_chord=V42)
+    AbstractSuspension(pc=0, resolves_by=-1, dissonant=True, begins_on_prev=False, resolves_on_next=True)
+
+    No suspension because preparation is missing from prev chord:
+    >>> find_apparent_suspension(ii65, prev_chord=V42, next_chord=V42)
+
+    No suspension because resolution is missing from next chord:
+    >>> find_apparent_suspension(ii65, prev_chord=I, next_chord=I6)
+
+    No suspension because dominant-seventh chord:
+    >>> find_apparent_suspension(V42, prev_chord=ii65, next_chord=I6)
+
+    No suspension because diminished-seventh chord:
+    >>> find_apparent_suspension(viio7, prev_chord=iv, next_chord=I6)
+
+    Suspension because half-diminished chord:
+    >>> find_apparent_suspension(vii7, prev_chord=ii65, next_chord=I6)
+    AbstractSuspension(pc=9, resolves_by=-2, dissonant=True, begins_on_prev=False, resolves_on_next=True)
+    """
+    assert chord.suspensions is None
+    if prev_chord is None:
+        return
+    if next_chord is None:
+        return
+    if is_triad(chord):
+        return
+    if not is_seventh_chord(chord):
+        # TODO: (Malcolm 2023-08-24) update to find suspensions other than sevenths
+        return
+    if is_dominant_seventh_chord(chord):
+        return
+    if is_diminished_seventh_chord(chord):
+        return
+    seventh_pc = chord.chord_factor_to_pc(Seventh)
+    if seventh_pc not in prev_chord.pcs:
+        return
+    resolution_interval = can_resolve_diss(next_chord, seventh_pc)
+    if resolution_interval is None:
+        # TODO: (Malcolm 2023-08-24) there's a case we're not handling here
+        #   where the chord changes position. E.g., where we go from ii65 to ii43.
+        return
+    return AbstractSuspension(seventh_pc, resolution_interval, dissonant=True)
+
+
+def get_chord_list_with_apparent_suspensions(chord_list: list[Chord]) -> list[Chord]:
+    chord_list = chord_list.copy()
+    for i in range(1, len(chord_list) - 1):
+        chord = chord_list[i]
+
+        prev_i = i - 1
+
+        next_i = i + 1
+        while next_i < len(chord_list) - 1 and is_same_harmony(
+            chord, chord_list[next_i], compare_scales=False, compare_inversions=False
+        ):
+            next_i += 1
+        prev_chord = chord_list[prev_i]
+        next_chord = chord_list[next_i]
+        abstract_suspension = find_apparent_suspension(chord, prev_chord, next_chord)
+        if prev_chord.suspensions is not None:
+            for suspension in prev_chord.suspensions:
+                if not suspension.resolves_on_next:
+                    assert abstract_suspension is not None
+                    assert abstract_suspension.pc == suspension.pc
+                    abstract_suspension.begins_on_prev = True
+
+        if abstract_suspension is not None:
+            resolves_on_next = next_i == i + 1
+            if not resolves_on_next:
+                for j in range(next_i, i + 1):
+                    assert abstract_suspension.pc in chord_list[j].pcs
+
+            abstract_suspension.resolves_on_next = resolves_on_next
+            new_chord = get_new_chord_with_suspensions(chord, (abstract_suspension,))
+            chord_list[i] = new_chord
+    return chord_list
 
 
 def get_harmony_onsets_and_releases(chord_list: t.List[Chord]):
@@ -1654,26 +1925,12 @@ def get_harmony_onsets_and_releases(chord_list: t.List[Chord]):
     _clear_accumulator()
 
 
-def strip_added_tones(rn_data: str) -> str:
-    """
-    >>> rntxt = '''m1 f: i b2 V7[no3][add4] b2.25 V7[no5][no3][add6][add4]
-    ... m2 Cad64 b1.75 V b2 i[no3][add#7][add4] b2.5 i[add9] b2.75 i'''
-    >>> print(strip_added_tones(rntxt))
-    m1 f: i b2 V7 b2.25 V7
-    m2 Cad64 b1.75 V b2 i b2.5 i b2.75 i
-    """
-
-    if os.path.exists(rn_data):
-        with open(rn_data) as inf:
-            rn_data = inf.read()
-    return re.sub(r"\[(no|add)[^\]]+\]", "", rn_data)
-
-
 @cacher()
 def get_chords_from_rntxt(
     rn_data: str,
     split_chords_at_metric_strong_points: bool = True,
     no_added_tones: bool = True,
+    process_apparent_suspensions: bool = True,
 ) -> t.List[Chord]:
     if no_added_tones:
         rn_data = strip_added_tones(rn_data)
@@ -1717,86 +1974,21 @@ def get_chords_from_rntxt(
 
     get_harmony_onsets_and_releases(out_list)
 
+    if process_apparent_suspensions:
+        out_list = get_chord_list_with_apparent_suspensions(out_list)
+        # for i in range(1, len(out_list) - 1):
+        #     prev_chord, chord, next_chord = out_list[i - 1 : i + 2]
+        #     suspension = find_apparent_suspension(chord, prev_chord, next_chord)
+        #     if suspension is not None:
+        #         new_chord = get_new_chord_with_suspensions(chord, (suspension,))
+        #         out_list[i] = new_chord
+
     for prev_chord, chord, next_chord in zip(
         [None] + out_list[:-1], out_list, out_list[1:] + [None]
     ):
-        chord.update_tendencies_from_context(prev_chord, next_chord)
+        chord.update_tendencies_from_context(prev_chord, next_chord)  # type:ignore
 
     return out_list
-
-
-def ascending_chord_intervals(
-    intervals: t.Sequence[ScalarInterval], n_steps_per_octave: int = 7
-) -> t.Iterator[ScalarInterval]:
-    """
-    >>> [i for _, i in zip(range(8), ascending_chord_intervals([0, 2, 4]))]
-    [0, 2, 4, 7, 9, 11, 14, 16]
-    >>> [i for _, i in zip(range(8), ascending_chord_intervals([0, 1, 3, 5]))]
-    [0, 1, 3, 5, 7, 8, 10, 12]
-    >>> [i for _, i in zip(range(8), ascending_chord_intervals([1, 2, 4]))]
-    [1, 2, 4, 8, 9, 11, 15, 16]
-    """
-    card = len(intervals)
-    for interval, octave in zip(
-        cycle(intervals), chain.from_iterable(repeat(o, card) for o in count())
-    ):
-        yield interval + octave * n_steps_per_octave
-
-
-def ascending_chord_intervals_within_range(
-    intervals: t.Sequence[ScalarInterval],
-    inclusive_endpoint: ScalarInterval,
-    n_steps_per_octave: int = 7,
-):
-    """
-    >>> list(ascending_chord_intervals_within_range([0, 2, 4], 0))
-    [0]
-    >>> list(ascending_chord_intervals_within_range([0, 2, 4], 15))
-    [0, 2, 4, 7, 9, 11, 14]
-    """
-    for x in ascending_chord_intervals(intervals, n_steps_per_octave):
-        if x > inclusive_endpoint:
-            return
-        yield x
-
-
-def descending_chord_intervals(
-    intervals: t.Sequence[ScalarInterval], n_steps_per_octave: int = 7
-) -> t.Iterator[ScalarInterval]:
-    """
-    >>> [i for _, i in zip(range(8), descending_chord_intervals([0, 2, 4]))]
-    [0, -3, -5, -7, -10, -12, -14, -17]
-    >>> [i for _, i in zip(range(8), descending_chord_intervals([0, 1, 3, 5]))]
-    [0, -2, -4, -6, -7, -9, -11, -13]
-    >>> [i for _, i in zip(range(8), descending_chord_intervals([1, 2, 4]))]
-    [-3, -5, -6, -10, -12, -13, -17, -19]
-    """
-    if intervals[0] == 0:
-        yield 0
-
-    card = len(intervals)
-    for interval, octave in zip(
-        cycle(reversed(intervals)),
-        chain.from_iterable(repeat(o, card) for o in count(start=1)),
-    ):
-        yield interval - octave * n_steps_per_octave
-
-
-def descending_chord_intervals_within_range(
-    intervals: t.Sequence[ScalarInterval],
-    inclusive_endpoint: ScalarInterval,
-    n_steps_per_octave: int = 7,
-):
-    """
-    >>> list(descending_chord_intervals_within_range([0, 2, 4], 0))
-    [0]
-    >>> list(descending_chord_intervals_within_range([0, 2, 4], -15))
-    [0, -3, -5, -7, -10, -12, -14]
-    """
-    for x in descending_chord_intervals(intervals, n_steps_per_octave):
-        if x < inclusive_endpoint:
-            return
-        yield x
 
 
 # doctests in cached_property methods are not discovered and need to be
@@ -1804,6 +1996,7 @@ def descending_chord_intervals_within_range(
 __test__ = {
     "Chord.root_position_pcs": Chord.root_position_pcs,
     "Chord.scalar_intervals_above_bass": Chord.scalar_intervals_above_bass,
+    "Chord.scalar_intervals_above_root": Chord.scalar_intervals_above_root,
     "Chord.chromatic_intervals_above_bass": Chord.chromatic_intervals_above_bass,
     "Chord.augmented_second_adjustments": Chord.augmented_second_adjustments,
     "Chord.bass_factor_to_chord_factor": Chord.bass_factor_to_chord_factor,

@@ -3,12 +3,12 @@ import logging
 import typing as t
 from collections import defaultdict
 
+from dumb_composer.chords.chords import Allow, is_same_harmony
 from dumb_composer.classes.scores import (
     PrefabScore,
     ScoreWithAccompaniments,
     _ScoreBase,
 )
-from dumb_composer.pitch_utils.chords import Allow, is_same_harmony
 from dumb_composer.pitch_utils.types import (
     BASS,
     AllowLiteral,
@@ -16,10 +16,10 @@ from dumb_composer.pitch_utils.types import (
     OuterVoice,
     Pitch,
     ScalarInterval,
+    Suspension,
     TimeStamp,
     Voice,
 )
-from dumb_composer.suspensions import Suspension
 from dumb_composer.time import Meter
 
 LOGGER = logging.getLogger(__name__)

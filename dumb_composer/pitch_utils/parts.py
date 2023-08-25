@@ -4,7 +4,10 @@ from itertools import chain, combinations, count, product
 import numpy as np
 
 from dumb_composer.constants import MAX_TIME, unspeller
-from dumb_composer.pitch_utils.intervals import reduce_compound_interval
+from dumb_composer.pitch_utils.intervals import (
+    octave_equivalent_symmetric_interval,
+    reduce_compound_interval,
+)
 from dumb_composer.pitch_utils.types import (
     ChromaticInterval,
     MelodicAtom,
@@ -817,3 +820,46 @@ def note_lists_have_forbidden_parallels(
     return simultaneous_note_changes_have_forbidden_parallels(
         note_changes, forbidden_parallel_intervals
     )
+
+
+def parallel_note_lists_are_allowed(
+    notes_in_voice1: t.Sequence[Note],
+    notes_in_voice2: t.Sequence[Note],
+    allowed_octave_equivalent_intervals: t.Container = frozenset({3, 4, 8, 9}),
+) -> bool:
+    """
+    Assumes that all pairs of notes are in parallel motion, and checks that the parallel
+    intervals between each pair is allowed. (Note that the function works on chromatic
+    intervals, so parallel diminished 3rds or what have you are forbidden, while
+    parallel diminished fourths or augmented 5ths would be allowed.)
+
+    >>> part1 = quick_notes("C4 B3 A3")
+    >>> thirds = quick_notes("E4 D4 C#4")
+    >>> sixths = quick_notes("A4 G4 F#4")
+    >>> parallel_note_lists_are_allowed(part1, thirds)
+    True
+    >>> parallel_note_lists_are_allowed(part1, sixths)
+    True
+
+    >>> fifths = quick_notes("G4 F4 E4")
+    >>> sevenths = quick_notes("B4 A4 G4")
+    >>> parallel_note_lists_are_allowed(part1, fifths)
+    False
+    >>> parallel_note_lists_are_allowed(part1, sevenths)
+    False
+
+    The function doesn't actually check that the notes are parallel:
+    >>> thirds_and_sixths = quick_notes("E4 G4 C4")
+    >>> parallel_note_lists_are_allowed(part1, thirds_and_sixths)
+    True
+
+    """
+    for note1, note2 in zip(notes_in_voice1, notes_in_voice2):
+        assert note1.onset == note2.onset
+        assert note1.release == note2.release
+        if (
+            octave_equivalent_symmetric_interval(note2.pitch - note1.pitch)
+            not in allowed_octave_equivalent_intervals
+        ):
+            return False
+    return True

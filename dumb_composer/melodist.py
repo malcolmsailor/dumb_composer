@@ -9,7 +9,7 @@ from numbers import Number
 import numpy as np
 import pandas as pd
 
-from dumb_composer.pitch_utils.chords import Chord, get_chords_from_rntxt
+from dumb_composer.chords.chords import Chord, get_chords_from_rntxt
 from dumb_composer.pitch_utils.interval_chooser import (
     DeprecatedIntervalChooserSettings,
     IntervalChooser,

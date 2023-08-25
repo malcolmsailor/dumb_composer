@@ -1,7 +1,7 @@
 from collections import Counter
 
+from dumb_composer.chords.chords import get_chords_from_rntxt
 from dumb_composer.classes.scores import Score
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.structural_partitioner import StructuralPartitioner
 
 

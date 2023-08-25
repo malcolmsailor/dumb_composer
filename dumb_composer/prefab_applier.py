@@ -18,9 +18,13 @@ from dumb_composer.classes.scores import PrefabScore, _ScoreBase
 from dumb_composer.constants import DEFAULT_CONFIG_PATH
 from dumb_composer.pitch_utils.intervals import (
     get_scalar_intervals_to_other_chord_factors,
+    octave_equivalent_symmetric_interval,
     reduce_compound_interval,
 )
-from dumb_composer.pitch_utils.parts import note_lists_have_forbidden_parallels
+from dumb_composer.pitch_utils.parts import (
+    note_lists_have_forbidden_parallels,
+    parallel_note_lists_are_allowed,
+)
 from dumb_composer.pitch_utils.types import (
     TIME_TYPE,
     FourPartResult,
@@ -50,8 +54,7 @@ from dumb_composer.prefabs.prefab_rhythms import (
 )
 from dumb_composer.shared_classes import Note
 
-from .pitch_utils.chords import Allow, Chord, Inflection
-from .pitch_utils.scale import Scale, ScaleDict
+from .chords.chords import Allow, Chord, Inflection
 from .utils.math_ import weighted_sample_wo_replacement
 from .utils.recursion import DeadEnd, recursive_attempt
 
@@ -81,6 +84,7 @@ class LeadoutParallelCandidate(ParallelCandidate):
     pass
 
 
+# Why doesn't this inherit from PrefabPitchBase?
 class ParallelPrefabPitches:
     def __init__(
         self,
@@ -90,6 +94,7 @@ class ParallelPrefabPitches:
     ):
         self.tie_to_next = src_prefab.tie_to_next
         self.alterations = src_prefab.alterations
+        self.lower_auxiliaries = src_prefab.lower_auxiliaries
         # TODO: (Malcolm 2023-08-02) if the prefab is a singleton we should
         #   just skip all parallel logic
         # departure_interval and arrival_interval are measured from
@@ -115,6 +120,7 @@ def validate_parallel_prefab(parallel_prefab_pitches: ParallelPrefabPitches) -> 
     relative_degrees = parallel_prefab_pitches.relative_degrees
     if not relative_degrees[0] == 0:
         return False
+    # TODO: (Malcolm 2023-08-23) need comments to explain what this code is doing
     forbidden_links = ([0, -6], [0, -8])
     for forbidden_link in forbidden_links:
         if relative_degrees[: len(forbidden_link)] == forbidden_link:
@@ -145,6 +151,11 @@ class PrefabApplierSettings(SettingsBase):
         DEFAULT_CONFIG_PATH, "prefabs", "default_pitch_prefabs.yaml"
     )
     auto_add_prefab_scales: bool = True
+
+    # Maybe at some point we want a chromatic_upper_auxiliaries flag?
+    chromatic_lower_auxiliaries: bool = True
+    chromatic_lower_auxiliary_max_dur: float | None = None
+
     # either "soprano", "tenor", or "bass"
     # prefab_voice: str = "soprano"
     prefab_voices: t.Sequence[str] = ("soprano", "tenor", "alto", "bass")
@@ -377,6 +388,10 @@ class PrefabApplier(RecursiveWorker):
     ) -> t.Iterator[dict[Voice, list[Note]]]:
         srcs = random.sample(list(prefabs_so_far.items()), k=len(prefabs_so_far))
         for src_voice, (src_prefab_rhythm, src_prefab_pitch) in srcs:
+            if len(notes_so_far[src_voice]) <= 1:
+                # If there's only one note, continue
+                continue
+
             candidates = parallel_prefab_candidates[src_voice]
             random.shuffle(candidates)
             for candidate in candidates:
@@ -412,6 +427,10 @@ class PrefabApplier(RecursiveWorker):
                         for (v, n) in notes_so_far.items()
                         if v is not candidate.voice
                     }
+                    if not parallel_note_lists_are_allowed(
+                        notes, notes_so_far[src_voice]
+                    ):
+                        continue
                     if not self._has_forbidden_parallels(
                         notes, candidate.voice, notes_so_far_with_parallel_voice_removed
                     ):
@@ -456,6 +475,20 @@ class PrefabApplier(RecursiveWorker):
                 new_pitch = scale.get_auxiliary(
                     orig_scale_degree + rel_scale_degree,
                     prefab_pitches.alterations[i],
+                )
+            elif (
+                self.settings.chromatic_lower_auxiliaries
+                and (i in prefab_pitches.lower_auxiliaries)
+                and (
+                    (self.settings.chromatic_lower_auxiliary_max_dur is None)
+                    or (
+                        release - onset
+                        <= self.settings.chromatic_lower_auxiliary_max_dur
+                    )
+                )
+            ):
+                new_pitch = scale.get_auxiliary(
+                    orig_scale_degree + rel_scale_degree, "#"
                 )
             else:
                 new_pitch = scale[orig_scale_degree + rel_scale_degree]

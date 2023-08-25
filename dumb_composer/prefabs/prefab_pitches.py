@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from dumb_composer.pitch_utils.chords import (
+from dumb_composer.chords.intervals import (
     ascending_chord_intervals,
     ascending_chord_intervals_within_range,
     descending_chord_intervals_within_range,
@@ -26,6 +26,7 @@ from dumb_composer.shared_classes import Allow
 RELATIVE_DEGREE_REGEX = re.compile(
     r"""
         ^(?P<alteration>[#b]?)
+        (?P<lower_auxiliary>L?)
         (?P<relative_degree>-?\d+)
         (?P<ioi_constraints>(?:[Mm](?:(?:\d+/\d+)|(?:\d+(?:\.\d+)?))){0,2})
         (?P<tie_to_next>t?)$
@@ -45,6 +46,7 @@ class PrefabPitchBase(PrefabBase):
     relative_degrees: t.Sequence
     tie_to_next: bool
     alterations: tuple | dict
+    lower_auxiliaries: tuple | set
 
     def stepwise_internally(self) -> bool:
         raise NotImplementedError
@@ -73,6 +75,7 @@ class SingletonPitch(PrefabPitchBase):
     relative_degrees: t.Tuple[int] = (0,)
     tie_to_next: bool = False
     alterations: t.Tuple = ()
+    lower_auxiliaries: t.Tuple = ()
 
     @cached_property
     def interval_sum(self) -> int:
@@ -174,6 +177,7 @@ class PrefabPitches(PrefabPitchBase):
 
     # __post_init__ defines the following attributes:
     alterations: t.Dict[int, str] = field(default_factory=dict, init=False)
+    lower_auxiliaries: set[int] = field(default_factory=set, init=False)
     tie_to_next: bool = field(default=False, init=False)
     intervals: t.Optional[t.List[int]] = field(default=None, init=False)
     min_iois: t.Dict[int, TIME_TYPE] = field(default_factory=dict, init=False)
@@ -191,6 +195,8 @@ class PrefabPitches(PrefabPitchBase):
             temp_degrees.append(int(m.group("relative_degree")))
             if m.group("alteration"):
                 self.alterations[i] = m.group("alteration")
+            if m.group("lower_auxiliary"):
+                self.lower_auxiliaries.add(i)
             if m.group("ioi_constraints"):
                 max_ioi_m = re.search(MAX_IOI_REGEX, m.group("ioi_constraints"))
                 if max_ioi_m:

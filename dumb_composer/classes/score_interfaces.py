@@ -1,20 +1,22 @@
 import logging
 import typing as t
 
+from dumb_composer.chords.chords import Chord, is_same_harmony
 from dumb_composer.constants import TRACKS
-from dumb_composer.pitch_utils.chords import Chord, is_same_harmony
 from dumb_composer.pitch_utils.scale import Scale
 from dumb_composer.pitch_utils.types import (
+    BASS,
     GLOBAL,
     Annotation,
     OuterVoice,
     Pitch,
     PitchClass,
     ScalarInterval,
+    Suspension,
     TimeStamp,
     Voice,
 )
-from dumb_composer.suspensions import Suspension, SuspensionCombo
+from dumb_composer.suspensions import SuspensionCombo
 from dumb_composer.time import Meter
 
 LOGGER = logging.getLogger(__name__)
@@ -167,9 +169,20 @@ class ScoreInterface:
         except IndexError:
             return None
 
-    def prev_pitches(self) -> tuple[Pitch]:
+    def prev_pitches(self, sort=True) -> tuple[Pitch]:
         assert self.i > 0
         out = (pitches[self.i - 1] for pitches in self._score._structural.values())
+        if sort:
+            return tuple(sorted(out))
+        return tuple(out)
+
+    def prev_pitches_except_bass(self) -> tuple[Pitch]:
+        assert self.i > 0
+        out = (
+            pitches[self.i - 1]
+            for voice, pitches in self._score._structural.items()
+            if voice is not BASS
+        )
         return tuple(sorted(out))
 
     def prev_structural_interval_above_bass(self, voice: Voice) -> ScalarInterval:
@@ -199,6 +212,16 @@ class ScoreInterface:
     def current_suspension(self, voice: Voice) -> Suspension | None:
         # return self._score._suspensions[voice].get(self.i, None)
         return self._score._suspensions[voice].get(self.current_chord.onset, None)
+
+    def all_current_suspensions(self) -> t.Iterator[Suspension]:
+        for suspensions in self._score._suspensions.values():
+            if (s := suspensions.get(self.current_chord.onset, None)) is not None:
+                yield s
+
+    def all_prev_suspensions(self) -> t.Iterator[Suspension]:
+        for suspensions in self._score._suspensions.values():
+            if (s := suspensions.get(self.prev_chord.onset, None)) is not None:
+                yield s
 
     def current_is_suspension(self, voice: Voice) -> bool:
         return self.current_suspension(voice) is not None
@@ -333,14 +356,24 @@ class ScoreInterface:
                 self.next_chord is not None
                 and suspension_release == self.next_chord.onset
             )
-        # TODO: (Malcolm 2023-08-10) I don't know why we were calculating the suspended
-        #   pitch like this rather than retrieving it directly from the pitch attribute
-        #   of the suspension
-        # suspended_pitch = self.prev_pitch(voice)
+
         suspended_pitch = suspension.pitch
-        self._add_suspension_resolution(
-            voice, suspended_pitch + suspension.resolves_by, suspension_release
-        )
+
+        resolve_suspension = True
+        if self.current_chord.suspensions is not None:
+            for abstract_suspension in self.current_chord.suspensions:
+                if (
+                    abstract_suspension.pc == suspension.pitch % 12
+                    and not abstract_suspension.resolves_on_next
+                ):
+                    resolve_suspension = False
+                    break
+
+        if resolve_suspension:
+            self._add_suspension_resolution(
+                voice, suspended_pitch + suspension.resolves_by, suspension_release
+            )
+
         self._add_suspension(voice, suspension, self.current_chord.onset)
         if annotate:
             self._annotate_suspension(voice, self.current_chord.onset)
@@ -365,7 +398,21 @@ class ScoreInterface:
         self, voice: Voice, suspension_release: TimeStamp, annotate: bool = True
     ) -> None:
         LOGGER.debug(f"undoing suspension in {voice=} at {self.i=}")
-        self._remove_suspension_resolution(voice, suspension_release)
+        current_suspension = self.current_suspension(voice)
+        assert current_suspension is not None
+        suspension_has_resolution = True
+
+        if self.current_chord.suspensions is not None:
+            for abstract_suspension in self.current_chord.suspensions:
+                if (
+                    abstract_suspension.pc == current_suspension.pitch % 12
+                    and not abstract_suspension.resolves_on_next
+                ):
+                    suspension_has_resolution = False
+                    break
+
+        if suspension_has_resolution:
+            self._remove_suspension_resolution(voice, suspension_release)
         # TODO: (Malcolm 2023-08-10) double check this is the right onset
         self._remove_suspension(voice, self.current_chord.onset)
         if annotate:

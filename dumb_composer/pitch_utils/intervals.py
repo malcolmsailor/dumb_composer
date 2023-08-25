@@ -15,6 +15,22 @@ from dumb_composer.pitch_utils.types import (
 )
 
 
+def octave_equivalent_symmetric_interval(
+    interval: Interval, n_steps_per_octave: int = 12
+) -> Interval:
+    """
+    >>> octave_equivalent_symmetric_interval(7)
+    7
+    >>> octave_equivalent_symmetric_interval(-7)
+    7
+    >>> octave_equivalent_symmetric_interval(19)
+    7
+    >>> octave_equivalent_symmetric_interval(-19)
+    7
+    """
+    return abs(interval) % n_steps_per_octave
+
+
 def reduce_compound_interval(
     interval: Interval, n_steps_per_octave: int = 12
 ) -> Interval:

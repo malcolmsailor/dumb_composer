@@ -54,4 +54,4 @@ def chain_steps(recursive_workers: Iterable[RecursiveWorker]):
 
     # _recurse_through_workers is a generator so we need to call next() on it
     next(_recurse_through_workers(all_workers))
-    spinner(terminate=True)
+    spinner(terminate=False)

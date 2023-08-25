@@ -6,7 +6,13 @@ from functools import cached_property
 
 from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
-from dumb_composer.pitch_utils.types import Interval, Pitch, PitchClass, ScalarInterval
+from dumb_composer.pitch_utils.types import (
+    Interval,
+    Pitch,
+    PitchClass,
+    ScalarInterval,
+    ScaleDegree,
+)
 
 
 def strictly_increasing(l: t.Sequence):
@@ -108,6 +114,14 @@ class Scale:
         """
         octave, scale_degree = divmod(key + self._tonic_idx, len(self))
         return self._pcs[scale_degree] + self._tet * octave + self._zero_pitch
+
+    # def get_degree(
+    #     self,
+    #     degree: ScaleDegree,
+    #     prev_degree: ScaleDegree | None = None,
+    #     next_degree: ScaleDegree | None = None,
+    # ) -> PitchClass:
+    #     pass
 
     def pitch_has_upper_step(self, pitch: Pitch) -> bool:
         """

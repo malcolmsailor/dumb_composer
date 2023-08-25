@@ -14,13 +14,13 @@ from numbers import Number
 
 import pandas as pd
 
-from dumb_composer.constants import TRACKS
-from dumb_composer.pitch_utils.chords import (
+from dumb_composer.chords.chords import (
     Allow,
     Chord,
     get_chords_from_rntxt,
     is_same_harmony,
 )
+from dumb_composer.constants import TRACKS
 from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
 from dumb_composer.pitch_utils.put_in_range import put_in_range
 from dumb_composer.pitch_utils.scale import Scale, ScaleDict
@@ -36,10 +36,11 @@ from dumb_composer.pitch_utils.types import (
     Pitch,
     PitchClass,
     ScalarInterval,
+    Suspension,
     TimeStamp,
     Voice,
 )
-from dumb_composer.suspensions import Suspension, SuspensionCombo
+from dumb_composer.suspensions import SuspensionCombo
 from dumb_composer.time import Meter
 from dumb_composer.utils.df_helpers import sort_note_df
 from dumb_composer.utils.iterables import flatten_iterables

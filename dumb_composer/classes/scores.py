@@ -6,8 +6,8 @@ from functools import cached_property
 
 import pandas as pd
 
+from dumb_composer.chords.chords import Allow, Chord, get_chords_from_rntxt
 from dumb_composer.constants import TRACKS
-from dumb_composer.pitch_utils.chords import Allow, Chord, get_chords_from_rntxt
 from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
 from dumb_composer.pitch_utils.put_in_range import put_in_range  # used in doctests
 from dumb_composer.pitch_utils.types import (
@@ -17,6 +17,7 @@ from dumb_composer.pitch_utils.types import (
     Note,
     OuterVoice,
     Pitch,
+    Suspension,
     TimeStamp,
     Voice,
 )
@@ -25,7 +26,6 @@ from dumb_composer.shared_classes import (
     StructuralMelodyIntervals,
     apply_ties,
 )
-from dumb_composer.suspensions import Suspension
 from dumb_composer.time import Meter
 from dumb_composer.utils.df_helpers import sort_note_df
 from dumb_composer.utils.iterables import flatten_iterables
@@ -144,6 +144,7 @@ class _ScoreBase:
         # TODO: (Malcolm 2023-07-28) why is ScaleGetter needed? perhaps Scale
         #   should be composed within Chord?
         self._scale_getter = ScaleGetter(chord.scale_pcs for chord in self._chords)
+
         self._structural_soprano_interval_getter = StructuralMelodyIntervals(
             self.scales, self.structural_soprano, self.structural_bass
         )
@@ -204,6 +205,12 @@ class _ScoreBase:
         if check_correctness:
             self._validate_split_ith_chord_at(i, chord, time)
         new_chord = chord.copy()
+
+        # Handle abstract suspensions
+        if new_chord.suspensions is not None:
+            for suspension in new_chord.suspensions:
+                suspension.resolves_on_next = False
+
         chord.release = time
         new_chord.onset = time
         self.chords.insert(i + 1, new_chord)
@@ -232,6 +239,13 @@ class _ScoreBase:
         self.pc_bass
 
         chord1, chord2 = self.chords[i : i + 2]
+
+        # Handle abstract suspensions
+        if chord1.suspensions is not None:
+            assert chord2.suspensions is not None
+            for suspension1, suspension2 in zip(chord1.suspensions, chord2.suspensions):
+                suspension1.resolves_on_next = suspension2.resolves_on_next
+
         chord1.release = chord2.release
         self.chords.pop(i + 1)
         self.pc_bass.pop(i + 1)

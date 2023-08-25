@@ -8,10 +8,10 @@ from itertools import chain
 import pandas as pd
 
 from dumb_composer.chord_spacer import SimpleSpacer, SimpleSpacerSettings
+from dumb_composer.chords.chords import get_chords_from_rntxt
 from dumb_composer.classes.chord_transition_interfaces import AccompanimentInterface
 from dumb_composer.incremental_contrapuntist import IncrementalResult
 from dumb_composer.patterns import PatternMaker
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.music21_handler import get_ts_from_rntxt
 from dumb_composer.pitch_utils.spacings import RangeConstraints

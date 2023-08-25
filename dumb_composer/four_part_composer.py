@@ -10,11 +10,10 @@ from statistics import mean
 
 import pandas as pd
 
+from dumb_composer.chords.chords import Chord, Tendency
 from dumb_composer.classes.score_interfaces import ScoreInterface
 from dumb_composer.classes.scores import FourPartScore
-from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
-from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import (
     MELODY,
@@ -23,6 +22,7 @@ from dumb_composer.pitch_utils.types import (
     OuterVoice,
     Pitch,
     PitchClass,
+    Suspension,
     TimeStamp,
     Voice,
 )
@@ -32,7 +32,6 @@ from dumb_composer.structural_partitioner import (
     StructuralPartitionerSettings,
 )
 from dumb_composer.suspensions import (
-    Suspension,
     SuspensionCombo,
     find_suspension_release_times,
     find_suspensions,
@@ -109,7 +108,6 @@ class FourPartWorker(TwoPartContrapuntist):
         logging.debug(
             textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
         )
-        self._scales = ScaleDict()
         self._n_recurse_calls = 0
         self._spinner = Spinner()
         self._iq = IntervalQuerier()

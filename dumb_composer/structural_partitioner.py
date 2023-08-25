@@ -169,7 +169,12 @@ class StructuralPartitioner:
             new_chords = []
             duration_to_process = max(eligible_durations)
             for chord in chords:
-                if chord.release - chord.onset == duration_to_process:
+                if chord.suspensions is not None:
+                    # TODO: (Malcolm 2023-08-24) remove this condition. For now, we
+                    #   are skipping chords that contain suspensions.
+                    new_chords.append(chord)
+                    breakpoint()
+                elif chord.release - chord.onset == duration_to_process:
                     splits = self.step(chord.onset, chord.release)
                     for start, stop in flatten_list(splits):  # type:ignore
                         new_chord = chord.copy()

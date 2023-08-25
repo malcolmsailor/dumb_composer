@@ -9,10 +9,10 @@ from numbers import Number
 
 import pandas as pd
 
+from dumb_composer.chords.chords import Chord, Tendency, is_same_harmony
 from dumb_composer.classes.score_interfaces import ScoreInterface
 from dumb_composer.classes.scores import Score, _ScoreBase
 from dumb_composer.from_ml_out import get_chord_df
-from dumb_composer.pitch_utils.chords import Chord, Tendency, is_same_harmony
 from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
@@ -30,13 +30,13 @@ from dumb_composer.pitch_utils.types import (
     MELODY,
     ChromaticInterval,
     Pitch,
+    Suspension,
     TimeStamp,
     TwoPartResult,
     Weight,
 )
 from dumb_composer.shared_classes import Annotation, OuterVoice
 from dumb_composer.suspensions import (
-    Suspension,
     find_bass_suspension,
     find_suspension_release_times,
     find_suspensions,

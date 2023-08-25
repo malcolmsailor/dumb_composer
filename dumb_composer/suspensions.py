@@ -1,16 +1,15 @@
 import typing as t
-from dataclasses import dataclass, field
 from itertools import chain, combinations
 from numbers import Number
 
+from dumb_composer.chords.chords import get_chords_from_rntxt  # used in doctests
+from dumb_composer.chords.chords import Chord, Tendency
 from dumb_composer.constants import (
     DISSONANT_INTERVALS_ABOVE_BASS,
     DISSONANT_INTERVALS_BETWEEN_UPPER_VOICES,
     TWELVE_TET_SUSPENSION_RESOLUTION_INTERVAL_WEIGHTS,
 )
 from dumb_composer.pitch_utils.aliases import Third
-from dumb_composer.pitch_utils.chords import get_chords_from_rntxt  # used in doctests
-from dumb_composer.pitch_utils.chords import Chord, Tendency
 from dumb_composer.pitch_utils.intervals import (
     reduce_compound_interval,
     smallest_pitch_class_interval,
@@ -20,6 +19,7 @@ from dumb_composer.pitch_utils.types import (
     ChromaticInterval,
     Pitch,
     ScalarInterval,
+    Suspension,
     TimeStamp,
     Voice,
 )
@@ -127,17 +127,6 @@ def validate_intervals_among_suspensions(
         return False
 
     return True
-
-
-@dataclass
-class Suspension:
-    pitch: Pitch
-    resolves_by: int
-    dissonant: bool
-    interval_above_bass: int
-    # "score" is meant to be used to weight how likely we are to use
-    #   each suspension.
-    score: float = 1.0
 
 
 def find_suspensions(

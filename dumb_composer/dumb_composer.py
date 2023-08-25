@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from dumb_composer.chord_spacer import NoSpacings, SimpleSpacer, SimpleSpacerSettings
+from dumb_composer.chords.chords import Chord
 from dumb_composer.classes.chord_transition_interfaces import AccompanimentInterface
 from dumb_composer.classes.scores import PrefabScore, PrefabScoreWithAccompaniments
 from dumb_composer.constants import (
@@ -33,10 +34,8 @@ from dumb_composer.incremental_contrapuntist import (
     IncrementalContrapuntist,
     IncrementalContrapuntistSettings,
 )
-from dumb_composer.pitch_utils.chords import Chord
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.ranges import Ranger
-from dumb_composer.pitch_utils.scale import ScaleDict
 from dumb_composer.pitch_utils.spacings import RangeConstraints, SpacingConstraints
 from dumb_composer.pitch_utils.types import (
     ACCOMPANIMENTS,
@@ -170,7 +169,6 @@ class PrefabComposer:
         LOGGER.debug(
             textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
         )
-        self._scales = ScaleDict()
         self._bass_range = settings.bass_range
         self._mel_range = settings.mel_range
         self._n_recurse_calls = 0
