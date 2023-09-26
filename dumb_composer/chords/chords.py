@@ -15,6 +15,7 @@ from types import MappingProxyType
 
 import music21
 from cache_lib import cacher
+from music21.key import Key
 
 from dumb_composer.constants import speller_pcs, unspeller_pcs
 from dumb_composer.pitch_utils.aliases import Fifth, Root, Seventh, Third
@@ -22,6 +23,7 @@ from dumb_composer.pitch_utils.consonances import pcs_consonant
 from dumb_composer.pitch_utils.intervals import IntervalQuerier
 from dumb_composer.pitch_utils.music21_handler import parse_rntxt
 from dumb_composer.pitch_utils.pcs import get_pc_complement, pitch_class_among_pitches
+from dumb_composer.pitch_utils.scale import SCALE_CACHE, Scale2
 from dumb_composer.pitch_utils.spacings import (
     RangeConstraints,
     SpacingConstraints,
@@ -325,8 +327,29 @@ class Chord:
         release: TimeStamp,
         token_prefix: str = "",
     ) -> "Chord":
+        """
+        # TODO: (Malcolm 2023-08-25) move this doc section elsewhere
+        # If the roman numeral has a secondary key, we use that as the scale.
+        # I'm not sure this is always desirable but it seems to be working OK so far.
+
+        # >>> C_major.fit_to_rn(RN("V/V", keyOrScale="F"))
+        # (0, 2, 4, 5, 7, 9, 11)
+        # >>> C_major.fit_to_rn(RN("viio7/V", keyOrScale="C"))
+        # (7, 9, 11, 0, 2, 3, 6)
+        # >>> C_major.fit_to_rn(RN("viio7/bIII", keyOrScale="C"))  # Note C-flat
+        # (3, 5, 7, 8, 10, 11, 2)
+        """
         chord_pcs = cls._get_chord_pcs(rn)
-        scale_pcs = fit_scale_to_rn(rn)
+
+        key = rn.secondaryRomanNumeralKey
+        if key is None:
+            key = rn.key
+        assert isinstance(key, Key)
+        tonic = key.tonic.name
+        mode = key.mode
+        scale = SCALE_CACHE[(tonic, mode)]  # type:ignore
+        scale_pcs = scale.fit_to_rn(rn.primaryFigure)
+        # scale_pcs = fit_scale_to_rn(rn)
         inversion = rn.inversion()
         tendencies = apply_tendencies(rn)
         return cls(
@@ -1610,80 +1633,80 @@ def apply_tendencies(
     return abstract_to_concrete_chord_tendencies(raw_tendencies, inversion, cardinality)
 
 
-def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
-    """
-    >>> RN = music21.roman.RomanNumeral
-    >>> fit_scale_to_rn(RN("viio7", keyOrScale="C"))  # Note A-flat
-    (0, 2, 4, 5, 7, 8, 11)
-    >>> fit_scale_to_rn(RN("Ger6", keyOrScale="C"))  # Note A-flat, E-flat, F-sharp
-    (0, 2, 3, 6, 7, 8, 11)
+# def fit_scale_to_rn(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
+#     """
+#     >>> RN = music21.roman.RomanNumeral
+#     >>> fit_scale_to_rn(RN("viio7", keyOrScale="C"))  # Note A-flat
+#     (0, 2, 4, 5, 7, 8, 11)
+#     >>> fit_scale_to_rn(RN("Ger6", keyOrScale="C"))  # Note A-flat, E-flat, F-sharp
+#     (0, 2, 3, 6, 7, 8, 11)
 
 
-    If the roman numeral has a secondary key, we use that as the scale.
-    TODO I'm not sure this is always desirable.
+#     If the roman numeral has a secondary key, we use that as the scale.
+#     TODO I'm not sure this is always desirable.
 
-    >>> fit_scale_to_rn(RN("V/V", keyOrScale="C"))
-    (7, 9, 11, 0, 2, 4, 6)
-    >>> fit_scale_to_rn(RN("viio7/V", keyOrScale="C"))
-    (7, 9, 11, 0, 2, 3, 6)
-    >>> fit_scale_to_rn(RN("viio7/bIII", keyOrScale="C"))  # Note C-flat
-    (3, 5, 7, 8, 10, 11, 2)
+#     >>> fit_scale_to_rn(RN("V/V", keyOrScale="C"))
+#     (7, 9, 11, 0, 2, 4, 6)
+#     >>> fit_scale_to_rn(RN("viio7/V", keyOrScale="C"))
+#     (7, 9, 11, 0, 2, 3, 6)
+#     >>> fit_scale_to_rn(RN("viio7/bIII", keyOrScale="C"))  # Note C-flat
+#     (3, 5, 7, 8, 10, 11, 2)
 
-    Sometimes flats are indicated for chord factors that are already flatted
-    in the relevant scale. We handle those with a bit of a hack:
-    >>> fit_scale_to_rn(RN("Vb9", keyOrScale="c"))
-    (0, 2, 3, 5, 7, 8, 11)
-    >>> fit_scale_to_rn(RN("Vb9/vi", keyOrScale="C"))
-    (9, 11, 0, 2, 4, 5, 8)
+#     Sometimes flats are indicated for chord factors that are already flatted
+#     in the relevant scale. We handle those with a bit of a hack:
+#     >>> fit_scale_to_rn(RN("Vb9", keyOrScale="c"))
+#     (0, 2, 3, 5, 7, 8, 11)
+#     >>> fit_scale_to_rn(RN("Vb9/vi", keyOrScale="C"))
+#     (9, 11, 0, 2, 4, 5, 8)
 
-    There can be a similar issue with raised degrees. If the would-be raised
-    degree is already in the scale, we leave it unaltered:
-    >>> fit_scale_to_rn(RN("V+", keyOrScale="c"))
-    (0, 2, 3, 5, 7, 8, 11)
-    """
+#     There can be a similar issue with raised degrees. If the would-be raised
+#     degree is already in the scale, we leave it unaltered:
+#     >>> fit_scale_to_rn(RN("V+", keyOrScale="c"))
+#     (0, 2, 3, 5, 7, 8, 11)
+#     """
 
-    def _add_inflection(degree: ScaleDegree, inflection: ChromaticInterval):
-        inflected_pitch = (scale_pcs[degree] + inflection) % 12
-        if (
-            inflection < 0
-            and inflected_pitch == scale_pcs[(degree - 1) % len(scale_pcs)]
-        ):
-            # hack to handle "b9" etc. when already in scale
-            return
-        if (
-            inflection > 0
-            and inflected_pitch == scale_pcs[(degree + 1) % len(scale_pcs)]
-        ):
-            return
-        scale_pcs[degree] = inflected_pitch
+#     def _add_inflection(degree: ScaleDegree, inflection: ChromaticInterval):
+#         inflected_pitch = (scale_pcs[degree] + inflection) % 12
+#         if (
+#             inflection < 0
+#             and inflected_pitch == scale_pcs[(degree - 1) % len(scale_pcs)]
+#         ):
+#             # hack to handle "b9" etc. when already in scale
+#             return
+#         if (
+#             inflection > 0
+#             and inflected_pitch == scale_pcs[(degree + 1) % len(scale_pcs)]
+#         ):
+#             return
+#         scale_pcs[degree] = inflected_pitch
 
-    if rn.secondaryRomanNumeralKey is None:
-        key = rn.key
-    else:
-        key = rn.secondaryRomanNumeralKey
-    # music21 returns the scale *including the upper octave*, which we do
-    #   not want
-    scale_pcs = [p.pitchClass for p in key.pitches[:-1]]  # type:ignore
-    for pitch in rn.pitches:
-        # NB degrees are 1-indexed so we must subtract 1 below
-        degree, accidental = key.getScaleDegreeAndAccidentalFromPitch(  # type:ignore
-            pitch
-        )
-        if accidental is not None:
-            inflection = int(accidental.alter)
-            _add_inflection(degree - 1, inflection)  # type:ignore
-    try:
-        assert len(scale_pcs) == len(set(scale_pcs))
-    except AssertionError:
-        # these special cases are hacks until music21's RomanNumeral
-        #   handling is repaired or I figure out another solution
-        if rn.figure == "bII7":
-            scale_pcs = [p.pitchClass for p in key.pitches[:-1]]  # type:ignore
-            _add_inflection(1, -1)
-            _add_inflection(5, -1)
-        else:
-            raise
-    return tuple(scale_pcs)
+#     if rn.secondaryRomanNumeralKey is None:
+#         key = rn.key
+#     else:
+#         key = rn.secondaryRomanNumeralKey
+#     # music21 returns the scale *including the upper octave*, which we do
+#     #   not want
+#     scale_pcs = [p.pitchClass for p in key.pitches[:-1]]  # type:ignore
+#     for pitch in rn.pitches:
+#         # NB degrees are 1-indexed so we must subtract 1 below
+#         degree, accidental = key.getScaleDegreeAndAccidentalFromPitch(  # type:ignore
+#             pitch
+#         )
+#         if accidental is not None:
+#             inflection = int(accidental.alter)
+#             _add_inflection(degree - 1, inflection)  # type:ignore
+#     try:
+#         assert len(scale_pcs) == len(set(scale_pcs))
+#     except AssertionError:
+#         # these special cases are hacks until music21's RomanNumeral
+#         #   handling is repaired or I figure out another solution
+#         if rn.figure == "bII7":
+#             scale_pcs = [p.pitchClass for p in key.pitches[:-1]]  # type:ignore
+#             _add_inflection(1, -1)
+#             _add_inflection(5, -1)
+#         else:
+#             raise
+#     return tuple(scale_pcs)
 
 
 def strip_added_tones(rn_data: str) -> str:

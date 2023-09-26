@@ -4,15 +4,38 @@ import typing as t
 from bisect import bisect
 from functools import cached_property
 
+from music21.key import Key
+from music21.roman import RomanNumeral
+
 from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
 from dumb_composer.pitch_utils.types import (
+    ChromaticInterval,
     Interval,
     Pitch,
     PitchClass,
     ScalarInterval,
     ScaleDegree,
+    SpelledPitchClass,
 )
+
+
+class ScaleDict2:
+    _scales: dict[tuple[SpelledPitchClass, t.Literal["major", "minor"]], Scale2] = {}
+
+    @classmethod
+    def __getitem__(
+        cls, tonic_and_mode: tuple[SpelledPitchClass, t.Literal["major", "minor"]]
+    ) -> Scale2:
+        if tonic_and_mode in cls._scales:
+            return cls._scales[tonic_and_mode]
+
+        scale = Scale2(*tonic_and_mode)
+        cls._scales[tonic_and_mode] = scale
+        return scale
+
+
+SCALE_CACHE = ScaleDict2()
 
 
 def strictly_increasing(l: t.Sequence):
@@ -53,6 +76,108 @@ class ScaleDict:
             new_scale = Scale(*args)  # type:ignore
             self._scales[args] = new_scale
             return new_scale
+
+
+class Scale2:
+    def __init__(self, tonic: SpelledPitchClass, mode: t.Literal["major", "minor"]):
+        if mode == "major":
+            tonic = tonic[0].upper() + tonic[1:]
+        elif mode == "minor":
+            tonic = tonic[0].lower() + tonic[1:]
+        else:
+            raise ValueError
+        self._music21_key = Key(tonic)
+        self._tonic = tonic
+        self._mode = mode
+        self._cache: dict[str, tuple[PitchClass]] = {}
+
+    @cached_property
+    def pcs(self) -> tuple[PitchClass]:
+        # music21 returns the scale *including the upper octave*, which we do
+        #   not want
+        return tuple(p.pitchClass for p in self._music21_key.pitches[:-1])
+
+    def pcs_for_rn(self, rn_token: str) -> t.Tuple[PitchClass]:
+        if rn_token in self._cache:
+            return self._cache[rn_token]
+        pcs = self.fit_to_rn(rn_token)
+        self._cache[rn_token] = pcs
+        return pcs
+
+    def fit_to_rn(self, rn_token: str) -> t.Tuple[PitchClass]:
+        """
+        >>> C_major = Scale2("C", "major")
+        >>> C_minor = Scale2("C", "minor")
+        >>> C_major.fit_to_rn("viio7")  # Note A-flat
+        (0, 2, 4, 5, 7, 8, 11)
+        >>> C_major.fit_to_rn("Ger6")  # Note A-flat, E-flat, F-sharp
+        (0, 2, 3, 6, 7, 8, 11)
+
+
+
+        Sometimes flats are indicated for chord factors that are already flatted
+        in the relevant scale. We handle those with a bit of a hack:
+        >>> C_minor.fit_to_rn("Vb9")
+        (0, 2, 3, 5, 7, 8, 11)
+
+        # TODO: (Malcolm 2023-08-25) move elsewhere
+        # >>> C_major.fit_to_rn(RN("Vb9/vi", keyOrScale="C"))
+        # (9, 11, 0, 2, 4, 5, 8)
+
+        There can be a similar issue with raised degrees. If the would-be raised
+        degree is already in the scale, we leave it unaltered:
+        >>> C_minor.fit_to_rn("V+")
+        (0, 2, 3, 5, 7, 8, 11)
+        """
+
+        def _add_inflection(degree: ScaleDegree, inflection: ChromaticInterval):
+            inflected_pitch = (scale_pcs[degree] + inflection) % 12
+            if (
+                inflection < 0
+                and inflected_pitch == scale_pcs[(degree - 1) % len(scale_pcs)]
+            ):
+                # hack to handle "b9" etc. when already in scale
+                return
+            if (
+                inflection > 0
+                and inflected_pitch == scale_pcs[(degree + 1) % len(scale_pcs)]
+            ):
+                return
+            scale_pcs[degree] = inflected_pitch
+
+        rn = RomanNumeral(rn_token, self._music21_key)
+        assert (
+            rn.secondaryRomanNumeralKey is None
+        ), "Scale2.pcs_for_rn should be called on secondary key"
+
+        # # music21 returns the scale *including the upper octave*, which we do
+        # #   not want
+        # scale_pcs = [p.pitchClass for p in key.pitches[:-1]]  # type:ignore
+        scale_pcs = list(self.pcs)
+        for pitch in rn.pitches:
+            # NB degrees are 1-indexed so we must subtract 1 below
+            (
+                degree,
+                accidental,
+            ) = self._music21_key.getScaleDegreeAndAccidentalFromPitch(  # type:ignore
+                pitch
+            )
+            if accidental is not None:
+                inflection = int(accidental.alter)
+                _add_inflection(degree - 1, inflection)  # type:ignore
+        try:
+            assert len(scale_pcs) == len(set(scale_pcs))
+        except AssertionError:
+            # these special cases are hacks until music21's RomanNumeral
+            #   handling is repaired or I figure out another solution
+            if rn.figure == "bII7":
+                scale_pcs = list(self.pcs)
+                # scale_pcs = [p.pitchClass for p in key.pitches[:-1]]  # type:ignore
+                _add_inflection(1, -1)
+                _add_inflection(5, -1)
+            else:
+                raise
+        return tuple(scale_pcs)
 
 
 class Scale:

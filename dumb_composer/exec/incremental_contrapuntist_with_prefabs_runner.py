@@ -20,7 +20,7 @@ from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.utils.composer_helpers import chain_steps
 
 DEFAULT_OUTPUT_FOLDER = os.path.expanduser(
-    "~/tmp/run_incremental_contrapuntist_with_prefabs/"
+    "~/output/run_incremental_contrapuntist_with_prefabs/"
 )
 
 

@@ -9,6 +9,7 @@ from types import MappingProxyType
 TIME_TYPE = Fraction
 Pitch = int
 PitchClass = int
+SpelledPitchClass = str
 PitchOrPitchClass = int
 ChordFactor = int
 TimeStamp = TIME_TYPE

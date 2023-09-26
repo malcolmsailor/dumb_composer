@@ -51,7 +51,6 @@ Chord lengths that should be allowed in
     - or: demisemibeat, semibeat, demisemibeat _ 3, semibeat _ 2, beat, ???,
       superbeat, beat _ 3, bar, superbeat _ 3, bar \* 2, ...
 
-
 if there are more than two prefab voices, raise an error
 
 if "soprano" is among prefab voices, accompaniment is below it
@@ -76,48 +75,55 @@ It would be nice to allow this to change on a per-measure basis.
 2023-08-03
 
 Accompaniment procedure:
+
 1. choose pattern
 2. set appropriate ranges
-    - it seems best to set ranges dynamically. E.g., for alberti bass, set a certain range for the bass, then allow the rest to be within an octave above that, with optional minimums/maximums
+   - it seems best to set ranges dynamically. E.g., for alberti bass, set a certain range for the bass, then allow the rest to be within an octave above that, with optional minimums/maximums
 3. create 4-part structural counterpoint
 4. double parts as required by structure
 5. realize melody
 6. realize accompaniment
 
 Alberti:
+
 - 4 "real" parts:
-    - melody
-    - 3 in accompaniment in close position
+  - melody
+  - 3 in accompaniment in close position
 - only w/ melody in top voice? or bottom voice too?
 
 1-3-5 patterns:
+
 - same part constraints as alberti
-    - seems like 5-3-1 or similar might be better in case of bass melody?
+  - seems like 5-3-1 or similar might be better in case of bass melody?
 
 Solid chords:
+
 - 4 "real" parts
 - optional doublings
 
 Oom-pah etc:
+
 - 4 real parts
 - optional doublings
 
 Arpeggios:
+
 - need to think more
 
 Tremolos:
-- independent of bass/melody:
-    - requires 2 different pitches (we need to enforce no unisons)
-- including bass/melody
-    - could be in 3 real parts
-    - or 4 real parts with possible doublings, with multiple notes in one or the other leg of the tremolo
 
+- independent of bass/melody:
+  - requires 2 different pitches (we need to enforce no unisons)
+- including bass/melody
+  - could be in 3 real parts
+  - or 4 real parts with possible doublings, with multiple notes in one or the other leg of the tremolo
 
 # suspensions
 
 Suspensions to avoid:
 
 General:
+
 - 6/4 to 6/3
 
 Bass:
@@ -126,6 +132,16 @@ Bass:
 Inner voices:
 6-5 unless there is a 4-3 or something elsewhere
 4-3 when 3 is already in melody or other voice
-Maybe: 
+Maybe:
+
 - certain pitches on diminished 7th chords
 - 9-8 on a change of harmony?
+
+```
+foobar test
+```
+
+```python
+def foobar():
+    return
+```

@@ -22,7 +22,7 @@ from dumb_composer.pitch_utils.types import BASS, MELODY, TENOR_AND_ALTO, Voice
 # parser.add_argument()
 # args = parser.parse_args()
 
-DEFAULT_OUTPUT_FOLDER = os.path.expanduser("~/tmp/run_incremental_contrapuntist/")
+DEFAULT_OUTPUT_FOLDER = os.path.expanduser("~/output/run_incremental_contrapuntist/")
 
 
 def get_random_transpose(random_transpose: bool):
