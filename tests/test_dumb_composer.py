@@ -3,11 +3,11 @@ import random
 
 import pandas as pd
 import pytest
-from midi_to_notes import df_to_midi
-
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.time import MeterError
 from dumb_composer.utils.recursion import RecursionFailed
+from midi_to_note_table import df_to_midi
+
 from tests.test_helpers import TEST_OUT_DIR, get_funcname, merge_dfs, write_df
 
 

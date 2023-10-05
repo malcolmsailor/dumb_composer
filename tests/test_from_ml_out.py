@@ -5,7 +5,7 @@
 # import pytest
 
 # from dumb_composer import ml_out_handler
-# from midi_to_notes import df_to_midi
+# from midi_to_note_table import df_to_midi
 
 # from tests.test_helpers import TEST_OUT_DIR
 

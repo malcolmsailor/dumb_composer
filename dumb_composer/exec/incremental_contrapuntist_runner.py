@@ -3,8 +3,6 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
-from midi_to_notes import df_to_midi
-
 from dumb_composer.classes.scores import FourPartScore
 from dumb_composer.config.read_config import (
     load_config_from_yaml,
@@ -17,6 +15,7 @@ from dumb_composer.incremental_contrapuntist import (
     IncrementalContrapuntistSettings,
 )
 from dumb_composer.pitch_utils.types import BASS, MELODY, TENOR_AND_ALTO, Voice
+from midi_to_note_table import df_to_midi
 
 # parser = argparse.ArgumentParser()
 # parser.add_argument()

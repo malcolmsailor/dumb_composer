@@ -3,9 +3,9 @@ import random
 
 import pandas as pd
 import pytest
-from midi_to_notes import df_to_midi
-
 from dumb_composer.new_composer import NewComposer, NewComposerSettings
+from midi_to_note_table import df_to_midi
+
 from tests.test_helpers import TEST_OUT_DIR, get_funcname, merge_dfs, write_df
 
 

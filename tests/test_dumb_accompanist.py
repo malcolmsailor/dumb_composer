@@ -3,14 +3,14 @@ import os
 import random
 
 import pytest
-from midi_to_notes import df_to_midi
-
 from dumb_composer.dumb_accompanist import (
     AccompAnnots,
     DumbAccompanist,
     DumbAccompanistSettings,
 )
 from dumb_composer.patterns import PatternMaker
+from midi_to_note_table import df_to_midi
+
 from tests.test_helpers import TEST_OUT_DIR, get_funcname
 
 

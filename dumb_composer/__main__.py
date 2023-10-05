@@ -2,11 +2,10 @@ import argparse
 import logging
 import random
 
-from midi_to_notes import df_to_midi
+from midi_to_note_table import df_to_midi
 
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.utils.logs import configure_logging
-
 
 SEED = 42  # TODO eventually remove
 
@@ -48,9 +47,7 @@ if __name__ == "__main__":
 
     composer = PrefabComposer(settings)
     print(f"Building score from {args.input_file}")
-    out, ts = composer(
-        args.input_file, return_ts=True, transpose=args.transpose
-    )
+    out, ts = composer(args.input_file, return_ts=True, transpose=args.transpose)
     if args.output_file is not None:
         print(f"Writing {args.output_file}")
         df_to_midi(out, args.output_file, ts)

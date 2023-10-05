@@ -3,14 +3,14 @@ import random
 from collections import Counter, defaultdict
 from typing import Iterable
 
+import dumb_composer.two_part_contrapuntist as mod
 import pandas as pd
 import pytest
-from midi_to_notes import df_to_midi
-
-import dumb_composer.two_part_contrapuntist as mod
 from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 from dumb_composer.utils.recursion import DeadEnd
 from dumb_composer.utils.shell_plot import print_bar
+from midi_to_note_table import df_to_midi
+
 from tests.test_helpers import TEST_OUT_DIR
 
 

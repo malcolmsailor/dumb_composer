@@ -2,8 +2,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from midi_to_notes import df_to_midi
-
 from dumb_composer.classes.scores import PrefabScore
 from dumb_composer.config.read_config import (
     load_config_from_yaml,
@@ -18,6 +16,7 @@ from dumb_composer.incremental_contrapuntist import (
 from dumb_composer.pitch_utils.types import BASS, MELODY, TENOR_AND_ALTO, Voice
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.utils.composer_helpers import chain_steps
+from midi_to_note_table import df_to_midi
 
 DEFAULT_OUTPUT_FOLDER = os.path.expanduser(
     "~/output/run_incremental_contrapuntist_with_prefabs/"

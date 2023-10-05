@@ -1,11 +1,11 @@
 import os
 import random
 
-import pytest
-from midi_to_notes import df_to_midi
-
 import dumb_composer.melodist as mod
+import pytest
 from dumb_composer.rhythmist import DumbRhythmist
+from midi_to_note_table import df_to_midi
+
 from tests.test_helpers import TEST_OUT_DIR
 
 

@@ -12,7 +12,7 @@ import re
 import typing as t
 from dataclasses import asdict
 
-from midi_to_notes import df_to_midi
+from midi_to_note_table import df_to_midi
 
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.pitch_utils.music21_handler import transpose_and_write_rntxt
