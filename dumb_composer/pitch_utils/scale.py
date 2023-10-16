@@ -78,6 +78,7 @@ class ScaleDict:
             return new_scale
 
 
+# (Malcolm 2023-10-15) I do not know why I defined a second scale class `Scale2`.
 class Scale2:
     def __init__(self, tonic: SpelledPitchClass, mode: t.Literal["major", "minor"]):
         if mode == "major":
@@ -89,22 +90,22 @@ class Scale2:
         self._music21_key = Key(tonic)
         self._tonic = tonic
         self._mode = mode
-        self._cache: dict[str, tuple[PitchClass]] = {}
+        self._cache: dict[str, tuple[PitchClass, ...]] = {}
 
     @cached_property
-    def pcs(self) -> tuple[PitchClass]:
+    def pcs(self) -> tuple[PitchClass, ...]:
         # music21 returns the scale *including the upper octave*, which we do
         #   not want
         return tuple(p.pitchClass for p in self._music21_key.pitches[:-1])
 
-    def pcs_for_rn(self, rn_token: str) -> t.Tuple[PitchClass]:
+    def pcs_for_rn(self, rn_token: str) -> t.Tuple[PitchClass, ...]:
         if rn_token in self._cache:
             return self._cache[rn_token]
         pcs = self.fit_to_rn(rn_token)
         self._cache[rn_token] = pcs
         return pcs
 
-    def fit_to_rn(self, rn_token: str) -> t.Tuple[PitchClass]:
+    def fit_to_rn(self, rn_token: str) -> t.Tuple[PitchClass, ...]:
         """
         >>> C_major = Scale2("C", "major")
         >>> C_minor = Scale2("C", "minor")
@@ -194,6 +195,8 @@ class Scale:
                 - tonic is understood to be the first item.
                 - strictly ascending except for one jump.
                 - in range [0, tet)
+        (Malcolm 2023-10-15) As far as I can tell today, `zero_pitch` is just there
+        for the unusual case where we want a pc other than C to be 0.
         """
         assert len(pcs) > 1
         for i in range(len(pcs), 0, -1):

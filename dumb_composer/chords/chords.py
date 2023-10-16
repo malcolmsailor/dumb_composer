@@ -274,8 +274,8 @@ CONDITIONAL_TENDENCIES: t.Mapping[
 
 @dataclass
 class Chord:
-    pcs: t.Tuple[PitchClass]
-    scale_pcs: t.Tuple[PitchClass]
+    pcs: t.Tuple[PitchClass, ...]
+    scale_pcs: t.Tuple[PitchClass, ...]
     onset: TimeStamp
     release: TimeStamp
     inversion: int
@@ -308,7 +308,7 @@ class Chord:
         return pitch_or_pc % 12 in self.pcs
 
     @staticmethod
-    def _get_chord_pcs(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass]:
+    def _get_chord_pcs(rn: music21.roman.RomanNumeral) -> t.Tuple[PitchClass, ...]:
         # remove this function after music21's RomanNumeral
         #   handling is repaired or I figure out another solution
         def _transpose(pcs, tonic_pc):
@@ -375,7 +375,7 @@ class Chord:
         return self.root_position_pcs[0]
 
     @cached_property
-    def root_position_pcs(self) -> tuple[PitchClass]:
+    def root_position_pcs(self) -> tuple[PitchClass, ...]:
         """
         >>> rntxt = "m1 C: I b3 I6"
         >>> I, I6 = get_chords_from_rntxt(rntxt)
@@ -642,13 +642,13 @@ class Chord:
                 tendencies = abstract_to_concrete_chord_tendencies(
                     tendencies, self.inversion, self.cardinality
                 )
-                self.tendencies = dict(self.tendencies) | tendencies
+                self.tendencies = dict(self.tendencies) | dict(tendencies)
 
     def get_pcs_that_cannot_be_added_to_existing_voicing(
         self,
         existing_voices: t.Iterable[PitchOrPitchClass] = (),
         suspensions: t.Iterable[PitchOrPitchClass] = (),
-    ) -> tuple[PitchClass]:
+    ) -> tuple[PitchClass, ...]:
         """
         Note: `suspensions` need to be also present in
         `existing_voices_not_including_bass`.
@@ -696,7 +696,7 @@ class Chord:
         self,
         existing_voices: t.Iterable[PitchOrPitchClass] = (),
         suspensions: t.Iterable[PitchOrPitchClass] = (),
-    ) -> t.Tuple[PitchClass]:
+    ) -> t.Tuple[PitchClass, ...]:
         """
         >>> rntxt = "m1 C: V7 b2 V65 b3 V42"
         >>> V7, V65, V42 = get_chords_from_rntxt(rntxt)
@@ -1021,7 +1021,7 @@ class Chord:
         included_factors: t.Iterable[PitchOrPitchClass] = (),
         suspensions: t.Iterable[PitchOrPitchClass] = (),
         bass_suspension: PitchOrPitchClass | None = None,
-    ) -> t.Dict[VoiceCount, t.Set[t.Tuple[PitchClass]]]:
+    ) -> t.Dict[VoiceCount, t.Set[t.Tuple[PitchClass, ...]]]:
         """
         The chords in the output are sorted in ascending pitch-class order, *except* for
         the first pc, which is always the bass. The sorting is done so that equivalent
@@ -1118,7 +1118,7 @@ class Chord:
             return self._pc_voicing_cache[args].copy()
 
         working_area: t.DefaultDict[
-            VoiceCount, t.Set[t.Tuple[PitchClass]]
+            VoiceCount, t.Set[t.Tuple[PitchClass, ...]]
         ] = defaultdict(set)
         voicing = (
             [self.pcs[0] if bass_suspension is None else bass_suspension % 12]
