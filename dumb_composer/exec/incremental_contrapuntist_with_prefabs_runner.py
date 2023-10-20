@@ -2,6 +2,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from midi_to_note_table import df_to_midi
+
 from dumb_composer.classes.scores import PrefabScore
 from dumb_composer.config.read_config import (
     load_config_from_yaml,
@@ -16,19 +18,21 @@ from dumb_composer.incremental_contrapuntist import (
 from dumb_composer.pitch_utils.types import BASS, MELODY, TENOR_AND_ALTO, Voice
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.utils.composer_helpers import chain_steps
-from midi_to_note_table import df_to_midi
 
 DEFAULT_OUTPUT_FOLDER = os.path.expanduser(
     "~/output/run_incremental_contrapuntist_with_prefabs/"
 )
 
 
+# TODO: (Malcolm 2023-10-18) I'd like to write "structural" separately from "prefabs"
 @dataclass
 class ContrapuntistWithPrefabsSettings(RunnerSettingsBase):
     # TODO: (Malcolm 2023-08-15) allow choices
     contrapuntist_voices: tuple[Voice, ...] = (BASS, MELODY, TENOR_AND_ALTO)
-    get_df_keys: tuple[str, ...] = ("structural", "annotations", "prefabs")
+    get_df_keys: tuple[str, ...] = ("annotations", "prefabs")
+    # get_df_keys: tuple[str, ...] = ("structural", "annotations", "prefabs")
     output_folder: str = DEFAULT_OUTPUT_FOLDER
+    timeout: int = 10
 
 
 def run_contrapuntist_with_prefabs(
@@ -63,7 +67,7 @@ def run_contrapuntist_with_prefabs(
     )
     prefab_applier = PrefabApplier(score=score, settings=prefab_applier_settings)
 
-    chain_steps([contrapuntist, prefab_applier])
+    chain_steps([contrapuntist, prefab_applier], timeout=settings.timeout)
 
     out_df = score.get_df(settings.get_df_keys)
 

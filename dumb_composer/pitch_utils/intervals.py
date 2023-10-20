@@ -308,7 +308,7 @@ def get_scalar_intervals_to_other_chord_factors(
     chord_factor: ChordFactor,
     chord_intervals: t.Tuple[ScalarInterval, ...],
     scale_card: int,
-) -> t.Tuple[int]:
+) -> t.Tuple[int, ...]:
     """Given a chord factor expressed as a generic interval above the root,
     return a tuple of generic intervals to the other factors of the chord,
     both up and down.

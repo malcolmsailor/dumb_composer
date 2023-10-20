@@ -1,3 +1,5 @@
+<!-- spellcheck-off -->
+
 # Important TODOs
 
 - suspensions in Bass
@@ -9,7 +11,6 @@ Because (tied) suspensions are hard to learn, we want to tie as many suspensions
 (It would also be good to allow for tied "anticipations".)
 
 Chord lengths that should be allowed in
-
 - 2/4
   - from downbeat: 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, ...
     - or: demisemibeat, semibeat, demisemibeat * 3, beat, 3*semibeat, 2 _
@@ -137,11 +138,8 @@ Maybe:
 - certain pitches on diminished 7th chords
 - 9-8 on a change of harmony?
 
-```
-foobar test
-```
+# Annotations
 
-```python
-def foobar():
-    return
-```
+For current (as of 2023-10-18) musicbert training, it should be enough to:
+1. save spelling somehow
+2. save romantext file

@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Callable, Iterable, Sequence
 
 from dumb_composer.pitch_utils.types import RecursiveWorker
@@ -8,13 +9,16 @@ from dumb_composer.utils.recursion import DeadEnd
 LOGGER = logging.getLogger(__name__)
 
 
-def chain_steps(recursive_workers: Iterable[RecursiveWorker]):
+def chain_steps(recursive_workers: Iterable[RecursiveWorker], timeout: int = 60 * 60):
     all_workers = list(recursive_workers)
     spinner = Spinner()
+    start_time = time.time()
 
     def _recurse_through_workers(
         workers: list[RecursiveWorker],
     ):
+        if time.time() - start_time > timeout:
+            raise TimeoutError()
         spinner()
         if not workers:
             if all(w.finished for w in all_workers):
