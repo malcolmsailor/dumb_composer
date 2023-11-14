@@ -364,6 +364,7 @@ class PrefabApplier(RecursiveWorker):
             is_suspension,
             is_preparation,
             interval_is_diatonic,
+            voice=voice,
         )
 
     def _get_parallel_leadout_candidate(
@@ -848,6 +849,7 @@ class PrefabApplier(RecursiveWorker):
 
     @contextmanager
     def append_attempt(self, prefabs: dict[Voice, list[Note]]):
+        # Takes result of self.step() as argument
         with recursive_attempt(
             do_func=append_prefabs,
             do_args=(prefabs, self._score_interface.score),
@@ -952,7 +954,7 @@ class PrefabApplier(RecursiveWorker):
 
 def _get_lens_then_perform_op(
     op: t.Callable[[], None], get_lens: t.Callable[[], tuple[int, ...]]
-):
+) -> tuple[int, int]:
     before_lens = get_lens()
     assert len(set(before_lens)) == 1
 
@@ -963,7 +965,9 @@ def _get_lens_then_perform_op(
     return before_lens[0], after_lens[0]
 
 
-def append_prefabs(prefabs: dict[Voice, list[Note]], score: PrefabScore):
+def append_prefabs(
+    prefabs: dict[Voice, list[Note]], score: PrefabScore
+) -> tuple[int, int]:
     get_lens = lambda: tuple(len(score._structural[v]) for v in prefabs)
 
     def _perform_append():
@@ -975,7 +979,7 @@ def append_prefabs(prefabs: dict[Voice, list[Note]], score: PrefabScore):
     return _get_lens_then_perform_op(_perform_append, get_lens)
 
 
-def pop_prefabs(voices: t.Iterable[Voice], score: PrefabScore):
+def pop_prefabs(voices: t.Iterable[Voice], score: PrefabScore) -> tuple[int, int]:
     get_lens = lambda: tuple(len(score._structural[v]) for v in voices)
 
     def _perform_pop():

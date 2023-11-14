@@ -1604,7 +1604,7 @@ class IncrementalContrapuntist(RecursiveWorker):
         self,
         voice_or_voices: Voice,
         result_so_far: IncrementalResult,
-    ) -> t.Iterator[Pitch | tuple[Pitch]]:
+    ) -> t.Iterator[Pitch | tuple[Pitch, ...]]:
         if voice_or_voices is BASS:
             in_progress_melody_pitch = result_so_far.get(MELODY, None)
             yield from self._bass_step(melody_pitch=in_progress_melody_pitch)

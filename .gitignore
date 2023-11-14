@@ -8,3 +8,4 @@ profiler.out
 temp_dir/
 batch_out*/
 foobar.*
+pyrightconfig.json

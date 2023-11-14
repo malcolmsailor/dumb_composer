@@ -414,7 +414,8 @@ class PatternMaker:
         track: int,
         chord_change: bool,
     ):
-        return self._chords(self.rf.beats, pitches, onset, release, track, chord_change)
+        out = self._chords(self.rf.beats, pitches, onset, release, track, chord_change)
+        return out
 
     @pattern_method()
     def semibeat_chords(
@@ -821,7 +822,8 @@ class PatternMaker:
             f"{pattern.__name__} time:{onset}--{release} "
             f"chord_change:{'yes' if chord_change else 'no'}"
         )
-        return pattern(pitches, onset, release, track, chord_change)
+        out = pattern(pitches, onset, release, track, chord_change)
+        return out
 
     def get_spacing_constraints(self, pattern: str | Pattern) -> SpacingConstraints:
         if isinstance(pattern, str):

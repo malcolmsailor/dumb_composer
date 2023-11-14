@@ -5,7 +5,7 @@ from bisect import bisect
 from functools import cached_property
 
 from music21.key import Key
-from music21.roman import RomanNumeral
+from music21.roman import Minor67Default, RomanNumeral
 
 from dumb_composer.pitch_utils.intervals import reduce_compound_interval
 from dumb_composer.pitch_utils.put_in_range import get_all_in_range, put_in_range
@@ -105,7 +105,12 @@ class Scale2:
         self._cache[rn_token] = pcs
         return pcs
 
-    def fit_to_rn(self, rn_token: str) -> t.Tuple[PitchClass, ...]:
+    def fit_to_rn(
+        self,
+        rn_token: str,
+        sixth_minor: Minor67Default = Minor67Default.CAUTIONARY,
+        seventh_minor: Minor67Default = Minor67Default.CAUTIONARY,
+    ) -> t.Tuple[PitchClass, ...]:
         """
         >>> C_major = Scale2("C", "major")
         >>> C_minor = Scale2("C", "minor")
@@ -146,7 +151,12 @@ class Scale2:
                 return
             scale_pcs[degree] = inflected_pitch
 
-        rn = RomanNumeral(rn_token, self._music21_key)
+        rn = RomanNumeral(
+            rn_token,
+            self._music21_key,
+            sixthMinor=sixth_minor,
+            seventhMinor=seventh_minor,
+        )
         assert (
             rn.secondaryRomanNumeralKey is None
         ), "Scale2.pcs_for_rn should be called on secondary key"

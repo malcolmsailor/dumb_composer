@@ -20,6 +20,7 @@ def get_args():
         help="Set the debugging level",
     )
     parser.add_argument("rntxt_paths", type=str, nargs="+")
+    parser.add_argument("--debug", action="store_true")
 
     args = parser.parse_args()
     return args
@@ -29,10 +30,19 @@ def main():
     args = get_args()
     setup_logging(args.log_level)
     random.seed(42)
-    for rntxt_path in args.rntxt_paths:
-        run_incremental_composer(
-            args.runner_config, args.contrapuntist_config, rntxt_path
-        )
+    for i, rntxt_path in enumerate(args.rntxt_paths, start=1):
+        print(f"{i}/{len(args.rntxt_paths)}: {rntxt_path} ")
+        try:
+            run_incremental_composer(
+                args.runner_config, args.contrapuntist_config, rntxt_path
+            )
+        except TimeoutError:
+            print("Timeout")
+
+        except Exception as exc:
+            if args.debug:
+                raise
+            print(f"Exception on {rntxt_path}: {repr(exc)}")
 
 
 if __name__ == "__main__":

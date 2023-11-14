@@ -15,7 +15,7 @@ from dumb_composer.chords.intervals import (
     ascending_chord_intervals_within_range,
     descending_chord_intervals_within_range,
 )
-from dumb_composer.pitch_utils.types import TIME_TYPE, ScalarInterval, Voice
+from dumb_composer.pitch_utils.types import BASS, TIME_TYPE, ScalarInterval, Voice
 from dumb_composer.prefabs.prefab_rhythms import (
     MissingPrefabError,
     PrefabBase,
@@ -239,6 +239,15 @@ class PrefabPitches(PrefabPitchBase):
     def __len__(self):
         return len(self.metric_strength_str)
 
+    @cached_property
+    def min_relative_degree(self) -> int:
+        out = min(self.relative_degrees)
+        if isinstance(out, str):
+            breakpoint()
+        else:
+            return out
+        raise NotImplementedError
+
     def matches_criteria(
         self,
         interval_to_next: t.Optional[int] = None,
@@ -295,6 +304,9 @@ class PrefabPitches(PrefabPitchBase):
             return False
         if voice is not None and voice in self.avoid_voices:
             return False
+        if voice is BASS:
+            if self.min_relative_degree < -1:
+                return False
         return True
 
     def __hash__(self):
@@ -565,6 +577,7 @@ class PrefabPitchDirectory:
             is_suspension,
             is_preparation,
             interval_is_diatonic,
+            voice,
         )
         if tup in self._memo:
             return self._memo[tup].copy()

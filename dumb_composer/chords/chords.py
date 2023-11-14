@@ -348,7 +348,10 @@ class Chord:
         tonic = key.tonic.name
         mode = key.mode
         scale = SCALE_CACHE[(tonic, mode)]  # type:ignore
-        scale_pcs = scale.fit_to_rn(rn.primaryFigure)
+
+        scale_pcs = scale.fit_to_rn(
+            rn.primaryFigure, sixth_minor=rn.sixthMinor, seventh_minor=rn.seventhMinor
+        )
         # scale_pcs = fit_scale_to_rn(rn)
         inversion = rn.inversion()
         tendencies = apply_tendencies(rn)

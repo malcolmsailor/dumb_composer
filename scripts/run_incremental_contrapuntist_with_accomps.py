@@ -5,8 +5,8 @@ import sys
 from functools import partial
 from multiprocessing import Pool
 
-from dumb_composer.exec.incremental_contrapuntist_with_prefabs_runner import (
-    run_contrapuntist_with_prefabs,
+from dumb_composer.exec.incremental_contrapuntist_with_accomps_runner import (
+    run_contrapuntist_with_accomps,
 )
 from dumb_composer.exec.script_helpers import custom_excepthook, setup_logging
 
@@ -17,7 +17,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runner-config", "-R", type=str, default=None)
     parser.add_argument("--contrapuntist-config", "-C", type=str, default=None)
-    parser.add_argument("--prefab-config", "-P", type=str, default=None)
+    parser.add_argument("--accomp-config", "-A", type=str, default=None)
     parser.add_argument("--seed", "-S", type=int, default=42)
     parser.add_argument(
         "--log-level",
@@ -38,17 +38,17 @@ def sub(
     n_paths: int,
     runner_config,
     contrapuntist_config,
-    prefab_config,
+    accomp_config,
     base_seed,
 ):
     i, rntxt_path = i_and_path
     random.seed(base_seed + i)
     print(f"{i}/{n_paths}: {rntxt_path} ")
     try:
-        run_contrapuntist_with_prefabs(
+        run_contrapuntist_with_accomps(
             runner_config,
             contrapuntist_config,
-            prefab_config,
+            accomp_config,
             rntxt_path,
         )
     except TimeoutError:
@@ -72,7 +72,7 @@ def main():
                     n_paths=len(paths),
                     runner_config=args.runner_config,
                     contrapuntist_config=args.contrapuntist_config,
-                    prefab_config=args.prefab_config,
+                    accomp_config=args.accomp_config,
                     base_seed=args.seed,
                 ),
                 enumerate(paths),
@@ -82,10 +82,10 @@ def main():
         for i, rntxt_path in enumerate(args.rntxt_paths, start=1):
             print(f"{i}/{len(args.rntxt_paths)}: {rntxt_path} ")
             try:
-                run_contrapuntist_with_prefabs(
+                run_contrapuntist_with_accomps(
                     args.runner_config,
                     args.contrapuntist_config,
-                    args.prefab_config,
+                    args.accomp_config,
                     rntxt_path,
                 )
             except TimeoutError:

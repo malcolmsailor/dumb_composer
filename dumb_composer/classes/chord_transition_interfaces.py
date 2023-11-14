@@ -85,6 +85,9 @@ class _ChordTransitionInterface:
             raise ValueError
         return self._score._structural[voice][self.i]
 
+    def departure_pitches(self, voices: t.Iterable[Voice]) -> list[Pitch]:
+        return [self.departure_pitch(voice) for voice in voices]
+
     def arrival_pitch(self, voice: Voice):
         if self.i < 0:
             raise ValueError
@@ -139,18 +142,35 @@ class _ChordTransitionInterface:
         # return self._score.is_suspension_at(self.i - 1, voice)
         # return self._score._suspension_resolutions[voice].get(self.i, None) is None
 
+    def departure_has_resolution_in_any_voice(self) -> bool:
+        assert self.i >= 0
+        return any(
+            self._score.is_resolution_at(self.departure_time, voice)
+            for voice in self._score._suspension_resolutions
+        )
+
+    def arrival_has_resolution_in_any_voice(self) -> bool:
+        assert self.i >= 0
+        return any(
+            self._score.is_resolution_at(self.arrival_time, voice)
+            for voice in self._score._suspension_resolutions
+        )
+
     def at_chord_change(
         self,
         compare_scales: bool = True,
         compare_inversions: bool = True,
         allow_subsets: bool = False,
     ):
-        return not is_same_harmony(
-            self.departure_chord,
-            self.arrival_chord,
-            compare_scales,
-            compare_inversions,
-            allow_subsets,
+        return (
+            not is_same_harmony(
+                self.departure_chord,
+                self.arrival_chord,
+                compare_scales,
+                compare_inversions,
+                allow_subsets,
+            )
+            or self.departure_has_resolution_in_any_voice()
         )
 
     def departure_attr(self, attr_name: str, voice: Voice):
@@ -224,3 +244,20 @@ class AccompanimentInterface(_ChordTransitionInterface):
     def __init__(self, reference_score: ScoreWithAccompaniments):
         get_len = lambda: len(reference_score.accompaniments)
         super().__init__(reference_score, get_len)
+
+    def _validate_state(self) -> bool:
+        # TODO: (Malcolm 2023-11-14) is there anything that needs to be validated here?
+        return True
+
+    # TODO: (Malcolm 2023-11-14) remove this, I think (for testing)
+    @property
+    def i(self) -> int:
+        # We first need to wait until there are at least 2 items made.
+        # Perhaps that should be a parameter.
+
+        # TODO: (Malcolm 2023-08-15) I feel that we should be able to offset by just 1
+        #   here
+        bass_len = len(self._score._structural[BASS]) - 2
+        if bass_len < 0:
+            return bass_len
+        return self._get_len()
