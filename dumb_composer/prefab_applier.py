@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import random
 import typing as t
@@ -973,7 +974,9 @@ def append_prefabs(
     def _perform_append():
         for voice, notes in prefabs.items():
             if score.prefabs[voice]:
-                assert notes[0].onset >= score.prefabs[voice][-1][-1].release
+                # (Malcolm 2023-11-15) onset >= release comparison fails occasionally
+                #   due to precision issues
+                assert notes[0].onset - score.prefabs[voice][-1][-1].release > -1e-7
             score.prefabs[voice].append(notes)
 
     return _get_lens_then_perform_op(_perform_append, get_lens)

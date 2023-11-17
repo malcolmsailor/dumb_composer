@@ -13,46 +13,35 @@ from dumb_composer.config.read_config import (
     load_config_from_yaml_basic,
 )
 from dumb_composer.dumb_accompanist import DumbAccompanist2, DumbAccompanistSettings
-from dumb_composer.exec.runner_helpers import path_formatter
+from dumb_composer.exec.runner_helpers import (
+    path_formatter,
+    voice_strs_to_enums,
+    write_output,
+)
 from dumb_composer.exec.runner_settings_base import RunnerSettingsBase
 from dumb_composer.incremental_contrapuntist import (
     IncrementalContrapuntist,
     IncrementalContrapuntistSettings,
 )
-from dumb_composer.pitch_utils.types import (
-    ALTO,
-    BASS,
-    MELODY,
-    TENOR,
-    TENOR_AND_ALTO,
-    Voice,
-    voice_enum_to_string,
-)
+from dumb_composer.pitch_utils.types import Voice, voice_enum_to_string
 from dumb_composer.prefab_applier import PrefabApplier, PrefabApplierSettings
 from dumb_composer.utils.composer_helpers import chain_steps
 
-DEFAULT_OUTPUT_FOLDER = os.path.expanduser(
-    "~/output/run_incremental_contrapuntist_with_prefabs_and_accomps/"
-)
 
-
-# TODO: (Malcolm 2023-10-18) I'd like to write "structural" separately from "prefabs"
 @dataclass
 class ContrapuntistWithPrefabsSettings(RunnerSettingsBase):
-    # TODO: (Malcolm 2023-08-15) allow choices
-    prefab_voices_and_weights: dict[float, Voice | tuple[Voice, ...]] = field(
+    prefab_voices_and_weights: dict[float, str | tuple[str, ...]] = field(
         default_factory=lambda: {
-            4.0: MELODY,
-            2.0: BASS,
-            1.0: (MELODY, BASS),
-            1.0: (MELODY, ALTO),
-            1.0: (TENOR, BASS),
+            4.0: "melody",
+            2.0: "bass",
+            1.0: ("melody", "bass"),
+            1.0: ("melody", "alto"),
+            1.0: ("tenor", "bass"),
         }
     )
-    contrapuntist_voices: tuple[Voice, ...] = (BASS, MELODY, TENOR_AND_ALTO)
+    contrapuntist_voices: tuple[str, ...] = ("bass", "melody", "tenor_and_alto")
     get_df_keys: tuple[str, ...] = ("annotations", "prefabs", "accompaniments")
     # get_df_keys: tuple[str, ...] = ("structural", "annotations", "prefabs")
-    output_folder: str = DEFAULT_OUTPUT_FOLDER
     timeout: int = 10
 
     @cached_property
@@ -61,15 +50,15 @@ class ContrapuntistWithPrefabsSettings(RunnerSettingsBase):
 
     @cached_property
     def prefab_voice_choices(self):
-        return [w for w in self.prefab_voices_and_weights.values()]
+        return [v for v in self.prefab_voices_and_weights.values()]
 
     def choose_prefab_voice(self) -> tuple[Voice, ...]:
         out = random.choices(
             self.prefab_voice_choices, cum_weights=self.prefab_weights, k=1
         )[0]
-        if isinstance(out, Voice):
-            return (out,)
-        return out
+        if isinstance(out, str):
+            out = (out,)
+        return voice_strs_to_enums(out)
 
 
 def run_contrapuntist_with_prefabs_and_accomps(
@@ -78,6 +67,8 @@ def run_contrapuntist_with_prefabs_and_accomps(
     prefab_applier_settings_path: str | Path | None,
     dumb_accompanist_settings_path: str | Path | None,
     rntxt_path: str | Path,
+    output_folder: str | Path,
+    basename_prefix: str | None,
 ):
     settings: ContrapuntistWithPrefabsSettings = load_config_from_yaml_basic(
         ContrapuntistWithPrefabsSettings, runner_settings_path
@@ -95,10 +86,6 @@ def run_contrapuntist_with_prefabs_and_accomps(
     dumb_accompanist_settings: DumbAccompanistSettings = load_config_from_yaml(
         DumbAccompanistSettings, dumb_accompanist_settings_path
     )
-    os.makedirs(settings.output_folder, exist_ok=True)
-    output_path_wo_ext = os.path.join(
-        settings.output_folder, path_formatter(rntxt_path, 0, 0)
-    )
 
     with open(rntxt_path) as inf:
         rntxt = inf.read()
@@ -107,7 +94,7 @@ def run_contrapuntist_with_prefabs_and_accomps(
 
     contrapuntist = IncrementalContrapuntist(
         score=score,
-        voices=settings.contrapuntist_voices,
+        voices=voice_strs_to_enums(settings.contrapuntist_voices),
         settings=contrapuntist_settings,
     )
     prefab_applier = PrefabApplier(score=score, settings=prefab_applier_settings)
@@ -121,14 +108,32 @@ def run_contrapuntist_with_prefabs_and_accomps(
         [contrapuntist, prefab_applier, dumb_accompanist], timeout=settings.timeout
     )
 
-    out_df = score.get_df(settings.get_df_keys)
+    if basename_prefix is None:
+        basename_prefix = "prefabs_and_accomps"
+    else:
+        basename_prefix = f"{basename_prefix}_prefabs_and_accomps"
+    write_output(
+        output_folder,
+        rntxt_path,
+        score,
+        settings,
+        basename_prefix=basename_prefix,
+    )
+    # os.makedirs(output_folder, exist_ok=True)
+    # output_path_wo_ext = os.path.join(output_folder, path_formatter(rntxt_path, 0, 0))
+    # out_df = score.get_df(settings.get_df_keys)
 
-    if settings.write_midi:
-        mid_path = f"{output_path_wo_ext}.mid"
-        df_to_midi(out_df, mid_path, ts=score.ts.ts_str)
-        print(f"Wrote {mid_path}")
+    # if settings.write_midi:
+    #     mid_path = f"{output_path_wo_ext}.mid"
+    #     df_to_midi(out_df, mid_path, ts=score.ts.ts_str)
+    #     print(f"Wrote {mid_path}")
 
-    if settings.write_csv:
-        csv_path = f"{output_path_wo_ext}.csv"
-        out_df.to_csv(csv_path)
-        print(f"Wrote {csv_path}")
+    # if settings.write_csv:
+    #     csv_path = f"{output_path_wo_ext}.csv"
+    #     out_df.to_csv(csv_path)
+    #     print(f"Wrote {csv_path}")
+
+    # if settings.write_rntxt:
+    #     output_rntxt_path = f"{output_path_wo_ext}.txt"
+    #     with open(output_rntxt_path, "w") as outf:
+    #         outf.write(rntxt)

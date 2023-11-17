@@ -99,6 +99,8 @@ voice_string_to_enum = MappingProxyType(
         "alto": InnerVoice.ALTO,
         "soprano": OuterVoice.MELODY,
         "melody": OuterVoice.MELODY,
+        "tenor_and_alto": VoicePair.TENOR_AND_ALTO,
+        "alto_and_tenor": VoicePair.TENOR_AND_ALTO,
     }
 )
 

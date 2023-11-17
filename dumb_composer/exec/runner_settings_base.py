@@ -1,5 +1,7 @@
 import os
+import time
 from dataclasses import dataclass
+from functools import cached_property
 
 from dumb_composer.pitch_utils.types import (
     BASS,
@@ -13,6 +15,6 @@ from dumb_composer.pitch_utils.types import (
 @dataclass
 class RunnerSettingsBase(SettingsBase):
     get_df_keys: tuple[str, ...]
-    output_folder: str
     write_midi: bool = True
     write_csv: bool = True
+    write_rntxt: bool = True
