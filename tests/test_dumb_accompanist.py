@@ -3,17 +3,17 @@ import os
 import random
 
 import pytest
-from dumb_composer.dumb_accompanist import (
+from midi_to_note_table import df_to_midi
+
+from dumb_composer.dumb_accompanist import (  # DumbAccompanist,
     AccompAnnots,
-    DumbAccompanist,
     DumbAccompanistSettings,
 )
 from dumb_composer.patterns import PatternMaker
-from midi_to_note_table import df_to_midi
-
 from tests.test_helpers import TEST_OUT_DIR, get_funcname
 
 
+# (Malcolm 2023-11-17) this should be replaced with a test of DumbAccompanist2
 @pytest.mark.skip(
     reason="dumb accompanist has changed, not sure it makes sense to call it on its own"
 )
@@ -28,6 +28,7 @@ def test_dumb_accompanist(quick, pytestconfig):
     #     m7 V
     #     m8 bVI
     #     """
+    return
     test_cases = [
         (
             (4, 4),

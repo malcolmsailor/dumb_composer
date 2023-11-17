@@ -12,7 +12,8 @@ import pandas as pd
 from dumb_composer.chords.chords import Chord, Tendency, is_same_harmony
 from dumb_composer.classes.score_interfaces import ScoreInterface
 from dumb_composer.classes.scores import Score, _ScoreBase
-from dumb_composer.from_ml_out import get_chord_df
+
+# from dumb_composer.from_ml_out import get_chord_df
 from dumb_composer.pitch_utils.interval_chooser import (
     IntervalChooser,
     IntervalChooserSettings,
@@ -165,6 +166,7 @@ class TwoPartContrapuntist:
         relative_key_annotations=True,
         **kwargs,
     ):
+        raise NotImplementedError
         chord_data = get_chord_df(
             ml_out,
             ts,
@@ -174,7 +176,6 @@ class TwoPartContrapuntist:
             **kwargs,
         )
         # TODO: (Malcolm) fix
-        raise NotImplementedError
         return self(chord_data, ts, bass_range, mel_range, initial_mel_chord_factor)
 
     # -----------------------------------------------------------------------------------

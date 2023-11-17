@@ -57,6 +57,7 @@ def get_base_parser():
     )
     parser.add_argument("rntxt_paths", type=str, nargs="+")
     parser.add_argument("--num-workers", type=int, default=10)
+    parser.add_argument("--chunk-size", type=int, default=None)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument("--shuffle-input-paths", action="store_true")
@@ -87,7 +88,10 @@ def run(f, cli_args: argparse.Namespace, **f_kwargs):
         paths = paths[: cli_args.max_files]
 
     if cli_args.num_workers > 1:
-        chunk_size = math.ceil(len(paths) / cli_args.num_workers)
+        if not cli_args.chunk_size:
+            chunk_size = math.ceil(len(paths) / cli_args.num_workers)
+        else:
+            chunk_size = cli_args.chunk_size
         with Pool(cli_args.num_workers) as pool:
             pool.map(
                 partial(

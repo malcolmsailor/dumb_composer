@@ -54,7 +54,8 @@ def run_contrapuntist_with_accomps(
     with open(rntxt_path) as inf:
         rntxt = inf.read()
 
-    # TODO: (Malcolm 2023-11-14) should I define a class that doesn't take prefabs?
+    # (Malcolm 2023-11-14) we use the PrefabScoreWithAccompaniments that also
+    #   allows for prefabs, although we are not using them
     score = PrefabScoreWithAccompaniments(rntxt)
 
     contrapuntist = IncrementalContrapuntist(

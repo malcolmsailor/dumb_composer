@@ -20,7 +20,6 @@ from dumb_composer.constants import (
 from dumb_composer.dumb_accompanist import (
     AccompanimentDeadEnd,
     AccompAnnots,
-    DumbAccompanist,
     DumbAccompanistSettings,
 )
 from dumb_composer.four_part_composer import FourPartComposerSettings, FourPartWorker
@@ -164,7 +163,10 @@ class PrefabComposer:
         #     raise ValueError()
 
         self._prefab_applier: None | PrefabApplier = None
-        self._dumb_accompanist: None | DumbAccompanist = None
+        # (Malcolm 2023-11-17) I think the attempt to use DumbAccompanist here
+        #    has been superseded, see `dumb_composer/exec/incremental_contrapuntist_with_prefabs_and_accomps_runner.py`
+        #   It's possible this entire class is obsolete, not sure
+        # self._dumb_accompanist: None | DumbAccompanist = None
         self.settings = settings
         LOGGER.debug(
             textwrap.fill(f"settings: {self.settings}", subsequent_indent=" " * 4)
@@ -202,7 +204,7 @@ class PrefabComposer:
     def _final_step(self, i: int, score: PrefabScore):
         LOGGER.debug(f"{self.__class__.__name__}._recurse: {i} final step")
         assert self._prefab_applier is not None
-        assert self._dumb_accompanist is not None
+        # assert self._dumb_accompanist is not None
 
         for prefabs in self._prefab_applier._final_step():
             with recursive_attempt(
@@ -249,7 +251,7 @@ class PrefabComposer:
 
         assert self._structural_worker is not None
         assert self._prefab_applier is not None
-        assert self._dumb_accompanist is not None
+        # assert self._dumb_accompanist is not None
         # There should be two outcomes to the recursive stack:
         #   1. success
         #   2. a subclass of UndoRecursiveStep, in which case the append_attempt
@@ -279,13 +281,13 @@ class PrefabComposer:
                             return self._recurse(
                                 i + 1, score
                             )  # TODO: (Malcolm 2023-08-14) remove
-                            for pattern in self._dumb_accompanist.step(pitches):
-                                LOGGER.debug(f"{pattern=}")
-                                with append_attempt(
-                                    self._dumb_accompanist_target,
-                                    pattern,
-                                ):
-                                    return self._recurse(i + 1, score)
+                            # for pattern in self._dumb_accompanist.step(pitches):
+                            #     LOGGER.debug(f"{pattern=}")
+                            #     with append_attempt(
+                            #         self._dumb_accompanist_target,
+                            #         pattern,
+                            #     ):
+                            #         return self._recurse(i + 1, score)
 
         raise DeadEnd("end of call to _recurse()")
 
@@ -369,35 +371,35 @@ class PrefabComposer:
         )
         self._prefab_applier = PrefabApplier(score=score, settings=self.settings)
         accompanist_interface = AccompanimentInterface(score)
-        self._dumb_accompanist = DumbAccompanist(
-            score_interface=accompanist_interface,
-            settings=self.settings,
-            voices_to_accompany=self._prefab_applier.decorated_voices,
-        )
+        # self._dumb_accompanist = DumbAccompanist(
+        #     score_interface=accompanist_interface,
+        #     settings=self.settings,
+        #     voices_to_accompany=self._prefab_applier.decorated_voices,
+        # )
 
-        if self.settings.accompaniment_annotations is AccompAnnots.NONE:
-            self._dumb_accompanist_target = score.accompaniments
-        else:
-            # raise NotImplementedError
-            LOGGER.warning("accompaniment annotations not implemented")
-            self.settings.accompaniment_annotations = AccompAnnots.NONE
-            self._dumb_accompanist_target = score.accompaniments
-            # TODO: (Malcolm 2023-08-12)
-            # dumb_accompanist_target: t.List[t.Any] = [score.accompaniments]
-            # if self.settings.accompaniment_annotations in (
-            #     AccompAnnots.ALL,
-            #     AccompAnnots.PATTERNS,
-            # ):
-            #     dumb_accompanist_target.append(score.annotations["patterns"])
-            # if self.settings.accompaniment_annotations in (
-            #     AccompAnnots.ALL,
-            #     AccompAnnots.CHORDS,
-            # ):
-            #     dumb_accompanist_target.append(score.annotations["chords"])
-            # # It's important that _dumb_accompanist_target be a tuple because
-            # #   this is how append_attempt() infers that it needs to unpack it
-            # #   (rather than append to it)
-            # self._dumb_accompanist_target = tuple(dumb_accompanist_target)
+        # if self.settings.accompaniment_annotations is AccompAnnots.NONE:
+        #     self._dumb_accompanist_target = score.accompaniments
+        # else:
+        #     # raise NotImplementedError
+        #     LOGGER.warning("accompaniment annotations not implemented")
+        #     self.settings.accompaniment_annotations = AccompAnnots.NONE
+        #     self._dumb_accompanist_target = score.accompaniments
+        # TODO: (Malcolm 2023-08-12)
+        # dumb_accompanist_target: t.List[t.Any] = [score.accompaniments]
+        # if self.settings.accompaniment_annotations in (
+        #     AccompAnnots.ALL,
+        #     AccompAnnots.PATTERNS,
+        # ):
+        #     dumb_accompanist_target.append(score.annotations["patterns"])
+        # if self.settings.accompaniment_annotations in (
+        #     AccompAnnots.ALL,
+        #     AccompAnnots.CHORDS,
+        # ):
+        #     dumb_accompanist_target.append(score.annotations["chords"])
+        # # It's important that _dumb_accompanist_target be a tuple because
+        # #   this is how append_attempt() infers that it needs to unpack it
+        # #   (rather than append to it)
+        # self._dumb_accompanist_target = tuple(dumb_accompanist_target)
         try:
             self._recurse(0, score)
         except DeadEnd:

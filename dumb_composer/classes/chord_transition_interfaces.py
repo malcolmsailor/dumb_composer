@@ -246,18 +246,6 @@ class AccompanimentInterface(_ChordTransitionInterface):
         super().__init__(reference_score, get_len)
 
     def _validate_state(self) -> bool:
-        # TODO: (Malcolm 2023-11-14) is there anything that needs to be validated here?
-        return True
-
-    # TODO: (Malcolm 2023-11-14) remove this, I think (for testing)
-    @property
-    def i(self) -> int:
-        # We first need to wait until there are at least 2 items made.
-        # Perhaps that should be a parameter.
-
-        # TODO: (Malcolm 2023-08-15) I feel that we should be able to offset by just 1
+        # (Malcolm 2023-11-14) not sure if there is anything that needs to be validated
         #   here
-        bass_len = len(self._score._structural[BASS]) - 2
-        if bass_len < 0:
-            return bass_len
-        return self._get_len()
+        return True
