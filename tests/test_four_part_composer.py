@@ -2,10 +2,10 @@ import os
 import random
 
 import pandas as pd
+from music_df.midi_parser import df_to_midi
+
 from dumb_composer.four_part_composer import FourPartComposer, FourPartComposerSettings
 from dumb_composer.time import Meter
-from midi_to_note_table import df_to_midi
-
 from tests.test_helpers import TEST_OUT_DIR, merge_dfs
 
 

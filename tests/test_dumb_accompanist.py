@@ -3,7 +3,7 @@ import os
 import random
 
 import pytest
-from midi_to_note_table import df_to_midi
+from music_df.midi_parser import df_to_midi
 
 from dumb_composer.dumb_accompanist import (  # DumbAccompanist,
     AccompAnnots,

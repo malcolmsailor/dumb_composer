@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from typing import Iterable
 
-from midi_to_note_table import df_to_midi
+from music_df.midi_parser import df_to_midi
 
 from dumb_composer.classes.scores import _ScoreBase
 from dumb_composer.exec.runner_settings_base import RunnerSettingsBase

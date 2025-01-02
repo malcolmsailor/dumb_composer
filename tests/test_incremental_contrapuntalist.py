@@ -5,6 +5,8 @@ from copy import deepcopy
 
 import pandas as pd
 import pytest
+from music_df.midi_parser import df_to_midi
+
 from dumb_composer.classes.scores import FourPartScore
 from dumb_composer.incremental_contrapuntist import (
     IncrementalContrapuntist,
@@ -22,8 +24,6 @@ from dumb_composer.pitch_utils.types import (
 )
 from dumb_composer.utils.iterables import slice_into_sublists
 from dumb_composer.utils.recursion import DeadEnd, append_attempt
-from midi_to_note_table import df_to_midi
-
 from tests.test_helpers import TEST_OUT_DIR, merge_dfs
 
 VALID_VOICE_ORDERS = [

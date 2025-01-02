@@ -5,7 +5,7 @@ from functools import cached_property
 from itertools import accumulate
 from pathlib import Path
 
-from midi_to_note_table import df_to_midi
+from music_df.midi_parser import df_to_midi
 
 from dumb_composer.classes.scores import FourPartScore
 from dumb_composer.config.read_config import (

@@ -2,7 +2,7 @@ import argparse
 import logging
 import random
 
-from midi_to_note_table import df_to_midi
+from music_df.midi_parser import df_to_midi
 
 from dumb_composer.dumb_composer import PrefabComposer, PrefabComposerSettings
 from dumb_composer.utils.logs import configure_logging

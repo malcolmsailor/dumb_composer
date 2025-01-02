@@ -9,3 +9,4 @@ temp_dir/
 batch_out*/
 foobar.*
 pyrightconfig.json
+todo_script.py

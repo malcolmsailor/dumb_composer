@@ -3,7 +3,7 @@ music21
 pandas
 scipy
 -e ../voice_leader
--e ../midi_to_note_table
+-e ../music_df
 -e ../spell
 -e ../../data_science/cache_lib/
 # There seem to be a bunch of things in the requirements that aren't used... why?
