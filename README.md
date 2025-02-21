@@ -10,6 +10,12 @@ There is further discussion of this project in my upcoming dissertation.
 
 # Contents
 
+- [Scripts][#Scripts]
+- [Usage][#Usage]
+- [Discussion][#Discussion]
+
+# Scripts
+
 There are four main scripts. For usage, see [Usage](#Usage) below.
 
 ```
@@ -21,23 +27,25 @@ scripts/run_incremental_contrapuntist_with_prefabs_and_accomps.py
 
 Each of these generate music in batch, taking a chord progression or progressions as inputs. They each follow a slightly different procedure:
 
-- `run_incremental_contrapuntist.py`: makes a four-part chorale-style realization. The realization may contain suspensions but is otherwise unornamented. [Listen to an example (score excerpt below)](docs/mozart_structural_0000192.mp3).
+- `run_incremental_contrapuntist.py`: makes a four-part chorale-style realization. The realization may contain suspensions but is otherwise unornamented. [Listen to an example (score excerpt below)](docs/audio/mozart_structural_0000192.mp3).
 
-![Example of the output of `run_incremental_contrapuntist.py`](docs/mozart_structural_0000192.jpg)
+![Example of the output of `run_incremental_contrapuntist.py`](docs/figures/mozart_structural_0000192.jpg)
 
-- `run_incremental_contrapuntist_with_accomps`: makes accompanimental patterns like block-chords and Alberti basses. [Listen to an example (score excerpt below)](docs/mozart_accomps_0000423.mp3)
+- `run_incremental_contrapuntist_with_accomps`: makes accompanimental patterns like block-chords and Alberti basses. [Listen to an example (score excerpt below)](docs/audio/mozart_accomps_0000423.mp3)
 
-![Example of the output of `run_incremental_contrapuntist_with_accomps.py`](docs/mozart_accomps_0000423.jpg)
+![Example of the output of `run_incremental_contrapuntist_with_accomps.py`](docs/figures/mozart_accomps_0000423.jpg)
 
-- `run_incremental_contrapuntist_with_prefabs.py`: adds "prefabricated" melodic/rhythmic ornamentation to an underlying four-part realization. [Listen to an example (score excerpt below)](docs/mozart_prefabs_0000874.mp3)
+- `run_incremental_contrapuntist_with_prefabs.py`: adds "prefabricated" melodic/rhythmic ornamentation to an underlying four-part realization. [Listen to an example (score excerpt below)](docs/audio/mozart_prefabs_0000874.mp3)
 
-![Example of the output of `run_incremental_contrapuntist_with_prefabs`](docs/mozart_prefabs_0000874.jpg)
+![Example of the output of `run_incremental_contrapuntist_with_prefabs`](docs/figures/mozart_prefabs_0000874.jpg)
 
-- `run_incremental_contrapuntist_with_prefabs_and_accomps.py`: add both accompanimental patterns and melodic/rhythmic ornamentation to an underlying four-part realization. [Listen to an example (score excerpt below)](docs/mozart_prefabs_and_accomps_0000146.mp3)
+- `run_incremental_contrapuntist_with_prefabs_and_accomps.py`: add both accompanimental patterns and melodic/rhythmic ornamentation to an underlying four-part realization. [Listen to an example (score excerpt below)](docs/audio/mozart_prefabs_and_accomps_0000146.mp3)
 
-![Example of the output of `run_incremental_contrapuntist_with_prefabs_and_accomps`](docs/mozart_prefabs_and_accomps_0000146.jpg)
+![Example of the output of `run_incremental_contrapuntist_with_prefabs_and_accomps`](docs/figures/mozart_prefabs_and_accomps_0000146.jpg)
 
 The examples above show the start of each MIDI file when opened in MuseScore. To any of my fellow punctilious music theorists, I apologize for the infelicitous enharmonic notations.
+
+
 
 # Usage
 
@@ -58,3 +66,9 @@ python scripts/run_incremental_contrapuntist_with_prefabs_and_accomps.py \
 The remaining arguments are undocumented for the time being, but their usage can be inferred from `user_scripts/synthetic_data.sh` which shows how I used these scripts to build a synthetic dataset.
 
 Note that the script may fail on a given input file if it is long or complex.
+
+# Discussion
+
+The procedure for generating synthetic data is sketched in the following flow chart. Many details are omitted (for example, the application of suspensions to the voice-leading skeleton). The first step ("Make chord progression") was carried out by a separate Python script, not included in this repository.
+
+![Flow chart outlining the synthetic data generation procedure.](docs/figures/flow_chart.jpg)
