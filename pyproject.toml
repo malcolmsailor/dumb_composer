@@ -1,0 +1,18 @@
+[project]
+name = "dumb_composer"
+version = "0.0.1"
+description = "A project to generate synthetic Classical music annotated with chord changes."
+authors = [{ name = "Malcolm Sailor", email = "malcolm.sailor@gmail.com" }]
+
+readme = "README.md"
+dependencies = [
+    "mido",
+    "music21",
+    "pandas",
+    "scipy",
+    "mspell",
+    "music_df @ git+https://github.com/malcolmsailor/music_df.git",
+    "voice_leader @ git+https://github.com/malcolmsailor/voice_leader.git",
+    "cache_lib @ git+https://github.com/malcolmsailor/cache_lib.git",
+]
+license = { text = "MIT" }

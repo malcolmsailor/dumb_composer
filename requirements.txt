@@ -4,7 +4,7 @@ pandas
 scipy
 -e ../voice_leader
 -e ../music_df
--e ../spell
+mspell
 -e ../../data_science/cache_lib/
 # There seem to be a bunch of things in the requirements that aren't used... why?
 # -e ../../data_science/shellplot
