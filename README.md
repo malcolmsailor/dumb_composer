@@ -1,6 +1,6 @@
 A project to generate synthetic Classical music annotated with chord changes.
 
-The approach is purely rule-based. My goal here was to create augmented data for training Roman-numeral analysis models like the one in my [2024 ISMIR paper](TODO). 
+The approach is purely rule-based. My goal here was to create augmented data for training Roman-numeral analysis models like the one in my [2024 ISMIR paper](https://malcolmsailor.com/2025/01/06/ISMIR.html). 
 
 The general intuition behind the project is that the composition of music is a little bit like a one-way function. In other words, it is relatively easy to write rules to go from a chord progression to a musical surface, but harder to write rules to go from the musical surface to the chord progression.
 
