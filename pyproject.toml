@@ -16,3 +16,6 @@ dependencies = [
     "cache_lib @ git+https://github.com/malcolmsailor/cache_lib.git",
 ]
 license = { text = "MIT" }
+
+[tool.setuptools]
+packages = ["dumb_composer"]
