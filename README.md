@@ -49,8 +49,10 @@ For example:
 ```bash
 python scripts/run_incremental_contrapuntist_with_prefabs_and_accomps.py \
     docs/examples/Bach_Chorale_1.txt \
-    docs/examples/Beethoven_Sonata_1.txt \
+    docs/examples/Beethoven_Sonata_2_ii.txt \
     --output-folder ~/tmp/dumb_composer_output
 ```
 
 The remaining arguments are undocumented for the time being, but their usage can be inferred from `user_scripts/synthetic_data.sh` which shows how I used these scripts to build a synthetic dataset.
+
+Note that the script may fail on a given input file if it is long or complex.
