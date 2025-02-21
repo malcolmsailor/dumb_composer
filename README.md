@@ -8,9 +8,9 @@ While it was a fun project and the generated music can be amusing to listen to, 
 
 There is further discussion of this project in my upcoming dissertation.
 
-# Usage
+# Contents
 
-There are four main scripts:
+There are four main scripts. For usage, see [Usage](#Usage) below.
 
 ```
 scripts/run_incremental_contrapuntist.py
@@ -21,8 +21,36 @@ scripts/run_incremental_contrapuntist_with_prefabs_and_accomps.py
 
 Each of these generate music in batch, taking a chord progression or progressions as inputs. They each follow a slightly different procedure:
 
-- `run_incremental_contrapuntist.py`: makes a four-part chorale-style realization. The realization may contain suspensions but is otherwise unornamented. [Listen to an example (score below)](docs/mozart_structural_0000192.mp3).
+- `run_incremental_contrapuntist.py`: makes a four-part chorale-style realization. The realization may contain suspensions but is otherwise unornamented. [Listen to an example (score excerpt below)](docs/mozart_structural_0000192.mp3).
 
 ![Example of the output of `run_incremental_contrapuntist.py`](docs/mozart_structural_0000192.jpg)
 
-- ``
+- `run_incremental_contrapuntist_with_accomps`: makes accompanimental patterns like block-chords and Alberti basses. [Listen to an example (score excerpt below)](docs/mozart_accomps_0000423.mp3)
+
+![Example of the output of `run_incremental_contrapuntist_with_accomps.py`](docs/mozart_accomps_0000423.jpg)
+
+- `run_incremental_contrapuntist_with_prefabs.py`: adds "prefabricated" melodic/rhythmic ornamentation to an underlying four-part realization. [Listen to an example (score excerpt below)](docs/mozart_prefabs_0000874.mp3)
+
+![Example of the output of `run_incremental_contrapuntist_with_prefabs`](docs/mozart_prefabs_0000874.jpg)
+
+- `run_incremental_contrapuntist_with_prefabs_and_accomps.py`: add both accompanimental patterns and melodic/rhythmic ornamentation to an underlying four-part realization. [Listen to an example (score excerpt below)](docs/mozart_prefabs_and_accomps_0000146.mp3)
+
+![Example of the output of `run_incremental_contrapuntist_with_prefabs_and_accomps`](docs/mozart_prefabs_and_accomps_0000146.jpg)
+
+# Usage
+
+The only required arguments for each script are
+
+- one or more RomanText files containing chord progressions to realize as positional arguments. (In `docs/examples`, I have placed two example RomanText files from the [When In Rome](https://github.com/MarkGotham/When-in-Rome) corpus.)
+- `--output-folder`, specifying where to save the output.
+
+For example:
+
+```bash
+python scripts/run_incremental_contrapuntist_with_prefabs_and_accomps.py \
+    docs/examples/Bach_Chorale_1.txt \
+    docs/examples/Beethoven_Sonata_1.txt \
+    --output-folder ~/tmp/dumb_composer_output
+```
+
+The remaining arguments are undocumented for the time being, but their usage can be inferred from `user_scripts/synthetic_data.sh` which shows how I used these scripts to build a synthetic dataset.
