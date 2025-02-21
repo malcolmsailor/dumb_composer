@@ -37,6 +37,8 @@ Each of these generate music in batch, taking a chord progression or progression
 
 ![Example of the output of `run_incremental_contrapuntist_with_prefabs_and_accomps`](docs/mozart_prefabs_and_accomps_0000146.jpg)
 
+The examples above show the start of each MIDI file when opened in MuseScore. To any of my fellow punctilious music theorists, I apologize for the infelicitous enharmonic notations.
+
 # Usage
 
 The only required arguments for each script are
