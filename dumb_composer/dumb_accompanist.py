@@ -1,7 +1,7 @@
 import logging
 import typing as t
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from functools import cached_property
 from itertools import chain
@@ -78,7 +78,7 @@ class DumbAccompanistSettings(SimpleSpacerSettings):
     # include_bass: bool = True
     end_with_solid_chord: bool = True
     pattern_changes_on_downbeats_only: bool = True
-    range_constraints: RangeConstraints = RangeConstraints()
+    range_constraints: RangeConstraints = field(default_factory=RangeConstraints)
     pattern_inertia: float = 5.0
 
     # (Malcolm 2023-11-14) I'm keeping use_chord_spacer around to preserve old behavior

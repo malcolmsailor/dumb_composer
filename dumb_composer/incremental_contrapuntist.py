@@ -3,7 +3,7 @@ import random
 import typing as t
 from collections import defaultdict
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain, product, repeat
 from statistics import mean
 
@@ -94,8 +94,8 @@ class IncrementalContrapuntistSettings(IntervalChooserSettings):
 
     inner_voice_suspensions_dont_cross_melody: bool = True
 
-    range_constraints: RangeConstraints = RangeConstraints()
-    spacing_constraints: SpacingConstraints = SpacingConstraints()
+    range_constraints: RangeConstraints = field(default_factory=RangeConstraints)
+    spacing_constraints: SpacingConstraints = field(default_factory=SpacingConstraints)
 
 
 IncrementalResult = dict[Voice, Pitch]

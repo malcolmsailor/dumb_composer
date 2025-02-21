@@ -1,6 +1,6 @@
 import random
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dumb_composer.constants import (
     DEFAULT_ACCOMP_RANGE,

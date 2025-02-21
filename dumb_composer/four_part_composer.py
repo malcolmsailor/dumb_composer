@@ -4,7 +4,7 @@ import random
 import textwrap
 import typing as t
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from statistics import mean
 
@@ -71,8 +71,8 @@ class FourPartComposerSettings(
     StructuralPartitionerSettings,
 ):
     max_recurse_calls: t.Optional[int] = None
-    range_constraints: RangeConstraints = RangeConstraints()
-    spacing_constraints: SpacingConstraints = SpacingConstraints()
+    range_constraints: RangeConstraints = field(default_factory=RangeConstraints)
+    spacing_constraints: SpacingConstraints = field(default_factory=SpacingConstraints)
     allow_upward_suspension_resolutions_inner_voices: bool | tuple[int, ...] = False
 
     inner_voice_suspensions_dont_cross_melody: bool = True

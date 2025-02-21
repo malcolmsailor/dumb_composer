@@ -77,7 +77,7 @@ def pattern_method(
 #     min_dur_fallback: str = "SimpleChord"
 #     min_pitch_count: t.Optional[int] = None
 #     min_pitch_count_fallback: str = "SimpleChord"
-#     spacing_constraints: SpacingConstraints = SpacingConstraints()
+#     spacing_constraints: SpacingConstraints = field(default_factory=SpacingConstraints)()
 
 #     @abstractmethod
 #     @staticmethod

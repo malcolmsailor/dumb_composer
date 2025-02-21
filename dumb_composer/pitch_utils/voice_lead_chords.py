@@ -11,8 +11,12 @@ from voice_leader import (
     voice_lead_pitches_multiple_options_iter,
 )
 
-from dumb_composer.chords.chords import is_same_harmony  # Used in doctests
-from dumb_composer.chords.chords import Chord, Tendency, get_chords_from_rntxt
+from dumb_composer.chords.chords import (
+    Chord,
+    Tendency,
+    get_chords_from_rntxt,
+    is_same_harmony,  # Used in doctests
+)
 from dumb_composer.pitch_utils.parts import (
     outer_voices_have_forbidden_antiparallels,
     succession_has_forbidden_parallels,

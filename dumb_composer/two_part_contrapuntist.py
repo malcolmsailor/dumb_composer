@@ -2,7 +2,7 @@ import logging
 import random
 import typing as t
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from itertools import repeat
 from numbers import Number
@@ -72,8 +72,8 @@ class TwoPartContrapuntistSettings(IntervalChooserSettings):
     no_suspension_score: float = 2.0
     allow_avoid_intervals: bool = False
     allow_steps_outside_of_range: bool = True
-    range_constraints: RangeConstraints = RangeConstraints()
-    spacing_constraints: SpacingConstraints = SpacingConstraints()
+    range_constraints: RangeConstraints = field(default_factory=RangeConstraints)
+    spacing_constraints: SpacingConstraints = field(default_factory=SpacingConstraints)
     expected_total_number_of_voices: int = 4
     do_first: OuterVoice = OuterVoice.BASS
     weight_harmonic_intervals: bool = True
