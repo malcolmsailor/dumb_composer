@@ -10,9 +10,9 @@ There is further discussion of this project in my upcoming dissertation.
 
 # Contents
 
-- [Scripts][#Scripts]
-- [Usage][#Usage]
-- [Discussion][#Discussion]
+- [Scripts](#Scripts)
+- [Usage](#Usage)
+- [Discussion](#Discussion)
 
 # Scripts
 
